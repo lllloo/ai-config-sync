@@ -6,6 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 此 repo 是 Claude Code 跨裝置設定同步工具，透過私有 Git repo 讓多台裝置的 Claude Code 設定保持一致。
 
+## 目錄命名（重要）
+
+- **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、agents、commands、skills），由 `sync.js` 管理。
+- **`.claude/`**（有點）— 本 repo 自己在用的 GSD 工作流設定（專案本地 commands / agents / hooks），**不參與同步、不映射到 `~/.claude/`**。
+
+兩者不互通；新增同步項目一律放 `claude/`，勿誤放到 `.claude/`。
+
 ## 執行環境
 
 - **OS**：Windows 11（主力）/ macOS（次要）— 跨平台設計
@@ -23,10 +30,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Skills（獨立管理，不自動同步）：**
 - `npm run skills:diff` — 比較本機已安裝 vs `skills-lock.json`，列出差異並提供安裝／移除指令
 - `npm run skills:add -- <url>` 或 `npm run skills:add -- <name> <source>` — 新增 skill 記錄
+- `npm run skills:remove -- <name>` — 從 `skills-lock.json` 移除 skill 記錄
 
 **測試：**
-- `npm test` — 執行 `test/sync.test.js` 純函式單元測試（`node --test`，零相依）
-- 單一測試：`node --test --test-name-pattern="<name>" test/sync.test.js`
+- `npm test` — 執行三個測試檔（`test/sync.test.js`、`test/settings.test.js`、`test/boundary.test.js`，`node --test`，零相依）
+- 單一測試：`node --test --test-name-pattern="<name>" test/<file>.test.js`
 
 **全域旗標**（`node sync.js` 直接呼叫時可用）：`--dry-run`、`--verbose`、`--version`、`--help`。指令別名：`d`/`s`/`tr`/`tl`/`sd`/`sa`。
 
@@ -43,7 +51,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 架構重點
 
-**單檔 CLI 設計**：所有邏輯在 `sync.js`（~1800 行，零外部相依，只用 Node.js 內建模組）。檔案結構採 section banner 分段，關鍵不變式：
+**單檔 CLI 設計**：所有邏輯在 `sync.js`（~1900 行，零外部相依，只用 Node.js 內建模組）。檔案結構採 section banner 分段，關鍵不變式：
 
 - **所有函式 ≤ 60 行**（經 iter4/iter5 稽核強制）— 新增函式若超過需拆分
 - **Data-driven dispatch**：`COMMANDS` 物件含 `handler`，`main()` 透過 `await COMMANDS[cmd].handler(opts)` 派發，**新增指令只需改 `COMMANDS`**
