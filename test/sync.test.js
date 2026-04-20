@@ -79,6 +79,10 @@ test('statusToStatsKey：三種狀態對應正確', () => {
   assert.equal(statusToStatsKey('deleted'), 'deleted');
 });
 
+test('statusToStatsKey：eol 併入 updated（同步時仍需寫入）', () => {
+  assert.equal(statusToStatsKey('eol'), 'updated');
+});
+
 test('statusToStatsKey：未知狀態回傳 null', () => {
   assert.equal(statusToStatsKey(null), null);
   assert.equal(statusToStatsKey('unknown'), null);
@@ -185,6 +189,33 @@ test('toRelativePath：REPO_ROOT 內的路徑縮短為 relative', () => {
   const rel = toRelativePath(abs);
   // 至少不應包含使用者 home 字樣且比原本短
   assert.ok(rel.length < abs.length || rel === abs);
+});
+
+test('toRelativePath：HOME 內的路徑以 ~/ 開頭且使用正斜線（跨平台）', () => {
+  const path = require('path');
+  const os = require('os');
+  const HOME = os.homedir();
+  // 取一個必定在 HOME 內、但不在 REPO_ROOT 內的路徑
+  const abs = path.join(HOME, '.claude', 'settings.json');
+  const rel = toRelativePath(abs);
+  assert.ok(rel.startsWith('~/'), `應以 ~/ 開頭，得到：${rel}`);
+  assert.ok(!rel.includes('\\'), `不應含反斜線（Windows 也需轉為正斜線），得到：${rel}`);
+});
+
+test('toRelativePath：輸出不得洩漏使用者目錄名（安全回歸）', () => {
+  const path = require('path');
+  const os = require('os');
+  const HOME = os.homedir();
+  const userBase = path.basename(HOME);
+  const abs = path.join(HOME, '.claude', 'agents', 'foo.md');
+  const rel = toRelativePath(abs);
+  // 若 HOME 解析成功，輸出不應含使用者帳號名（會以 ~ 代替）
+  // 例外：若 userBase 本身就是常見字串如 "home"、"Users"，這個斷言可能誤判
+  // 因此只在 userBase 長度 >= 3 且非系統保留字時啟用
+  const reserved = new Set(['home', 'Users', 'root', 'usr']);
+  if (userBase.length >= 3 && !reserved.has(userBase)) {
+    assert.ok(!rel.includes(userBase), `輸出不應洩漏使用者名 ${userBase}，得到：${rel}`);
+  }
 });
 
 // -----------------------------------------------------------------------------

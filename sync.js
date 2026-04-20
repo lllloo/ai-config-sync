@@ -52,6 +52,7 @@ const STATUS_ICONS = {
   added:   { icon: '+', color: 'green'  },  // 新增
   changed: { icon: '~', color: 'yellow' },  // 變更
   deleted: { icon: '-', color: 'red'    },  // 刪除
+  eol:     { icon: '\u2248', color: 'dim'    },  // 僅檔尾換行差異
   up:      { icon: '\u2191', color: 'cyan'   },  // 本機有、repo 沒有
   down:    { icon: '\u2193', color: 'yellow' },  // repo 有、本機沒有
 };
@@ -188,6 +189,20 @@ function formatError(err) {
   if (hint) {
     console.error(col.dim(`      提示：${hint}`));
   }
+}
+
+/**
+ * 將 fs 例外包成 SyncError，區分權限與一般 IO 錯誤
+ * @param {NodeJS.ErrnoException} e
+ * @param {string} filePath
+ * @param {string} op - 操作名稱（中文），例如 '寫入檔案'
+ * @returns {SyncError}
+ */
+function toSyncFsError(e, filePath, op) {
+  if (e.code === 'EACCES' || e.code === 'EPERM') {
+    return new SyncError(`無法${op}（權限不足）：${filePath}`, ERR.PERMISSION, { path: filePath });
+  }
+  return new SyncError(`${op}失敗：${e.message}`, ERR.IO_ERROR, { path: filePath });
 }
 
 /**
@@ -370,6 +385,7 @@ function readJson(filePath) {
 function writeJsonSafe(filePath, data) {
   checkWriteAccess(filePath);
   const content = JSON.stringify(data, null, 2) + '\n';
+  // tmpPath 與目標同目錄，確保 rename 在同一檔案系統內，為原子操作且不會觸發 EXDEV
   const tmpPath = filePath + `.tmp.${process.pid}`;
   registerTempFile(tmpPath);
   try {
@@ -377,22 +393,8 @@ function writeJsonSafe(filePath, data) {
     fs.writeFileSync(tmpPath, content);
     fs.renameSync(tmpPath, filePath);
   } catch (e) {
-    tempFiles.delete(tmpPath);
     try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
-    if (e.code === 'EXDEV') {
-      // 跨磁碟 rename 失敗：在目標目錄建立 tmp 再 rename，保持原子性
-      const localTmp = filePath + `.tmp.${process.pid}`;
-      registerTempFile(localTmp);
-      try {
-        fs.writeFileSync(localTmp, content);
-        fs.renameSync(localTmp, filePath);
-      } finally {
-        tempFiles.delete(localTmp);
-        try { fs.unlinkSync(localTmp); } catch (_) { /* ignore */ }
-      }
-    } else {
-      throw new SyncError(`寫入 JSON 失敗：${e.message}`, ERR.IO_ERROR, { path: filePath });
-    }
+    throw toSyncFsError(e, filePath, '寫入 JSON');
   } finally {
     tempFiles.delete(tmpPath);
   }
@@ -437,29 +439,56 @@ function copyFile(src, dest, force = false, dryRun = false) {
 }
 
 /**
+ * 判斷 target 路徑（已解析的 realpath）是否落在 root 目錄（或其子目錄）之內
+ * 用於阻擋 symlink 逃逸出同步目錄
+ * @param {string} targetReal - 已 realpath 的目標絕對路徑
+ * @param {string} rootReal - 已 realpath 的根目錄絕對路徑
+ * @returns {boolean}
+ */
+function isPathInside(targetReal, rootReal) {
+  if (targetReal === rootReal) return true;
+  const root = rootReal.endsWith(path.sep) ? rootReal : rootReal + path.sep;
+  return targetReal.startsWith(root);
+}
+
+/**
  * 遞迴列出目錄下所有檔案的相對路徑
+ * - 目錄不存在（ENOENT）視為空集，其他 IO 錯誤必須拋出避免誤判
+ *   （空集被下游當作「無檔案」，若靜默吞錯會讓 to-local 誤刪本機檔案）
+ * - symlink 指向的檔案若 realpath 逃出 dir 外，直接跳過（防止洩漏 ~/.ssh 等敏感檔）
  * @param {string} dir - 目錄路徑
  * @param {string} [base=''] - 基底路徑（遞迴用）
+ * @param {string} [rootReal] - 根目錄的 realpath（遞迴沿用，避免重複解析）
  * @returns {string[]} 相對路徑陣列
+ * @throws {SyncError} 目錄讀取失敗（非 ENOENT）
  */
-function getFiles(dir, base = '') {
+function getFiles(dir, base = '', rootReal) {
   let entries;
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch (_) {
-    return [];
+  } catch (e) {
+    if (e.code === 'ENOENT') return [];
+    throw toSyncFsError(e, dir, '讀取目錄');
+  }
+  if (!rootReal) {
+    try { rootReal = fs.realpathSync(dir); } catch (_) { rootReal = dir; }
   }
   const result = [];
   for (const entry of entries) {
     if (GLOBAL_EXCLUDE.includes(entry.name)) continue;
+    const entryPath = path.join(dir, entry.name);
     if (entry.isSymbolicLink()) {
+      // 先驗證 symlink 目標仍在根目錄內，避免把 repo 外的敏感檔同步進來
+      let real;
+      try { real = fs.realpathSync(entryPath); } catch (_) { continue; }
+      if (!isPathInside(real, rootReal)) continue;
       try {
-        if (fs.statSync(path.join(dir, entry.name)).isDirectory()) continue;
+        if (fs.statSync(entryPath).isDirectory()) continue;
       } catch (_) { continue; }
     }
     const rel = base ? `${base}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
-      result.push(...getFiles(path.join(dir, entry.name), rel));
+      result.push(...getFiles(entryPath, rel, rootReal));
     } else {
       result.push(rel);
     }
@@ -510,8 +539,12 @@ function mirrorDir(src, dest, excludePatterns = [], force = false, dryRun = fals
 
     if (needsWrite) {
       if (!dryRun) {
-        ensureDir(path.dirname(destFile));
-        fs.writeFileSync(destFile, srcContent);
+        try {
+          ensureDir(path.dirname(destFile));
+          fs.writeFileSync(destFile, srcContent);
+        } catch (e) {
+          throw toSyncFsError(e, destFile, '寫入檔案');
+        }
       }
       changed.push({ rel, action: destExists ? 'updated' : 'added' });
     }
@@ -520,7 +553,14 @@ function mirrorDir(src, dest, excludePatterns = [], force = false, dryRun = fals
   if (fs.existsSync(dest)) {
     for (const rel of getFiles(dest)) {
       if (!srcFiles.has(rel) && !excludePatterns.some(p => matchExclude(rel, p))) {
-        if (!dryRun) fs.rmSync(path.join(dest, rel));
+        const delPath = path.join(dest, rel);
+        if (!dryRun) {
+          try {
+            fs.rmSync(delPath);
+          } catch (e) {
+            throw toSyncFsError(e, delPath, '刪除檔案');
+          }
+        }
         changed.push({ rel, action: 'deleted' });
       }
     }
@@ -603,7 +643,22 @@ function isGitAvailable() {
 function diffFile(src, dest) {
   if (!fs.existsSync(src)) return null;
   if (!fs.existsSync(dest)) return 'new';
-  return fs.readFileSync(src).equals(fs.readFileSync(dest)) ? null : 'changed';
+  const a = fs.readFileSync(src);
+  const b = fs.readFileSync(dest);
+  if (a.equals(b)) return null;
+  return isEolOnlyDiff(a, b) ? 'eol' : 'changed';
+}
+
+/**
+ * 判斷兩個 buffer 是否只在「行尾換行」差異（LF/CRLF、是否有檔尾換行）
+ * @param {Buffer} a
+ * @param {Buffer} b
+ * @returns {boolean}
+ */
+function isEolOnlyDiff(a, b) {
+  const normalize = (/** @type {Buffer} */ buf) =>
+    buf.toString('utf8').replace(/\r\n/g, '\n').replace(/\n+$/g, '');
+  return normalize(a) === normalize(b);
 }
 
 /**
@@ -626,9 +681,11 @@ function diffDir(src, dest, excludePatterns = []) {
     if (!destFiles.has(rel)) {
       result.push({ rel, status: 'new' });
     } else {
-      const same = fs.readFileSync(path.join(src, rel))
-        .equals(fs.readFileSync(path.join(dest, rel)));
-      if (!same) result.push({ rel, status: 'changed' });
+      const a = fs.readFileSync(path.join(src, rel));
+      const b = fs.readFileSync(path.join(dest, rel));
+      if (!a.equals(b)) {
+        result.push({ rel, status: isEolOnlyDiff(a, b) ? 'eol' : 'changed' });
+      }
     }
   }
   for (const rel of destFiles) {
@@ -732,6 +789,8 @@ function printFileDiff(srcPath, destPath, label) {
       const relDest = toRelativePath(destPath);
       const relSrc = toRelativePath(srcPath);
       for (const rawLine of result.stdout.split('\n')) {
+        // 跳過 `\ No newline at end of file` 雜訊
+        if (rawLine.startsWith('\\ No newline')) continue;
         // 覆寫 header 路徑為 relative 版本
         let line = rawLine;
         if (line.startsWith('--- ')) line = `--- ${relDest}`;
@@ -1038,7 +1097,7 @@ function buildSyncItems(direction) {
  */
 function statusToStatsKey(status) {
   if (status === 'new') return 'added';
-  if (status === 'changed') return 'updated';
+  if (status === 'changed' || status === 'eol') return 'updated';
   if (status === 'deleted') return 'deleted';
   return null;
 }
@@ -1061,8 +1120,13 @@ function diffSettingsItem(item) {
     fs.writeFileSync(tmpSrc, stripped);
     if (!fs.existsSync(repoPath)) {
       status = 'new';
-    } else if (fs.readFileSync(repoPath, 'utf8') !== stripped) {
-      status = 'changed';
+    } else {
+      // 與 diffFile 對齊：先判斷是否僅 EOL 差異，避免 CRLF/LF 被誤判為 changed
+      const repoBuf = fs.readFileSync(repoPath);
+      const strippedBuf = Buffer.from(stripped);
+      if (!repoBuf.equals(strippedBuf)) {
+        status = isEolOnlyDiff(repoBuf, strippedBuf) ? 'eol' : 'changed';
+      }
     }
   }
   return {
@@ -1283,9 +1347,17 @@ function buildFullDiffList(items, diffItems) {
  * @returns {void}
  */
 function printDetailedDiff(diffItems) {
-  console.log(col.bold('\n  -- 詳細差異 --'));
-  for (const item of diffItems) {
-    if (item.label.startsWith('claude/skills/')) continue;
+  const substantive = diffItems.filter(
+    it => !it.label.startsWith('claude/skills/') &&
+          (it.status === 'changed' || it.status === 'new')
+  );
+  if (substantive.length === 0) return;
+
+  printSectionDivider();
+  console.log(col.bold('  詳細差異'));
+  printSectionDivider();
+
+  for (const item of substantive) {
     if (item.status === 'changed' && item.src && item.dest) {
       printFileDiff(item.src, item.dest, item.label);
     } else if (item.status === 'new' && item.src && fs.existsSync(item.src)) {
@@ -1298,12 +1370,24 @@ function printDetailedDiff(diffItems) {
 }
 
 /**
+ * 輸出 section 分隔線（40 字元寬，dim 灰色）
+ * @returns {void}
+ */
+function printSectionDivider() {
+  console.log(col.dim('  ' + '\u2500'.repeat(40)));
+}
+
+/**
  * diff 指令：比對本機與 repo 的差異
  * @param {ParsedArgs} opts - CLI 引數
  * @returns {number} exit code（EXIT_OK=無差異, EXIT_DIFF=有差異）
  */
 function runDiff(opts) {
-  console.log(col.bold('\n  本機 vs repo 差異比對\n'));
+  console.log('');
+  printSectionDivider();
+  console.log(col.bold('  本機 vs repo 差異比對'));
+  printSectionDivider();
+  console.log('');
 
   const items = buildSyncItems('to-repo');
   const allDiffItems = buildFullDiffList(items, diffSyncItems(items, 'to-repo'));
@@ -1327,6 +1411,9 @@ function runDiff(opts) {
       hasDiff = true;
     } else if (item.status === 'changed') {
       printStatusLine('changed', item.label, '有差異');
+      hasDiff = true;
+    } else if (item.status === 'eol') {
+      printStatusLine('eol', item.label, '僅檔尾換行差異');
       hasDiff = true;
     } else if (item.status === 'deleted') {
       printStatusLine('deleted', item.label, 'repo 有、本機沒有');
@@ -1428,6 +1515,7 @@ function printToLocalPreview(diffResults) {
   for (const d of diffResults) {
     if (d.status === 'new') printStatusLine('added', d.label, '將新增');
     else if (d.status === 'changed') printStatusLine('changed', d.label, '將更新');
+    else if (d.status === 'eol') printStatusLine('eol', d.label, '將更新（僅檔尾換行）');
     else if (d.status === 'deleted') printStatusLine('deleted', d.label, '將刪除');
   }
 
@@ -1518,7 +1606,11 @@ async function runToLocal(opts) {
  * @returns {number} exit code
  */
 function runSkillsDiff() {
-  console.log(col.bold('\n  Skills 差異比對\n'));
+  console.log('');
+  printSectionDivider();
+  console.log(col.bold('  Skills 差異比對'));
+  printSectionDivider();
+  console.log('');
 
   const repoLockPath = path.join(REPO_ROOT, 'skills-lock.json');
   const localLockPath = LOCAL_SKILL_LOCK;
