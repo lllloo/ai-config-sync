@@ -38,21 +38,24 @@ Be concise. No filler. Straight to the point. Use less words.
 
 ## Obsidian
 
-用戶說「ob」即指 Obsidian。
+用戶說「ob」即指 Obsidian。Obsidian CLI 依賴 macOS XPC/IPC，沙箱模式下需 `/sandbox` 關閉才能執行。
 
-### 筆記操作（日記、建立筆記、搜尋）
+依情境選工具：
 
-當用戶想記錄、建立筆記或搜尋 vault 時（觸發詞：「ob」、「筆記」、「日記」、「daily」、「記一下」、「找筆記」），**使用 Agent tool，`subagent_type: obsidian`**。
+**1. 筆記操作**（觸發詞：「ob」、「筆記」、「日記」、「daily」、「記一下」、「找筆記」、「搜尋筆記」）
+→ 效果等同使用者打 `/ob <需求>`；依語意分派：
+  - 建檔／日記／記一下／寫一篇 → `subagent_type: vault-writer`（寫入與 CLI 操作）
+  - 找／搜尋／有沒有／查 → `subagent_type: vault-query`（唯讀三層搜尋）
+→ 不做 WebSearch
 
-注意：Obsidian CLI 依賴 macOS XPC/IPC，屬於需關閉沙箱才能執行的工具（參見上方沙箱說明）。
+**2. 技術/知識性提問**（Claude Code、Obsidian、RAG、Agent、前端切版、已記過主題）
+→ 單一訊息內並行：`subagent_type: vault-query` + WebSearch
+→ 純語法、即時系統狀態、閒聊不觸發
 
-### Vault 自動查詢（技術/知識題）
-
-技術/知識性問題（Claude Code、Obsidian、RAG、Agent、前端切版、已記過的主題）→ 單一訊息內並行呼叫：Agent tool（`subagent_type: vault-query`）+ WebSearch。純語法、即時系統狀態、閒聊不觸發。
-
-綜合雙來源：兩邊命中以 vault 打底、web 補最新；僅 vault 以 vault 為主；僅 web 為主且末尾提示「vault 暫無，可 /ob 建立」；矛盾時並列差異讓用戶判斷。
+綜合雙來源：兩邊命中以 vault 打底、web 補最新；僅 vault 以 vault 為主；僅 web 為主且末尾提示「vault 暫無，可 /ob 建立」；矛盾時並列差異。
 
 引用格式（命中必加，`<path>` 已含 `content/` 前綴）：
+
 ```
 來源：
 - Vault：[[<title>]] — <path>
