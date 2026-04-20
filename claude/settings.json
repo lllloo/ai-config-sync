@@ -39,7 +39,8 @@
     ],
     "deny": [
       "Bash(git push:*)"
-    ]
+    ],
+    "defaultMode": "auto"
   },
   "statusLine": {
     "type": "command",
@@ -50,5 +51,6 @@
   "language": "繁體中文",
   "spinnerTipsEnabled": false,
   "autoUpdatesChannel": "latest",
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "skipAutoPermissionPrompt": true
 }
