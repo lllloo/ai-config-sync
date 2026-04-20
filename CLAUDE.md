@@ -71,7 +71,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `claude/agents/` 以 package 子目錄組織，來源優先順序：
 
 1. **`everything-claude-code/`**（主要）— 來自 `affaan-m/everything-claude-code`
-2. **`awesome-claude-code-subagents/`**（補充）— 來自 `VoltAgent/awesome-claude-code-subagents`，依分類子目錄組織（`categories/01-core-development/` 等），僅安裝 `everything-claude-code` 未涵蓋的功能
+2. **`awesome-claude-code-subagents/`**（補充）— 來自 `VoltAgent/awesome-claude-code-subagents`，上游依分類子目錄組織（`categories/01-core-development/` 等），**本機落地時扁平化**（不保留分類層級，所有 `.md` 直接放在 `awesome-claude-code-subagents/` 下），僅安裝 `everything-claude-code` 未涵蓋的功能
 
 **新增 agent 的方式**（用 `gh` 抓原始內容）：
 ```bash
