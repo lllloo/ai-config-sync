@@ -675,7 +675,10 @@ function diffDir(src, dest, excludePatterns = []) {
   const srcFiles = new Set(
     getFiles(src).filter(rel => !excludePatterns.some(p => matchExclude(rel, p)))
   );
-  const destFiles = new Set(fs.existsSync(dest) ? getFiles(dest) : []);
+  const destFiles = new Set(
+    (fs.existsSync(dest) ? getFiles(dest) : [])
+      .filter(rel => !excludePatterns.some(p => matchExclude(rel, p)))
+  );
 
   for (const rel of srcFiles) {
     if (!destFiles.has(rel)) {
@@ -823,9 +826,15 @@ function printFileDiff(srcPath, destPath, label) {
  * @returns {void}
  */
 function printJsDiff(srcPath, destPath, label) {
-  let oldText = '', newText = '';
-  try { oldText = fs.readFileSync(destPath, 'utf8'); } catch (_) { /* empty */ }
-  try { newText = fs.readFileSync(srcPath, 'utf8'); } catch (_) { /* empty */ }
+  const readOrEmpty = (p) => {
+    try { return fs.readFileSync(p, 'utf8'); }
+    catch (e) {
+      if (e.code === 'ENOENT') return '';
+      throw toSyncFsError(e, p, '讀取差異');
+    }
+  };
+  const oldText = readOrEmpty(destPath);
+  const newText = readOrEmpty(srcPath);
 
   const ops = computeLineDiff(oldText, newText);
   const changedOps = ops.filter(op => op.type !== ' ');
@@ -1213,7 +1222,7 @@ function applySyncItems(items, direction, opts) {
         printStatusLine(action === 'added' ? 'added' : 'changed', item.label);
       }
     } else if (item.type === 'dir') {
-      for (const c of mirrorDir(item.src, item.dest, [], false, dryRun)) {
+      for (const c of mirrorDir(item.src, item.dest, item.excludePatterns || [], false, dryRun)) {
         stats[c.action]++;
         changeLog.push(`${item.label}/${c.rel} (${c.action})`);
         const iconType = c.action === 'added' ? 'added' : c.action === 'deleted' ? 'deleted' : 'changed';
@@ -1602,6 +1611,26 @@ async function runToLocal(opts) {
 // =============================================================================
 
 /**
+ * 從 skills-lock.json 載入 skills 物件
+ * 不存在時回傳空物件；存在但格式異常（缺 skills 物件）時拋 SyncError，避免誤判為無差異
+ * @param {string} lockPath
+ * @returns {Object<string, {source?: string}>}
+ * @throws {SyncError} JSON_PARSE 若 skills 欄位缺失或型別錯誤
+ */
+function loadSkillsFromLock(lockPath) {
+  if (!fs.existsSync(lockPath)) return {};
+  const data = readJson(lockPath);
+  if (!data || typeof data.skills !== 'object' || data.skills === null || Array.isArray(data.skills)) {
+    throw new SyncError(
+      `skills-lock.json 格式異常：缺少 skills 物件`,
+      ERR.JSON_PARSE,
+      { path: lockPath }
+    );
+  }
+  return data.skills;
+}
+
+/**
  * skills:diff 指令：比對本機與 repo 的 skills 差異
  * @returns {number} exit code
  */
@@ -1615,17 +1644,8 @@ function runSkillsDiff() {
   const repoLockPath = path.join(REPO_ROOT, 'skills-lock.json');
   const localLockPath = LOCAL_SKILL_LOCK;
 
-  let repoSkills = {};
-  let localSkills = {};
-
-  if (fs.existsSync(repoLockPath)) {
-    const data = readJson(repoLockPath);
-    repoSkills = (data && data.skills) || {};
-  }
-  if (fs.existsSync(localLockPath)) {
-    const data = readJson(localLockPath);
-    localSkills = (data && data.skills) || {};
-  }
+  const repoSkills = loadSkillsFromLock(repoLockPath);
+  const localSkills = loadSkillsFromLock(localLockPath);
 
   const onlyInRepo  = Object.keys(repoSkills).filter(n => !localSkills[n]);
   const onlyInLocal = Object.keys(localSkills).filter(n => !repoSkills[n]);
@@ -1988,6 +2008,7 @@ if (require.main === module) {
     serializeSettings,
     loadStrippedSettings,
     getStrippedSettings,
+    loadSkillsFromLock,
     DEVICE_FIELDS,
     SyncError,
     ERR,

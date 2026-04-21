@@ -7,6 +7,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
 
 const {
   computeLineDiff,
@@ -15,6 +18,7 @@ const {
   parseSkillSource,
   parseArgs,
   toRelativePath,
+  loadSkillsFromLock,
   SyncError,
   ERR,
   COMMANDS,
@@ -232,4 +236,47 @@ test('COMMAND_ALIASES：別名應對應回正式指令', () => {
     assert.ok(COMMANDS[cmd], `別名 ${alias} -> ${cmd} 應存在於 COMMANDS`);
     assert.equal(COMMANDS[cmd].alias, alias);
   }
+});
+
+// -----------------------------------------------------------------------------
+// loadSkillsFromLock：skills-lock.json 讀取與格式驗證
+// 避免格式異常時靜默回退成空物件，誤判為「無差異」
+// -----------------------------------------------------------------------------
+function withTmpFile(contentOrSkip, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-ai-skills-'));
+  const fp = path.join(dir, 'skills-lock.json');
+  try {
+    if (contentOrSkip !== null) fs.writeFileSync(fp, contentOrSkip);
+    return fn(fp);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+test('loadSkillsFromLock：檔案不存在回傳空物件', () => {
+  const result = loadSkillsFromLock('/nonexistent/path/skills-lock.json');
+  assert.deepEqual(result, {});
+});
+
+test('loadSkillsFromLock：正常格式回傳 skills 物件', () => {
+  withTmpFile(JSON.stringify({ skills: { foo: { source: 'x/y' } } }), (fp) => {
+    const result = loadSkillsFromLock(fp);
+    assert.deepEqual(result, { foo: { source: 'x/y' } });
+  });
+});
+
+test('loadSkillsFromLock：skills 欄位缺失應丟 JSON_PARSE 錯誤', () => {
+  withTmpFile(JSON.stringify({ version: 1 }), (fp) => {
+    assert.throws(() => loadSkillsFromLock(fp), (e) => e instanceof SyncError && e.code === ERR.JSON_PARSE);
+  });
+});
+
+test('loadSkillsFromLock：skills 為 null 應丟 JSON_PARSE 錯誤', () => {
+  withTmpFile(JSON.stringify({ skills: null }), (fp) => {
+    assert.throws(() => loadSkillsFromLock(fp), (e) => e instanceof SyncError && e.code === ERR.JSON_PARSE);
+  });
+});
+
+test('loadSkillsFromLock：skills 為陣列（非物件）應丟 JSON_PARSE 錯誤', () => {
+  withTmpFile(JSON.stringify({ skills: [] }), (fp) => {
+    assert.throws(() => loadSkillsFromLock(fp), (e) => e instanceof SyncError && e.code === ERR.JSON_PARSE);
+  });
 });
