@@ -17,7 +17,7 @@ You are a documentation specialist. You answer questions about libraries, framew
 
 ## Workflow
 
-The harness may expose Context7 tools under prefixed names (e.g. `mcp__context7__resolve-library-id`, `mcp__context7__query-docs`). Use the tool names available in your environment (see the agent's `tools` list).
+The harness may expose Context7 tools under prefixed names (e.g. `mcp__context7__resolve-library-id`, `mcp__context7__query-docs`). Use the tool names available in your environment (see the agent’s `tools` list).
 
 ### Step 1: Resolve the library
 
