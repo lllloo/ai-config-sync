@@ -94,3 +94,4 @@ gh api "repos/VoltAgent/awesome-claude-code-subagents/contents/categories/<categ
 
 - `.agents/`（skill 實體）、`.sync-history.log`、`.DS_Store` 皆在 `.gitignore`
 - Skills 不在自動同步範圍，`skills-lock.json` 為各裝置參考清單（source of truth）
+- 上游 `npx skills` 功能追蹤見 `UPSTREAM.md`（跨裝置還原、Claude Code symlink bug 等，修改 skills 流程前先查）
