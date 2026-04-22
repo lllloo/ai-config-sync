@@ -160,11 +160,17 @@ gh api repos/affaan-m/everything-claude-code/contents/agents/<name>.md --jq '.co
 
 gh api "repos/VoltAgent/awesome-claude-code-subagents/contents/categories/<category>/<name>.md" --jq '.content' | base64 -d > claude/agents/awesome-claude-code-subagents/<name>.md
 
-### Skills
+### Skills（已安裝有更新 → 首選）
 npx skills update -g <name>
-# 或刪掉重裝
+
+### Skills（尚未安裝）
+npx skills add -g <source>
+
+### Fallback（update 失敗時才用，remove + add 會觸發互動選單，多 skill repo 需手動選）
 npx skills remove -g <name> && npx skills add -g <source>
 ```
+
+**附註**：agents 更新後需要 `npm run to-local` 才會套用到本機 `~/.claude/agents/`；skills 由 `npx skills` 直接操作 `~/.claude/skills/`，不走本專案的同步流程。
 
 ## 規則
 
