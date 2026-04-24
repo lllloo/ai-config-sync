@@ -102,6 +102,7 @@ npm run to-local
 ## 注意事項
 
 - `settings.json` 的 `model`、`effortLevel` 為裝置特定設定，to-repo 時自動排除，to-local 時保留本機值
+- `settings.json` 的 `env.OBSIDIAN_VAULT_ROOT` 同屬裝置特定（`DEVICE_ENV_KEYS`），同步時排除但保留本機值；`env` 其他 key（如 `EDITOR`）仍跨裝置同步
 - `.agents/` 目錄（skill 實體檔案）已加入 `.gitignore`，不進 repo
 - agents 儲存於 `claude/agents/`，以 package 子目錄分組
 - Skills 不在自動同步範圍內，用 `npm run skills:diff` 查看差異；本機多裝者會列出 `npm run skills:add`（加入 repo）與 `npx skills remove`（從本機移除）兩種建議

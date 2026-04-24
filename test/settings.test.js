@@ -18,6 +18,7 @@ const {
   loadStrippedSettings,
   getStrippedSettings,
   DEVICE_FIELDS,
+  DEVICE_ENV_KEYS,
 } = require('../sync.js');
 
 // -----------------------------------------------------------------------------
@@ -90,6 +91,53 @@ test('loadStrippedSettings：無 DEVICE_FIELDS 時保持原樣', () => {
 
     const result = loadStrippedSettings(fp);
     assert.deepEqual(result.clean, { permissions: ['a', 'b'] });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// DEVICE_ENV_KEYS：env 子欄位的裝置特定 key 排除
+// -----------------------------------------------------------------------------
+test('DEVICE_ENV_KEYS 含 OBSIDIAN_VAULT_ROOT', () => {
+  assert.ok(DEVICE_ENV_KEYS.includes('OBSIDIAN_VAULT_ROOT'));
+});
+
+test('loadStrippedSettings：移除 env 下所有 DEVICE_ENV_KEYS，保留共用 env key', () => {
+  withTmpDir((dir) => {
+    const fp = path.join(dir, 'settings.json');
+    writeJson(fp, {
+      env: { SHARED: '1', OBSIDIAN_VAULT_ROOT: '/some/path' },
+      permissions: ['a'],
+    });
+
+    const result = loadStrippedSettings(fp);
+    for (const key of DEVICE_ENV_KEYS) {
+      assert.ok(!(key in (result.clean.env || {})), `${key} 應從 env 移除`);
+    }
+    assert.deepEqual(result.clean, { env: { SHARED: '1' }, permissions: ['a'] });
+  });
+});
+
+test('loadStrippedSettings：env 僅含裝置 key 時整個 env 被刪除', () => {
+  withTmpDir((dir) => {
+    const fp = path.join(dir, 'settings.json');
+    writeJson(fp, {
+      env: { OBSIDIAN_VAULT_ROOT: '/x' },
+      permissions: ['a'],
+    });
+
+    const result = loadStrippedSettings(fp);
+    assert.ok(!('env' in result.clean), 'env 清空後應整個刪除');
+    assert.deepEqual(result.clean, { permissions: ['a'] });
+  });
+});
+
+test('loadStrippedSettings：env 不存在時不報錯', () => {
+  withTmpDir((dir) => {
+    const fp = path.join(dir, 'settings.json');
+    writeJson(fp, { permissions: ['a'] });
+
+    const result = loadStrippedSettings(fp);
+    assert.deepEqual(result.clean, { permissions: ['a'] });
   });
 });
 

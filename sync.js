@@ -33,6 +33,9 @@ const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
 /** settings.json 中各裝置獨立的欄位，同步時排除 */
 const DEVICE_FIELDS = ['model', 'effortLevel'];
 
+/** settings.json `env` 物件中各裝置獨立的 key，同步時排除（to-local 套用時保留本機值） */
+const DEVICE_ENV_KEYS = ['OBSIDIAN_VAULT_ROOT'];
+
 /** 永遠排除的檔案名稱 */
 const GLOBAL_EXCLUDE = ['.DS_Store'];
 
@@ -941,7 +944,37 @@ function loadStrippedSettings(filePath) {
   if (!fs.existsSync(filePath)) return null;
   const data = readJson(filePath);
   for (const field of DEVICE_FIELDS) delete data[field];
+  stripDeviceEnvKeys(data);
   return { clean: data, serialized: serializeSettings(data) };
+}
+
+/**
+ * 從 settings 物件 mutate 掉 `env` 下的裝置特定 key；env 清空後整個刪除
+ * @param {Record<string, unknown>} data
+ */
+function stripDeviceEnvKeys(data) {
+  if (!data.env || typeof data.env !== 'object') return;
+  for (const key of DEVICE_ENV_KEYS) delete data.env[key];
+  if (Object.keys(data.env).length === 0) delete data.env;
+}
+
+/**
+ * 從 local settings 萃取裝置特定欄位與 env key（供 to-local 套用時保留）
+ * @param {Record<string, unknown>} local
+ * @returns {{ deviceValues: Record<string, unknown>, envPreserve: Record<string, unknown> }}
+ */
+function extractDeviceValues(local) {
+  const deviceValues = {};
+  for (const field of DEVICE_FIELDS) {
+    if (local[field] !== undefined) deviceValues[field] = local[field];
+  }
+  const envPreserve = {};
+  if (local.env && typeof local.env === 'object') {
+    for (const key of DEVICE_ENV_KEYS) {
+      if (local.env[key] !== undefined) envPreserve[key] = local.env[key];
+    }
+  }
+  return { deviceValues, envPreserve };
 }
 
 /**
@@ -984,17 +1017,17 @@ function mergeSettingsJson(direction, dryRun = false) {
     const repoStr = serializeSettings(repo);
 
     // 比對 repo 與 stripped local（兩邊皆使用 serializeSettings 確保結尾換行對稱）
-    const local = fs.existsSync(localPath) ? readJson(localPath) : {};
-    const deviceValues = {};
-    for (const field of DEVICE_FIELDS) {
-      if (local[field] !== undefined) deviceValues[field] = local[field];
-    }
-    const localClean = { ...local };
-    for (const field of DEVICE_FIELDS) delete localClean[field];
-    if (repoStr === serializeSettings(localClean)) return false;
+    const stripped = loadStrippedSettings(localPath);
+    if (stripped && repoStr === stripped.serialized) return false;
 
     if (dryRun) return true;
-    writeJsonSafe(localPath, { ...repo, ...deviceValues });
+    const local = fs.existsSync(localPath) ? readJson(localPath) : {};
+    const { deviceValues, envPreserve } = extractDeviceValues(local);
+    const merged = { ...repo, ...deviceValues };
+    if (Object.keys(envPreserve).length > 0) {
+      merged.env = { ...(repo.env || {}), ...envPreserve };
+    }
+    writeJsonSafe(localPath, merged);
     return true;
   }
 }
@@ -2010,6 +2043,7 @@ if (require.main === module) {
     getStrippedSettings,
     loadSkillsFromLock,
     DEVICE_FIELDS,
+    DEVICE_ENV_KEYS,
     SyncError,
     ERR,
     EXIT_OK,
