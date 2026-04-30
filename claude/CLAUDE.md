@@ -49,7 +49,7 @@ Be concise. No filler. Straight to the point. Use less words.
 依情境選工具：
 
 **1. 筆記操作**（觸發詞：「ob」、「筆記」、「日記」、「daily」、「記一下」、「找筆記」、「搜尋筆記」）
-→ 效果等同使用者打 `/ob <需求>`；依語意分派：
+→ 觸發 `ob` skill（等同使用者打 `/ob <需求>`），由 skill 內部依語意分派：
   - 建檔／日記／記一下／寫一篇 → `subagent_type: vault-writer`（寫入與 CLI 操作）
   - 找／搜尋／有沒有／查 → `subagent_type: vault-query`（唯讀三層搜尋）
 → 不做 WebSearch
