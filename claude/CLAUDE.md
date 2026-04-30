@@ -2,6 +2,12 @@
 
 此檔案定義所有專案通用的全域規則與慣例。
 
+## Commands vs Skills
+
+**一律使用 skill**，不再新增 command。
+
+Skills 是 commands 的超集，同時遵循 [Agent Skills](https://agentskills.io) 開放標準——可直接移植到 Cursor、Gemini CLI、Codex、GitHub Copilot 等其他 AI 工具。
+
 ## 回應風格
 
 Be concise. No filler. Straight to the point. Use less words.

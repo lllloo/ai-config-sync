@@ -1,5 +1,6 @@
 ---
-description: 檢查上游 agent 來源是否有新推薦可安裝
+name: agents-new
+description: 檢查上游 agent 來源（everything-claude-code、awesome-claude-code-subagents）是否有尚未安裝的新 agent。觸發時機：使用者詢問「有沒有新 agent」「推薦什麼 agent」「上游有哪些 agent 沒裝」「agents-new」等語意時使用。
 ---
 
 比對本機已安裝 agent 與上游兩個來源，找出未安裝且對**前端工程師**有價值的 agent。
