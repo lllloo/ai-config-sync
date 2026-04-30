@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 目錄命名（重要）
 
 - **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、agents、commands、skills），由 `sync.js` 管理。
-- **`.claude/`**（有點）— 本 repo 自己在用的 GSD 工作流設定（專案本地 commands / agents / hooks），**不參與同步、不映射到 `~/.claude/`**。
+- **`.claude/`**（有點）— 本 repo 專用的本地設定（`skills/`、`settings.json`），**不參與同步、不映射到 `~/.claude/`**。
 
 兩者不互通；新增同步項目一律放 `claude/`，勿誤放到 `.claude/`。
 
@@ -74,6 +74,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **settings.json `env` 子欄位裝置特定 key**（如 `OBSIDIAN_VAULT_ROOT`）若要增減，需同步改 `DEVICE_ENV_KEYS` 常數、測試與 README；`env` 其他 key 仍跨裝置同步。
 - **Bash 規則**（來自全域 CLAUDE.md）：禁用 `$()` 命令替換；禁擅自執行 `npm run build`。
 - **嚴禁洩漏敏感資訊**：輸出、log、diff 內容中不得出現 API Key、token 或完整使用者路徑。
+
+## Skills 管理
+
+Skills 分兩層：
+
+| 位置 | 路徑 | 說明 |
+|---|---|---|
+| 全域（同步） | `claude/skills/<name>/SKILL.md` | 同步到 `~/.claude/skills/`，跨裝置共用 |
+| 本地（不同步） | `.claude/skills/<name>/SKILL.md` | 僅限本 repo 使用 |
+
+全域 skills 安裝狀態由 `skills-lock.json` 追蹤（`npm run skills:diff` 比對）。本地 skills 不需記錄於 `skills-lock.json`。
+
+Skills 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具移植（Cursor、Gemini CLI、Codex 等）。新增 skill 一律使用此格式，不再新增 command。
 
 ## Agents 管理
 
