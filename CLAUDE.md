@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 目錄命名（重要）
 
-- **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、agents、commands、skills），由 `sync.js` 管理。
+- **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、agents、skills），由 `sync.js` 管理。
 - **`.claude/`**（有點）— 本 repo 專用的本地設定（`skills/`、`settings.json`），**不參與同步、不映射到 `~/.claude/`**。
 
 兩者不互通；新增同步項目一律放 `claude/`，勿誤放到 `.claude/`。
@@ -36,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm test` — 執行三個測試檔（`test/sync.test.js`、`test/settings.test.js`、`test/boundary.test.js`，`node --test`，零相依）
 - 單一測試：`node --test --test-name-pattern="<name>" test/<file>.test.js`
 
-**全域旗標**（`node sync.js` 直接呼叫時可用）：`--dry-run`、`--verbose`、`--version`、`--help`。指令別名：`d`/`s`/`tr`/`tl`/`sd`/`sa`。
+**全域旗標**（`node sync.js` 直接呼叫時可用）：`--dry-run`、`--verbose`、`--version`、`--help`。指令別名：`d`/`s`/`tr`/`tl`/`sd`/`sa`/`sr`。
 
 ## 同步項目與對應
 
@@ -46,7 +46,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `claude/settings.json` | `~/.claude/settings.json` | **比對時 strip `model`、`effortLevel`（裝置特定欄位）** |
 | `claude/statusline.sh` | `~/.claude/statusline.sh` | 全文比對 |
 | `claude/agents/` | `~/.claude/agents/` | 以 package 子目錄組織（如 `awesome-claude-code-subagents/`） |
-| `claude/commands/` | `~/.claude/commands/` | 目錄鏡射 |
 | `claude/skills/` | `~/.claude/skills/` | 目錄鏡射 |
 
 ## 架構重點
