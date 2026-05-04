@@ -52,8 +52,17 @@
     "type": "command",
     "command": "bash ~/.claude/statusline.sh"
   },
-  "enabledPlugins": {},
-  "extraKnownMarketplaces": {},
+  "enabledPlugins": {
+    "codex@openai-codex": true
+  },
+  "extraKnownMarketplaces": {
+    "openai-codex": {
+      "source": {
+        "source": "github",
+        "repo": "openai/codex-plugin-cc"
+      }
+    }
+  },
   "language": "繁體中文",
   "spinnerTipsEnabled": false,
   "autoUpdatesChannel": "latest",
