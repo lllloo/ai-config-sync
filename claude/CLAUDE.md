@@ -8,6 +8,25 @@
 
 Skills 是 commands 的超集，同時遵循 [Agent Skills](https://agentskills.io) 開放標準——可直接移植到 Cursor、Gemini CLI、Codex、GitHub Copilot 等其他 AI 工具。
 
+## Skill 寫作原則
+
+skill 的 subagent 子流程**一律 `Agent` tool + `subagent_type: "general-purpose"`，prompt 為對應 `references/*.md` 全文 + 本次需求**。
+
+**為什麼**：命名 agent（`.claude/agents/<name>.md`）是 Claude Code 專屬，跨工具不可移植；frontmatter 的 `tools:` 欄位無法約束「無 subagent 環境主 agent 直接讀 references 跑」的 fallback 路徑；同一份內容存兩處（命名 agent + references）必漂移。
+
+**應這樣**：
+
+- 工具限制（唯讀契約等）寫在 references 正文，明列允許／禁止命令
+- references 自包含；不引用未存在的命名 agent、不依賴 host 工具預設行為
+- 補 fallback 條款：「無 Agent 工具的環境由主 agent 直接 Read references 跑同一流程」
+- subagent prompt 直接貼 references 全文，不要寫「請 Read xxx.md」要求 subagent 自己抓檔
+
+**應避免**：
+
+- 在 `.claude/agents/` 新增命名 agent
+- 在 SKILL.md 與 references 兩處重複定義同一輸出格式 / schema
+- 把規則只寫在 frontmatter（fallback 路徑會看不到）
+
 ## 回應風格
 
 Be concise. No filler. Straight to the point. Use less words.
@@ -50,12 +69,12 @@ Be concise. No filler. Straight to the point. Use less words.
 
 **1. 筆記操作**（觸發詞：「ob」、「筆記」、「日記」、「daily」、「記一下」、「找筆記」、「搜尋筆記」）
 → 觸發 `ob` skill（等同使用者打 `/ob <需求>`），由 skill 內部依語意分派：
-  - 建檔／日記／記一下／寫一篇 → `subagent_type: vault-writer`（寫入與 CLI 操作）
-  - 找／搜尋／有沒有／查 → `subagent_type: vault-query`（唯讀三層搜尋）
+  - 建檔／日記／記一下／寫一篇 → `references/write.md` 經 `subagent_type: "general-purpose"`（寫入與 CLI 操作）
+  - 找／搜尋／有沒有／查 → `references/query.md` 經 `subagent_type: "general-purpose"`（唯讀三層搜尋，含工具契約）
 → 不做 WebSearch
 
 **2. 技術/知識性提問**（Claude Code、Obsidian、RAG、Agent、前端切版、已記過主題）
-→ 單一訊息內並行：`subagent_type: vault-query` + WebSearch
+→ 單一訊息內並行：`ob` skill 的 `references/query.md` 經 `subagent_type: "general-purpose"` + WebSearch
 → 純語法、即時系統狀態、閒聊不觸發
 
 綜合雙來源：兩邊命中以 vault 打底、web 補最新；僅 vault 以 vault 為主；僅 web 為主且末尾提示「vault 暫無，可 /ob 建立」；矛盾時並列差異。
