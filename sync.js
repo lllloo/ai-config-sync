@@ -26,6 +26,7 @@ const EXIT_ERROR = 2;
 const REPO_ROOT = __dirname;
 const HOME = os.homedir();
 const CLAUDE_HOME = path.join(HOME, '.claude');
+const CODEX_HOME = path.join(HOME, '.codex');
 const AGENTS_HOME = path.join(HOME, '.agents');
 const SYNC_HISTORY_LOG = path.join(REPO_ROOT, '.sync-history.log');
 const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
@@ -98,6 +99,7 @@ const VALID_COMMANDS = Object.keys(COMMANDS);
  * @property {'file'|'settings'|'dir'} type - 項目類型
  * @property {string} [verboseSrc] - verbose 模式的來源路徑
  * @property {string} [verboseDest] - verbose 模式的目的路徑
+ * @property {string} [prefix] - 顯示路徑前綴（預設 'claude/'，codex 同步項用 'codex/'）
  */
 
 /**
@@ -1129,6 +1131,26 @@ function buildSyncItems(direction) {
       verboseSrc: path.join(src, 'skills'),
       verboseDest: path.join(dest, 'skills'),
     },
+    // Codex 全域指示：~/.codex/AGENTS.md（路徑固定，不依賴 src/dest 變數）
+    {
+      label: 'AGENTS.md',
+      src: isToRepo ? path.join(CODEX_HOME, 'AGENTS.md') : path.join(REPO_ROOT, 'codex', 'AGENTS.md'),
+      dest: isToRepo ? path.join(REPO_ROOT, 'codex', 'AGENTS.md') : path.join(CODEX_HOME, 'AGENTS.md'),
+      type: 'file',
+      verboseSrc: isToRepo ? path.join(CODEX_HOME, 'AGENTS.md') : path.join(REPO_ROOT, 'codex', 'AGENTS.md'),
+      verboseDest: isToRepo ? path.join(REPO_ROOT, 'codex', 'AGENTS.md') : path.join(CODEX_HOME, 'AGENTS.md'),
+      prefix: 'codex/',
+    },
+    // Codex agents：與 ~/.codex/agents/ 同步（不依賴 src/dest 變數，路徑固定）
+    {
+      label: 'agents',
+      src: isToRepo ? path.join(CODEX_HOME, 'agents') : path.join(REPO_ROOT, 'codex', 'agents'),
+      dest: isToRepo ? path.join(REPO_ROOT, 'codex', 'agents') : path.join(CODEX_HOME, 'agents'),
+      type: 'dir',
+      verboseSrc: isToRepo ? path.join(CODEX_HOME, 'agents') : path.join(REPO_ROOT, 'codex', 'agents'),
+      verboseDest: isToRepo ? path.join(REPO_ROOT, 'codex', 'agents') : path.join(CODEX_HOME, 'agents'),
+      prefix: 'codex/',
+    },
   ];
 }
 
@@ -1197,7 +1219,7 @@ function diffSyncItems(items, direction) {
     } else if (item.type === 'file') {
       const status = diffFile(item.src, item.dest);
       result.push({
-        label: `claude/${item.label}`,
+        label: `${item.prefix || 'claude/'}${item.label}`,
         status,
         src: item.src,
         dest: item.dest,
@@ -1211,7 +1233,7 @@ function diffSyncItems(items, direction) {
         const src = path.join(item.src, d.rel);
         const dest = path.join(item.dest, d.rel);
         result.push({
-          label: `claude/${item.label}/${d.rel}`,
+          label: `${item.prefix || 'claude/'}${item.label}/${d.rel}`,
           status: d.status,
           src,
           dest,
@@ -1250,16 +1272,18 @@ function applySyncItems(items, direction, opts) {
       const existed = fs.existsSync(item.dest);
       if (copyFile(item.src, item.dest, false, dryRun)) {
         const action = existed ? 'updated' : 'added';
+        const displayLabel = `${item.prefix || 'claude/'}${item.label}`;
         stats[action]++;
-        changeLog.push(`${item.label} (${action})`);
-        printStatusLine(action === 'added' ? 'added' : 'changed', item.label);
+        changeLog.push(`${displayLabel} (${action})`);
+        printStatusLine(action === 'added' ? 'added' : 'changed', displayLabel);
       }
     } else if (item.type === 'dir') {
       for (const c of mirrorDir(item.src, item.dest, item.excludePatterns || [], false, dryRun)) {
+        const displayLabel = `${item.prefix || 'claude/'}${item.label}/${c.rel}`;
         stats[c.action]++;
-        changeLog.push(`${item.label}/${c.rel} (${c.action})`);
+        changeLog.push(`${displayLabel} (${c.action})`);
         const iconType = c.action === 'added' ? 'added' : c.action === 'deleted' ? 'deleted' : 'changed';
-        printStatusLine(iconType, `${item.label}/${c.rel}`);
+        printStatusLine(iconType, displayLabel);
       }
     }
   }
@@ -1340,7 +1364,7 @@ function buildFullDiffList(items, diffItems) {
   // 補上無差異的 file 與 settings 項目（ok 狀態）
   for (const item of items) {
     if (item.type === 'dir') continue;
-    const label = `claude/${item.label}`;
+    const label = `${item.prefix || 'claude/'}${item.label}`;
     if (!result.some(d => d.label === label)) {
       result.push({
         label,
@@ -1357,7 +1381,7 @@ function buildFullDiffList(items, diffItems) {
   // 補上無差異的 dir 項目（以摘要行呈現，證明已被檢查）
   for (const item of items) {
     if (item.type !== 'dir') continue;
-    const prefix = `claude/${item.label}/`;
+    const prefix = `${item.prefix || 'claude/'}${item.label}/`;
     const hasAny = result.some(d => d.label.startsWith(prefix));
     if (!hasAny) {
       result.push({
