@@ -1,5 +1,5 @@
 ---
-name: check-updates
+name: sync-check-updates
 description: 比對本機已安裝的 agents（everything-claude-code、awesome-claude-code-subagents）與 skills（skills-lock.json）和上游來源，找出有更新但尚未同步的項目。觸發時機：使用者詢問「有沒有更新」「agents/skills 有沒有落後」「check-updates」「上游有沒有新版」等語意時使用。
 ---
 

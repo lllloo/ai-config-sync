@@ -9,9 +9,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 目錄命名（重要）
 
 - **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、agents、skills），由 `sync.js` 管理。
-- **`.claude/`**（有點）— 本 repo 專用的本地設定（`skills/`、`settings.json`），**不參與同步、不映射到 `~/.claude/`**。
+- **`.claude/`**（有點）— 本 repo 專用的 Claude Code 本地設定（`settings.json` 等），**不參與同步、不映射到 `~/.claude/`**。`.claude/skills` 是 symlink 指向 `../.agents/skills`。
+- **`.codex/`** — 對稱於 `.claude/` 的 Codex 本地設定，`.codex/skills` 同為 symlink 指向 `../.agents/skills`，與 Claude Code 共用同一份本地 skill 實體。
+- **`.agents/skills/`** — 本地 skill **實體目錄**（已納入版控），跨工具（Claude Code / Codex）共用來源；遵循 [Agent Skills](https://agentskills.io) 開放標準。
 
-兩者不互通；新增同步項目一律放 `claude/`，勿誤放到 `.claude/`。
+新增同步項目一律放 `claude/`；新增本地 skill 一律放 `.agents/skills/<name>/`。勿誤放到 `.claude/` 或 `.codex/`。
 
 ## 執行環境
 
@@ -81,7 +83,11 @@ Skills 分兩層：
 | 位置 | 路徑 | 說明 |
 |---|---|---|
 | 全域（同步） | `claude/skills/<name>/SKILL.md` | 同步到 `~/.claude/skills/`，跨裝置共用 |
-| 本地（不同步） | `.claude/skills/<name>/SKILL.md` | 僅限本 repo 使用 |
+| 本地（不同步） | `.agents/skills/<name>/SKILL.md` | 僅限本 repo 使用，跨工具共享（Codex 等） |
+
+本地 skill 實體放在 `.agents/skills/`，`.claude/skills` 與 `.codex/skills` 皆為 symlink（→ `../.agents/skills`），讓 Claude Code 與 Codex 等 Agent Skills 相容工具共用同一份來源。新增本地 skill 直接放進 `.agents/skills/<name>/SKILL.md` 即可，不需另建 symlink。
+
+**Windows clone 注意**：git symlink 在 Windows 需「開發者模式」或管理員權限才會還原為真正的 symlink，否則會 fallback 成內容為路徑字串的純文字檔，導致 Claude Code/Codex 找不到 skill。在 Windows 11 設定 → 系統 → 開發人員選項中開啟即可。
 
 全域 skills 安裝狀態由 `skills-lock.json` 追蹤（`npm run skills:diff` 比對）。本地 skills 不需記錄於 `skills-lock.json`。
 
@@ -105,6 +111,6 @@ gh api "repos/VoltAgent/awesome-claude-code-subagents/contents/categories/<categ
 
 ## 注意事項
 
-- `.agents/`（skill 實體）、`.sync-history.log`、`.DS_Store` 皆在 `.gitignore`
+- `.sync-history.log`、`.DS_Store` 在 `.gitignore`；`.agents/skills/` 為本地 skill 實體目錄，**已納入版控**
 - Skills 不在自動同步範圍，`skills-lock.json` 為各裝置參考清單（source of truth）
 - 上游 `npx skills` 功能追蹤見 `UPSTREAM.md`（跨裝置還原、Claude Code symlink bug 等，修改 skills 流程前先查）

@@ -4,7 +4,10 @@
 
 **同步項目**：`~/.claude/CLAUDE.md`、`~/.claude/settings.json`、`~/.claude/statusline.sh`、全域 agents、全域 skills
 
-> **目錄命名**：`claude/`（無點）是要同步到 `~/.claude/` 的全域設定；`.claude/`（有點）是本 repo 專用的本地設定（skills、settings），**不參與同步**，兩者不互通。
+> **目錄命名**：
+> - `claude/`（無點）— 要同步到 `~/.claude/` 的全域設定
+> - `.claude/`、`.codex/` — 本 repo 專用的 Claude Code / Codex 本地設定，**不參與同步**
+> - `.agents/skills/` — 本地 skill **實體目錄**（已納入版控），`.claude/skills` 與 `.codex/skills` 皆為 symlink 指向此處，跨工具共用
 
 ## 使用方式
 

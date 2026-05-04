@@ -1,5 +1,5 @@
 ---
-name: agents-new
+name: sync-agents-new
 description: 檢查上游 agent 來源（everything-claude-code、awesome-claude-code-subagents）是否有尚未安裝的新 agent。觸發時機：使用者詢問「有沒有新 agent」「推薦什麼 agent」「上游有哪些 agent 沒裝」「agents-new」等語意時使用。
 ---
 

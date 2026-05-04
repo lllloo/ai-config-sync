@@ -1,4 +1,2 @@
-.agents/
-.agent/
 node_modules/
 *.log
