@@ -50,6 +50,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `claude/statusline.sh` | `~/.claude/statusline.sh` | 全文比對 |
 | `claude/agents/` | `~/.claude/agents/` | 以 package 子目錄組織（如 `awesome-claude-code-subagents/`） |
 | `claude/skills/` | `~/.claude/skills/` | 目錄鏡射 |
+| `claude/rules/` | `~/.claude/rules/` | 模組化全域規則（CLAUDE.md 的拆分檔），支援 frontmatter `paths:` 做 path-specific scoping |
 | `codex/AGENTS.md` | `~/.codex/AGENTS.md` | Codex 全域指示（跨專案規則），全文比對 |
 | `codex/agents/` | `~/.codex/agents/` | Codex `.toml` agents，以 package 子目錄組織（如 `awesome-codex-subagents/`）；Codex CLI 遞迴掃描子目錄載入 |
 

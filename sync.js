@@ -1134,6 +1134,14 @@ function buildSyncItems(direction) {
       verboseSrc: path.join(src, 'skills'),
       verboseDest: path.join(dest, 'skills'),
     },
+    {
+      label: 'rules',
+      src: path.join(src, 'rules'),
+      dest: path.join(dest, 'rules'),
+      type: 'dir',
+      verboseSrc: path.join(src, 'rules'),
+      verboseDest: path.join(dest, 'rules'),
+    },
     // Codex 全域指示：~/.codex/AGENTS.md（路徑固定，不依賴 src/dest 變數）
     {
       label: 'AGENTS.md',

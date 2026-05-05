@@ -2,7 +2,7 @@
 
 跨裝置同步 Claude Code 設定的私有 Git repo 工具。
 
-**同步項目**：`~/.claude/CLAUDE.md`、`~/.claude/settings.json`、`~/.claude/statusline.sh`、全域 agents、全域 skills、`~/.codex/AGENTS.md`、`~/.codex/agents/`
+**同步項目**：`~/.claude/CLAUDE.md`、`~/.claude/settings.json`、`~/.claude/statusline.sh`、全域 agents、全域 skills、全域 rules、`~/.codex/AGENTS.md`、`~/.codex/agents/`
 
 > **目錄命名**：
 > - `claude/`（無點）— 要同步到 `~/.claude/` 的全域設定
@@ -92,6 +92,7 @@ npm run to-local
 | `claude/statusline.sh` | 對應 `~/.claude/statusline.sh` |
 | `claude/agents/` | 對應 `~/.claude/agents/`（以 package 子目錄組織） |
 | `claude/skills/` | 對應 `~/.claude/skills/` |
+| `claude/rules/` | 對應 `~/.claude/rules/`（CLAUDE.md 的模組化拆分，支援 frontmatter `paths:` 做 path-specific scoping） |
 | `codex/AGENTS.md` | 對應 `~/.codex/AGENTS.md`（Codex 全域指示，跨專案規則） |
 | `codex/agents/` | 對應 `~/.codex/agents/`（以 package 子目錄組織，`.toml` 格式） |
 | `skills-lock.json` | 全域 skills 清單（跨裝置 source of truth） |
