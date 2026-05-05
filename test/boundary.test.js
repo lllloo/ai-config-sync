@@ -26,16 +26,7 @@ const {
   attachCommandHandlers,
   formatError,
 } = require('../sync.js');
-
-// =============================================================================
-// Helper
-// =============================================================================
-
-function withArgv(argv, fn) {
-  const original = process.argv;
-  process.argv = ['node', 'sync.js', ...argv];
-  try { return fn(); } finally { process.argv = original; }
-}
+const { withArgv } = require('./helpers');
 
 // =============================================================================
 // 高優先：computeSimpleLineDiff（大檔案 fallback）

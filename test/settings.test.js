@@ -11,7 +11,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const os = require('node:os');
 
 const {
   serializeSettings,
@@ -20,16 +19,11 @@ const {
   DEVICE_FIELDS,
   DEVICE_ENV_KEYS,
 } = require('../sync.js');
+const { withTmpDir } = require('./helpers');
 
 // -----------------------------------------------------------------------------
-// 測試 fixture：每個測試建立獨立 tmp 目錄
+// 測試 fixture：每個測試在 withTmpDir 提供的 tmp 目錄內寫 JSON
 // -----------------------------------------------------------------------------
-function withTmpDir(fn) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-ai-test-'));
-  try { return fn(dir); }
-  finally { fs.rmSync(dir, { recursive: true, force: true }); }
-}
-
 function writeJson(filePath, obj) {
   fs.writeFileSync(filePath, JSON.stringify(obj, null, 2) + '\n');
 }

@@ -36,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run skills:remove -- <name>` — 從 `skills-lock.json` 移除 skill 記錄
 
 **測試：**
-- `npm test` — 執行三個測試檔（`test/sync.test.js`、`test/settings.test.js`、`test/boundary.test.js`，`node --test`，零相依）
+- `npm test` — 執行 `test/*.test.js`（`node --test`，零相依，共用 helper 在 `test/helpers.js`）
 - 單一測試：`node --test --test-name-pattern="<name>" test/<file>.test.js`
 
 **全域旗標**（`node sync.js` 直接呼叫時可用）：`--dry-run`、`--verbose`、`--version`、`--help`。指令別名：`d`/`s`/`tr`/`tl`/`sd`/`sa`/`sr`。

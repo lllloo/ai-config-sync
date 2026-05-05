@@ -9,10 +9,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const os = require('node:os');
 
 const {
   computeLineDiff,
+  diffFile,
+  diffDir,
   matchExclude,
   statusToStatsKey,
   parseSkillSource,
@@ -25,6 +26,7 @@ const {
   COMMAND_ALIASES,
   VALID_COMMANDS,
 } = require('../sync.js');
+const { withArgv, withTmpDir, withTmpFile } = require('./helpers');
 
 // -----------------------------------------------------------------------------
 // computeLineDiff
@@ -134,12 +136,6 @@ test('parseSkillSource：單一非 URL 引數應丟錯', () => {
 // -----------------------------------------------------------------------------
 // parseArgs（透過 mutate process.argv）
 // -----------------------------------------------------------------------------
-function withArgv(argv, fn) {
-  const original = process.argv;
-  process.argv = ['node', 'sync.js', ...argv];
-  try { return fn(); } finally { process.argv = original; }
-}
-
 test('parseArgs：解析指令與 --dry-run', () => {
   const result = withArgv(['to-repo', '--dry-run'], () => parseArgs());
   assert.equal(result.command, 'to-repo');
@@ -242,15 +238,6 @@ test('COMMAND_ALIASES：別名應對應回正式指令', () => {
 // loadSkillsFromLock：skills-lock.json 讀取與格式驗證
 // 避免格式異常時靜默回退成空物件，誤判為「無差異」
 // -----------------------------------------------------------------------------
-function withTmpFile(contentOrSkip, fn) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-ai-skills-'));
-  const fp = path.join(dir, 'skills-lock.json');
-  try {
-    if (contentOrSkip !== null) fs.writeFileSync(fp, contentOrSkip);
-    return fn(fp);
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
-}
-
 test('loadSkillsFromLock：檔案不存在回傳空物件', () => {
   const result = loadSkillsFromLock('/nonexistent/path/skills-lock.json');
   assert.deepEqual(result, {});
@@ -278,5 +265,59 @@ test('loadSkillsFromLock：skills 為 null 應丟 JSON_PARSE 錯誤', () => {
 test('loadSkillsFromLock：skills 為陣列（非物件）應丟 JSON_PARSE 錯誤', () => {
   withTmpFile(JSON.stringify({ skills: [] }), (fp) => {
     assert.throws(() => loadSkillsFromLock(fp), (e) => e instanceof SyncError && e.code === ERR.JSON_PARSE);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// diffFile / diffDir：src 缺失 vs dest 缺失的對稱性
+// 鎖住 runDiff（to-repo 方向）能正確報出「repo 有、本機沒有」的差異
+// -----------------------------------------------------------------------------
+test('diffFile：src 不存在但 dest 存在 → deleted（不能漏報）', () => {
+  withTmpDir((dir) => {
+    const src = path.join(dir, 'missing.txt');
+    const dest = path.join(dir, 'present.txt');
+    fs.writeFileSync(dest, 'hello');
+    assert.equal(diffFile(src, dest), 'deleted');
+  });
+});
+
+test('diffFile：src 與 dest 都不存在 → null', () => {
+  withTmpDir((dir) => {
+    assert.equal(
+      diffFile(path.join(dir, 'a'), path.join(dir, 'b')),
+      null
+    );
+  });
+});
+
+test('diffFile：src 存在但 dest 不存在 → new', () => {
+  withTmpDir((dir) => {
+    const src = path.join(dir, 'src.txt');
+    fs.writeFileSync(src, 'hi');
+    assert.equal(diffFile(src, path.join(dir, 'dest.txt')), 'new');
+  });
+});
+
+test('diffDir：src 不存在但 dest 有檔 → 全部標 deleted', () => {
+  withTmpDir((dir) => {
+    const src = path.join(dir, 'missing');
+    const dest = path.join(dir, 'present');
+    fs.mkdirSync(dest);
+    fs.writeFileSync(path.join(dest, 'a.txt'), 'a');
+    fs.writeFileSync(path.join(dest, 'b.txt'), 'b');
+    const diffs = diffDir(src, dest);
+    assert.deepEqual(
+      diffs.map(d => ({ rel: d.rel, status: d.status })).sort((x, y) => x.rel.localeCompare(y.rel)),
+      [{ rel: 'a.txt', status: 'deleted' }, { rel: 'b.txt', status: 'deleted' }]
+    );
+  });
+});
+
+test('diffDir：src 與 dest 都不存在 → 空陣列', () => {
+  withTmpDir((dir) => {
+    assert.deepEqual(
+      diffDir(path.join(dir, 'a'), path.join(dir, 'b')),
+      []
+    );
   });
 });

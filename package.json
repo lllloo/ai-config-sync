@@ -10,7 +10,7 @@
     "skills:remove": "node sync.js skills:remove",
     "to-repo": "node sync.js to-repo",
     "to-local": "node sync.js to-local",
-    "test": "node --test test/sync.test.js test/settings.test.js test/boundary.test.js"
+    "test": "node --test \"test/*.test.js\""
   },
   "private": true
 }

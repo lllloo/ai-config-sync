@@ -646,7 +646,7 @@ function isGitAvailable() {
  * @returns {'new'|'changed'|null} 差異狀態
  */
 function diffFile(src, dest) {
-  if (!fs.existsSync(src)) return null;
+  if (!fs.existsSync(src)) return fs.existsSync(dest) ? 'deleted' : null;
   if (!fs.existsSync(dest)) return 'new';
   const a = fs.readFileSync(src);
   const b = fs.readFileSync(dest);
@@ -675,13 +675,16 @@ function isEolOnlyDiff(a, b) {
  */
 function diffDir(src, dest, excludePatterns = []) {
   const result = [];
-  if (!fs.existsSync(src)) return result;
+  const srcExists = fs.existsSync(src);
+  const destExists = fs.existsSync(dest);
+  if (!srcExists && !destExists) return result;
 
   const srcFiles = new Set(
-    getFiles(src).filter(rel => !excludePatterns.some(p => matchExclude(rel, p)))
+    (srcExists ? getFiles(src) : [])
+      .filter(rel => !excludePatterns.some(p => matchExclude(rel, p)))
   );
   const destFiles = new Set(
-    (fs.existsSync(dest) ? getFiles(dest) : [])
+    (destExists ? getFiles(dest) : [])
       .filter(rel => !excludePatterns.some(p => matchExclude(rel, p)))
   );
 
@@ -2057,6 +2060,8 @@ if (require.main === module) {
     // 純函式 / 輔助：供單元測試使用
     computeLineDiff,
     computeSimpleLineDiff,
+    diffFile,
+    diffDir,
     matchExclude,
     statusToStatsKey,
     parseSkillSource,
