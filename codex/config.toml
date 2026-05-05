@@ -1,0 +1,17 @@
+personality = "pragmatic"
+
+[tui]
+status_line = ["model-with-reasoning", "project-name", "git-branch", "five-hour-limit", "weekly-limit"]
+
+[features]
+memories = true
+
+[memories]
+generate_memories = true
+use_memories = true
+
+[plugins."browser-use@openai-bundled"]
+enabled = true
+
+[plugins."github@openai-curated"]
+enabled = true

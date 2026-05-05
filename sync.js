@@ -37,6 +37,16 @@ const DEVICE_FIELDS = ['model', 'effortLevel'];
 /** settings.json `env` 物件中各裝置獨立的 key，同步時排除（to-local 套用時保留本機值） */
 const DEVICE_ENV_KEYS = ['OBSIDIAN_VAULT_ROOT'];
 
+/** Codex config.toml 中允許跨裝置同步的 top-level key */
+const CODEX_CONFIG_TOP_KEYS = ['personality'];
+
+/** Codex config.toml 中允許跨裝置同步的固定 section key */
+const CODEX_CONFIG_SECTION_KEYS = {
+  tui: ['status_line'],
+  features: ['memories'],
+  memories: ['generate_memories', 'use_memories'],
+};
+
 /** 永遠排除的檔案名稱 */
 const GLOBAL_EXCLUDE = ['.DS_Store'];
 
@@ -96,7 +106,7 @@ const VALID_COMMANDS = Object.keys(COMMANDS);
  * @property {string} label - 顯示名稱
  * @property {string} src - 來源路徑
  * @property {string} dest - 目的路徑
- * @property {'file'|'settings'|'dir'} type - 項目類型
+ * @property {'file'|'settings'|'codex-config'|'dir'} type - 項目類型
  * @property {string} [verboseSrc] - verbose 模式的來源路徑
  * @property {string} [verboseDest] - verbose 模式的目的路徑
  * @property {string} [prefix] - 顯示路徑前綴（預設 'claude/'，codex 同步項用 'codex/'）
@@ -400,6 +410,28 @@ function writeJsonSafe(filePath, data) {
   } catch (e) {
     try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
     throw toSyncFsError(e, filePath, '寫入 JSON');
+  } finally {
+    tempFiles.delete(tmpPath);
+  }
+}
+
+/**
+ * 安全寫入文字檔（write-to-tmp + rename）
+ * @param {string} filePath - 目標檔案路徑
+ * @param {string} content - 要寫入的文字內容
+ * @returns {void}
+ */
+function writeTextSafe(filePath, content) {
+  checkWriteAccess(filePath);
+  const tmpPath = filePath + `.tmp.${process.pid}`;
+  registerTempFile(tmpPath);
+  try {
+    ensureDir(path.dirname(filePath));
+    fs.writeFileSync(tmpPath, content);
+    fs.renameSync(tmpPath, filePath);
+  } catch (e) {
+    try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
+    throw toSyncFsError(e, filePath, '寫入文字檔');
   } finally {
     tempFiles.delete(tmpPath);
   }
@@ -1038,6 +1070,302 @@ function mergeSettingsJson(direction, dryRun = false) {
 }
 
 // =============================================================================
+// Section: Codex Config Handler -- config.toml 過濾同步邏輯
+// 處理 ~/.codex/config.toml 的可攜欄位萃取與合併
+// =============================================================================
+
+/**
+ * 判斷 Codex config.toml key 是否可跨裝置同步
+ * @param {string} section - TOML section 名稱，top-level 為空字串
+ * @param {string} key - TOML key
+ * @returns {boolean}
+ */
+function isPortableCodexConfigKey(section, key) {
+  if (section === '') return CODEX_CONFIG_TOP_KEYS.includes(key);
+  if (section.startsWith('plugins.')) return key === 'enabled';
+  return (CODEX_CONFIG_SECTION_KEYS[section] || []).includes(key);
+}
+
+/**
+ * 寫入 Codex config map
+ * @param {Map<string, Map<string, string>>} data
+ * @param {string} section
+ * @param {string} key
+ * @param {string} value
+ */
+function setCodexConfigValue(data, section, key, value) {
+  if (!data.has(section)) data.set(section, new Map());
+  data.get(section).set(key, value);
+}
+
+/**
+ * 從 TOML 內容萃取可攜 Codex config 欄位；保留 value 原始字串
+ * @param {string} content
+ * @returns {Map<string, Map<string, string>>}
+ */
+function parsePortableCodexConfig(content) {
+  const data = new Map();
+  let section = '';
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const sectionMatch = line.match(/^\[([^\]]+)\]\s*(?:#.*)?$/);
+    if (sectionMatch) {
+      section = sectionMatch[1].trim();
+      continue;
+    }
+    const keyMatch = line.match(/^([A-Za-z0-9_-]+)\s*=(.*)$/);
+    if (!keyMatch) continue;
+    const key = keyMatch[1];
+    if (isPortableCodexConfigKey(section, key)) {
+      setCodexConfigValue(data, section, key, keyMatch[2].trimStart());
+    }
+  }
+  return data;
+}
+
+/**
+ * 取得 section 中依固定順序輸出的 key
+ * @param {Map<string, Map<string, string>>} data
+ * @param {string} section
+ * @returns {string[]}
+ */
+function getCodexConfigKeys(data, section) {
+  if (section === '') return CODEX_CONFIG_TOP_KEYS;
+  if (section.startsWith('plugins.')) return ['enabled'];
+  return CODEX_CONFIG_SECTION_KEYS[section] || [];
+}
+
+/**
+ * 將可攜 Codex config map 序列化為穩定 TOML
+ * @param {Map<string, Map<string, string>>} data
+ * @returns {string}
+ */
+function serializePortableCodexConfig(data) {
+  const lines = [];
+  pushCodexConfigTopLevel(lines, data);
+  for (const section of Object.keys(CODEX_CONFIG_SECTION_KEYS)) {
+    pushCodexConfigSection(lines, data, section);
+  }
+  const plugins = [...data.keys()].filter(s => s.startsWith('plugins.')).sort();
+  for (const section of plugins) pushCodexConfigSection(lines, data, section);
+  return lines.length ? `${lines.join('\n')}\n` : '';
+}
+
+/**
+ * 序列化 top-level Codex config key
+ * @param {string[]} lines
+ * @param {Map<string, Map<string, string>>} data
+ */
+function pushCodexConfigTopLevel(lines, data) {
+  const top = data.get('');
+  if (!top) return;
+  for (const key of CODEX_CONFIG_TOP_KEYS) {
+    if (top.has(key)) lines.push(`${key} = ${top.get(key)}`);
+  }
+}
+
+/**
+ * 序列化單一 Codex config section
+ * @param {string[]} lines
+ * @param {Map<string, Map<string, string>>} data
+ * @param {string} section
+ */
+function pushCodexConfigSection(lines, data, section) {
+  const values = data.get(section);
+  if (!values) return;
+  const keys = getCodexConfigKeys(data, section).filter(key => values.has(key));
+  if (keys.length === 0) return;
+  if (lines.length > 0) lines.push('');
+  lines.push(`[${section}]`);
+  for (const key of keys) lines.push(`${key} = ${values.get(key)}`);
+}
+
+/**
+ * 複製 Codex config map，供 to-local merge 時逐步刪除已套用欄位
+ * @param {Map<string, Map<string, string>>} data
+ * @returns {Map<string, Map<string, string>>}
+ */
+function cloneCodexConfigMap(data) {
+  const cloned = new Map();
+  for (const [section, values] of data) cloned.set(section, new Map(values));
+  return cloned;
+}
+
+/**
+ * 刪除已套用的 Codex config 欄位
+ * @param {Map<string, Map<string, string>>} data
+ * @param {string} section
+ * @param {string} key
+ */
+function deleteCodexConfigValue(data, section, key) {
+  const values = data.get(section);
+  if (!values) return;
+  values.delete(key);
+  if (values.size === 0) data.delete(section);
+}
+
+/**
+ * 載入並萃取可攜 Codex config
+ * @param {string} filePath
+ * @returns {{ data: Map<string, Map<string, string>>, serialized: string } | null}
+ */
+function loadPortableCodexConfig(filePath) {
+  if (!fs.existsSync(filePath)) return null;
+  const data = parsePortableCodexConfig(fs.readFileSync(filePath, 'utf8'));
+  return { data, serialized: serializePortableCodexConfig(data) };
+}
+
+/**
+ * 取得可攜 Codex config TOML 字串
+ * @param {string} filePath
+ * @returns {string|null}
+ */
+function getPortableCodexConfig(filePath) {
+  const result = loadPortableCodexConfig(filePath);
+  return result ? result.serialized : null;
+}
+
+/**
+ * 將 repo 可攜欄位合併進本機 Codex config，保留本機未受管理欄位
+ * @param {string} localContent
+ * @param {Map<string, Map<string, string>>} portable
+ * @returns {string}
+ */
+function mergePortableCodexConfig(localContent, portable) {
+  if (localContent.trim() === '') return serializePortableCodexConfig(portable);
+  const remaining = cloneCodexConfigMap(portable);
+  const lines = localContent.replace(/\r\n/g, '\n').replace(/\n$/g, '').split('\n');
+  const output = [];
+  let section = '';
+  for (const rawLine of lines) {
+    const nextSection = rawLine.trim().match(/^\[([^\]]+)\]\s*(?:#.*)?$/);
+    if (nextSection) {
+      pushRemainingCodexConfigValues(output, remaining, section);
+      section = nextSection[1].trim();
+      output.push(rawLine);
+      continue;
+    }
+    mergeCodexConfigLine(output, remaining, section, rawLine);
+  }
+  pushRemainingCodexConfigValues(output, remaining, section);
+  appendRemainingCodexConfigSections(output, remaining);
+  return `${output.join('\n')}\n`;
+}
+
+/**
+ * 合併單行 Codex config；受管理欄位以 repo 值取代，不存在於 repo 者移除
+ * @param {string[]} output
+ * @param {Map<string, Map<string, string>>} remaining
+ * @param {string} section
+ * @param {string} rawLine
+ */
+function mergeCodexConfigLine(output, remaining, section, rawLine) {
+  const keyMatch = rawLine.trim().match(/^([A-Za-z0-9_-]+)\s*=(.*)$/);
+  if (!keyMatch || !isPortableCodexConfigKey(section, keyMatch[1])) {
+    output.push(rawLine);
+    return;
+  }
+  const key = keyMatch[1];
+  const values = remaining.get(section);
+  if (!values || !values.has(key)) return;
+  output.push(`${key} = ${values.get(key)}`);
+  deleteCodexConfigValue(remaining, section, key);
+}
+
+/**
+ * 將既有 section 缺少的 repo 可攜欄位補在 section 結尾
+ * @param {string[]} output
+ * @param {Map<string, Map<string, string>>} remaining
+ * @param {string} section
+ */
+function pushRemainingCodexConfigValues(output, remaining, section) {
+  const values = remaining.get(section);
+  if (!values) return;
+  for (const key of getCodexConfigKeys(remaining, section)) {
+    if (!values.has(key)) continue;
+    output.push(`${key} = ${values.get(key)}`);
+    deleteCodexConfigValue(remaining, section, key);
+  }
+}
+
+/**
+ * 將本機不存在的可攜 section 追加到檔尾
+ * @param {string[]} output
+ * @param {Map<string, Map<string, string>>} remaining
+ */
+function appendRemainingCodexConfigSections(output, remaining) {
+  pushRemainingCodexConfigValues(output, remaining, '');
+  for (const section of Object.keys(CODEX_CONFIG_SECTION_KEYS)) {
+    appendRemainingCodexConfigSection(output, remaining, section);
+  }
+  const plugins = [...remaining.keys()].filter(s => s.startsWith('plugins.')).sort();
+  for (const section of plugins) appendRemainingCodexConfigSection(output, remaining, section);
+}
+
+/**
+ * 追加單一缺失 section
+ * @param {string[]} output
+ * @param {Map<string, Map<string, string>>} remaining
+ * @param {string} section
+ */
+function appendRemainingCodexConfigSection(output, remaining, section) {
+  if (!remaining.has(section)) return;
+  if (output.length > 0 && output[output.length - 1] !== '') output.push('');
+  output.push(`[${section}]`);
+  pushRemainingCodexConfigValues(output, remaining, section);
+}
+
+/**
+ * 合併 Codex config.toml（只同步 allowlist 欄位）
+ * @param {'to-repo'|'to-local'} direction - 同步方向
+ * @param {boolean} [dryRun=false] - 是否為 dry-run 模式
+ * @returns {boolean} 是否有實際變更
+ */
+function mergeCodexConfigToml(direction, dryRun = false) {
+  const localPath = path.join(CODEX_HOME, 'config.toml');
+  const repoPath = path.join(REPO_ROOT, 'codex', 'config.toml');
+  if (direction === 'to-repo') return mergeCodexConfigToRepo(localPath, repoPath, dryRun);
+  return mergeCodexConfigToLocal(localPath, repoPath, dryRun);
+}
+
+/**
+ * 本機 Codex config.toml -> repo 過濾檔
+ * @param {string} localPath
+ * @param {string} repoPath
+ * @param {boolean} dryRun
+ * @returns {boolean}
+ */
+function mergeCodexConfigToRepo(localPath, repoPath, dryRun) {
+  const portable = loadPortableCodexConfig(localPath);
+  if (!portable) return false;
+  if (portable.serialized === '' && !fs.existsSync(repoPath)) return false;
+  const repoContent = fs.existsSync(repoPath) ? fs.readFileSync(repoPath, 'utf8') : null;
+  if (repoContent === portable.serialized) return false;
+  if (dryRun) return true;
+  writeTextSafe(repoPath, portable.serialized);
+  return true;
+}
+
+/**
+ * repo Codex config.toml -> 本機，保留本機未受管理欄位
+ * @param {string} localPath
+ * @param {string} repoPath
+ * @param {boolean} dryRun
+ * @returns {boolean}
+ */
+function mergeCodexConfigToLocal(localPath, repoPath, dryRun) {
+  const portable = loadPortableCodexConfig(repoPath);
+  if (!portable) return false;
+  const localContent = fs.existsSync(localPath) ? fs.readFileSync(localPath, 'utf8') : '';
+  const merged = mergePortableCodexConfig(localContent, portable.data);
+  if (localContent === merged) return false;
+  if (dryRun) return true;
+  writeTextSafe(localPath, merged);
+  return true;
+}
+
+// =============================================================================
 // Section: Operation Log -- 操作日誌
 // 每次同步後追加紀錄到 .sync-history.log
 // =============================================================================
@@ -1078,19 +1406,25 @@ function buildSyncItems(direction) {
   const isToRepo = direction === 'to-repo';
   const localBase = CLAUDE_HOME;
   const repoBase = path.join(REPO_ROOT, 'claude');
-
   const src = isToRepo ? localBase : repoBase;
   const dest = isToRepo ? repoBase : localBase;
-
   return [
-    {
-      label: 'CLAUDE.md',
-      src: path.join(src, 'CLAUDE.md'),
-      dest: path.join(dest, 'CLAUDE.md'),
-      type: 'file',
-      verboseSrc: path.join(src, 'CLAUDE.md'),
-      verboseDest: path.join(dest, 'CLAUDE.md'),
-    },
+    ...buildClaudeSyncItems(src, dest, localBase, repoBase),
+    ...buildCodexSyncItems(isToRepo),
+  ];
+}
+
+/**
+ * 建立 Claude 同步項目清單
+ * @param {string} src
+ * @param {string} dest
+ * @param {string} localBase
+ * @param {string} repoBase
+ * @returns {SyncItem[]}
+ */
+function buildClaudeSyncItems(src, dest, localBase, repoBase) {
+  return [
+    buildPathSyncItem('CLAUDE.md', src, dest, 'file'),
     // 注意：settings.json 的 src/dest 固定為 localPath/repoPath，不隨 direction 調換。
     // 因為 settings.json 需要特殊的裝置欄位排除邏輯（mergeSettingsJson），
     // 由 mergeSettingsJson 內部根據 direction 決定資料流向。
@@ -1102,47 +1436,40 @@ function buildSyncItems(direction) {
       verboseSrc: path.join(localBase, 'settings.json'),
       verboseDest: path.join(repoBase, 'settings.json'),
     },
-    {
-      label: 'statusline.sh',
-      src: path.join(src, 'statusline.sh'),
-      dest: path.join(dest, 'statusline.sh'),
-      type: 'file',
-      verboseSrc: path.join(src, 'statusline.sh'),
-      verboseDest: path.join(dest, 'statusline.sh'),
-    },
-    {
-      label: 'agents',
-      src: path.join(src, 'agents'),
-      dest: path.join(dest, 'agents'),
-      type: 'dir',
-      verboseSrc: path.join(src, 'agents'),
-      verboseDest: path.join(dest, 'agents'),
-    },
-    {
-      label: 'commands',
-      src: path.join(src, 'commands'),
-      dest: path.join(dest, 'commands'),
-      type: 'dir',
-      verboseSrc: path.join(src, 'commands'),
-      verboseDest: path.join(dest, 'commands'),
-    },
-    {
-      label: 'skills',
-      src: path.join(src, 'skills'),
-      dest: path.join(dest, 'skills'),
-      type: 'dir',
-      verboseSrc: path.join(src, 'skills'),
-      verboseDest: path.join(dest, 'skills'),
-    },
-    {
-      label: 'rules',
-      src: path.join(src, 'rules'),
-      dest: path.join(dest, 'rules'),
-      type: 'dir',
-      verboseSrc: path.join(src, 'rules'),
-      verboseDest: path.join(dest, 'rules'),
-    },
-    // Codex 全域指示：~/.codex/AGENTS.md（路徑固定，不依賴 src/dest 變數）
+    buildPathSyncItem('statusline.sh', src, dest, 'file'),
+    buildPathSyncItem('agents', src, dest, 'dir'),
+    buildPathSyncItem('commands', src, dest, 'dir'),
+    buildPathSyncItem('skills', src, dest, 'dir'),
+    buildPathSyncItem('rules', src, dest, 'dir'),
+  ];
+}
+
+/**
+ * 建立一般路徑同步項目
+ * @param {string} label
+ * @param {string} srcBase
+ * @param {string} destBase
+ * @param {'file'|'dir'} type
+ * @returns {SyncItem}
+ */
+function buildPathSyncItem(label, srcBase, destBase, type) {
+  return {
+    label,
+    src: path.join(srcBase, label),
+    dest: path.join(destBase, label),
+    type,
+    verboseSrc: path.join(srcBase, label),
+    verboseDest: path.join(destBase, label),
+  };
+}
+
+/**
+ * 建立 Codex 同步項目清單
+ * @param {boolean} isToRepo
+ * @returns {SyncItem[]}
+ */
+function buildCodexSyncItems(isToRepo) {
+  return [
     {
       label: 'AGENTS.md',
       src: isToRepo ? path.join(CODEX_HOME, 'AGENTS.md') : path.join(REPO_ROOT, 'codex', 'AGENTS.md'),
@@ -1150,6 +1477,16 @@ function buildSyncItems(direction) {
       type: 'file',
       verboseSrc: isToRepo ? path.join(CODEX_HOME, 'AGENTS.md') : path.join(REPO_ROOT, 'codex', 'AGENTS.md'),
       verboseDest: isToRepo ? path.join(REPO_ROOT, 'codex', 'AGENTS.md') : path.join(CODEX_HOME, 'AGENTS.md'),
+      prefix: 'codex/',
+    },
+    // Codex config.toml：只同步 allowlist 欄位，其餘本機狀態與裝置欄位保留
+    {
+      label: 'config.toml',
+      src: path.join(CODEX_HOME, 'config.toml'),
+      dest: path.join(REPO_ROOT, 'codex', 'config.toml'),
+      type: 'codex-config',
+      verboseSrc: path.join(CODEX_HOME, 'config.toml'),
+      verboseDest: path.join(REPO_ROOT, 'codex', 'config.toml'),
       prefix: 'codex/',
     },
     // Codex agents：與 ~/.codex/agents/ 同步（不依賴 src/dest 變數，路徑固定）
@@ -1216,6 +1553,42 @@ function diffSettingsItem(item) {
 }
 
 /**
+ * 為 Codex config.toml 產生 diff result entry
+ * @param {SyncItem} item
+ * @returns {{label: string, status: string|null, src: string|null, dest: string, verboseSrc: string, verboseDest: string, itemType: string}}
+ */
+function diffCodexConfigItem(item) {
+  const localPath = path.join(CODEX_HOME, 'config.toml');
+  const repoPath = path.join(REPO_ROOT, 'codex', 'config.toml');
+  let status = null;
+  let tmpSrc = null;
+  if (fs.existsSync(localPath)) {
+    const portable = getPortableCodexConfig(localPath);
+    tmpSrc = path.join(os.tmpdir(), `sync-ai-codex-config-diff-${process.pid}.toml`);
+    registerTempFile(tmpSrc);
+    fs.writeFileSync(tmpSrc, portable);
+    if (!fs.existsSync(repoPath)) {
+      status = portable ? 'new' : null;
+    } else {
+      const repoBuf = fs.readFileSync(repoPath);
+      const portableBuf = Buffer.from(portable);
+      if (!repoBuf.equals(portableBuf)) {
+        status = isEolOnlyDiff(repoBuf, portableBuf) ? 'eol' : 'changed';
+      }
+    }
+  }
+  return {
+    label: `codex/${item.label}`,
+    status,
+    src: tmpSrc,
+    dest: repoPath,
+    verboseSrc: localPath,
+    verboseDest: repoPath,
+    itemType: 'codex-config',
+  };
+}
+
+/**
  * 對同步項目執行 diff，回傳差異清單
  * @param {SyncItem[]} items - 同步項目清單
  * @param {'to-repo'|'to-local'} direction - 同步方向
@@ -1227,6 +1600,8 @@ function diffSyncItems(items, direction) {
   for (const item of items) {
     if (item.type === 'settings') {
       result.push(diffSettingsItem(item));
+    } else if (item.type === 'codex-config') {
+      result.push(diffCodexConfigItem(item));
     } else if (item.type === 'file') {
       const status = diffFile(item.src, item.dest);
       result.push({
@@ -1278,6 +1653,12 @@ function applySyncItems(items, direction, opts) {
         stats.updated++;
         changeLog.push('settings.json (updated)');
         printStatusLine('changed', 'settings.json');
+      }
+    } else if (item.type === 'codex-config') {
+      if (mergeCodexConfigToml(direction, dryRun)) {
+        stats.updated++;
+        changeLog.push('codex/config.toml (updated)');
+        printStatusLine('changed', 'codex/config.toml');
       }
     } else if (item.type === 'file') {
       const existed = fs.existsSync(item.dest);
@@ -1472,43 +1853,13 @@ function runDiff(opts) {
   let hasDiff = false;
   const skillsSummary = {};
   for (const item of allDiffItems) {
-    if (item.label.startsWith('claude/skills/') && item.status !== null) {
-      const skill = item.label.split('/')[2];
-      if (!skillsSummary[skill]) skillsSummary[skill] = { added: 0, changed: 0, deleted: 0 };
-      if (item.status === 'new') skillsSummary[skill].added++;
-      else if (item.status === 'changed') skillsSummary[skill].changed++;
-      else if (item.status === 'deleted') skillsSummary[skill].deleted++;
+    if (collectSkillDiffSummary(item, skillsSummary)) {
       hasDiff = true;
       continue;
     }
-    if (item.status === null) {
-      printStatusLine('ok', item.label);
-    } else if (item.status === 'new') {
-      printStatusLine('added', item.label, '本機有、repo 沒有');
-      hasDiff = true;
-    } else if (item.status === 'changed') {
-      printStatusLine('changed', item.label, '有差異');
-      hasDiff = true;
-    } else if (item.status === 'eol') {
-      printStatusLine('eol', item.label, '僅檔尾換行差異');
-      hasDiff = true;
-    } else if (item.status === 'deleted') {
-      printStatusLine('deleted', item.label, 'repo 有、本機沒有');
-      hasDiff = true;
-    }
-    if (opts.verbose && item.verboseSrc) {
-      logVerbosePaths(item.verboseSrc, item.verboseDest || item.dest);
-    }
+    if (printDiffItem(item, opts)) hasDiff = true;
   }
-  for (const [skill, counts] of Object.entries(skillsSummary)) {
-    const parts = [];
-    if (counts.added)   parts.push(`+${counts.added}`);
-    if (counts.changed) parts.push(`~${counts.changed}`);
-    if (counts.deleted) parts.push(`-${counts.deleted}`);
-    const total = counts.added + counts.changed + counts.deleted;
-    printStatusLine(counts.deleted && !counts.added ? 'deleted' : 'added',
-      `claude/skills/${skill}`, `${parts.join(' ')}  共 ${total} 個檔案`);
-  }
+  printSkillDiffSummaries(skillsSummary);
   if (!hasDiff) {
     console.log(col.green('\n  本機與 repo 完全一致\n'));
     return EXIT_OK;
@@ -1521,6 +1872,60 @@ function runDiff(opts) {
   console.log('');
 
   return EXIT_DIFF;
+}
+
+/**
+ * 收集 skills 目錄內細項差異，用於摘要顯示
+ * @param {{label: string, status: string|null}} item
+ * @param {Record<string, {added: number, changed: number, deleted: number}>} summary
+ * @returns {boolean} 是否已收集為 skill 摘要
+ */
+function collectSkillDiffSummary(item, summary) {
+  if (!item.label.startsWith('claude/skills/') || item.status === null) return false;
+  const skill = item.label.split('/')[2];
+  if (!summary[skill]) summary[skill] = { added: 0, changed: 0, deleted: 0 };
+  if (item.status === 'new') summary[skill].added++;
+  else if (item.status === 'changed') summary[skill].changed++;
+  else if (item.status === 'deleted') summary[skill].deleted++;
+  return true;
+}
+
+/**
+ * 輸出單筆 diff 狀態
+ * @param {{label: string, status: string|null, verboseSrc?: string, verboseDest?: string, dest?: string}} item
+ * @param {ParsedArgs} opts
+ * @returns {boolean} 是否有差異
+ */
+function printDiffItem(item, opts) {
+  const statusMap = {
+    new: ['added', '本機有、repo 沒有'],
+    changed: ['changed', '有差異'],
+    eol: ['eol', '僅檔尾換行差異'],
+    deleted: ['deleted', 'repo 有、本機沒有'],
+  };
+  if (item.status === null) {
+    printStatusLine('ok', item.label);
+  } else if (statusMap[item.status]) {
+    printStatusLine(statusMap[item.status][0], item.label, statusMap[item.status][1]);
+  }
+  if (opts.verbose && item.verboseSrc) logVerbosePaths(item.verboseSrc, item.verboseDest || item.dest);
+  return item.status !== null;
+}
+
+/**
+ * 輸出 skill 差異摘要
+ * @param {Record<string, {added: number, changed: number, deleted: number}>} summary
+ */
+function printSkillDiffSummaries(summary) {
+  for (const [skill, counts] of Object.entries(summary)) {
+    const parts = [];
+    if (counts.added) parts.push(`+${counts.added}`);
+    if (counts.changed) parts.push(`~${counts.changed}`);
+    if (counts.deleted) parts.push(`-${counts.deleted}`);
+    const total = counts.added + counts.changed + counts.deleted;
+    const status = counts.deleted && !counts.added ? 'deleted' : 'added';
+    printStatusLine(status, `claude/skills/${skill}`, `${parts.join(' ')}  共 ${total} 個檔案`);
+  }
 }
 
 /**
@@ -2078,9 +2483,16 @@ if (require.main === module) {
     serializeSettings,
     loadStrippedSettings,
     getStrippedSettings,
+    parsePortableCodexConfig,
+    serializePortableCodexConfig,
+    mergePortableCodexConfig,
+    loadPortableCodexConfig,
+    getPortableCodexConfig,
     loadSkillsFromLock,
     DEVICE_FIELDS,
     DEVICE_ENV_KEYS,
+    CODEX_CONFIG_TOP_KEYS,
+    CODEX_CONFIG_SECTION_KEYS,
     SyncError,
     ERR,
     EXIT_OK,
