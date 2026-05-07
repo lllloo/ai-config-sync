@@ -19,6 +19,9 @@ enabled = true
 [plugins."github@openai-curated"]
 enabled = true
 
+[plugins."google-drive@openai-curated"]
+enabled = true
+
 [plugins."presentations@openai-primary-runtime"]
 enabled = true
 
