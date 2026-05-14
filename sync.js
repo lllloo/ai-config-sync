@@ -508,7 +508,14 @@ function getFiles(dir, base = '', rootReal) {
     throw toSyncFsError(e, dir, '讀取目錄');
   }
   if (!rootReal) {
-    try { rootReal = fs.realpathSync(dir); } catch (_) { rootReal = dir; }
+    // realpathSync 失敗會讓後續 isPathInside 防護失效（symlink 可能逃逸），
+    // 因此非 ENOENT 錯誤必須 throw，不靜默降級
+    try {
+      rootReal = fs.realpathSync(dir);
+    } catch (e) {
+      if (e.code === 'ENOENT') return [];
+      throw toSyncFsError(e, dir, '解析目錄真實路徑');
+    }
   }
   const result = [];
   for (const entry of entries) {
@@ -516,12 +523,25 @@ function getFiles(dir, base = '', rootReal) {
     const entryPath = path.join(dir, entry.name);
     if (entry.isSymbolicLink()) {
       // 先驗證 symlink 目標仍在根目錄內，避免把 repo 外的敏感檔同步進來
+      // ENOENT（broken link）靜默跳過；其他 IO 錯誤 warn 後跳過，方便排查
       let real;
-      try { real = fs.realpathSync(entryPath); } catch (_) { continue; }
+      try {
+        real = fs.realpathSync(entryPath);
+      } catch (e) {
+        if (e.code !== 'ENOENT') {
+          console.warn(col.yellow(`  [warn] 解析 symlink 失敗（${e.code}）：${toRelativePath(entryPath)}`));
+        }
+        continue;
+      }
       if (!isPathInside(real, rootReal)) continue;
       try {
         if (fs.statSync(entryPath).isDirectory()) continue;
-      } catch (_) { continue; }
+      } catch (e) {
+        if (e.code !== 'ENOENT') {
+          console.warn(col.yellow(`  [warn] 讀取 symlink 屬性失敗（${e.code}）：${toRelativePath(entryPath)}`));
+        }
+        continue;
+      }
     }
     const rel = base ? `${base}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
@@ -620,7 +640,13 @@ function cleanEmptyDirs(dir) {
       cleanEmptyDirs(sub);
       try {
         if (fs.readdirSync(sub).length === 0) fs.rmdirSync(sub);
-      } catch (_) { /* ignore */ }
+      } catch (e) {
+        // ENOENT（已被其他流程刪除）、ENOTEMPTY（race condition）為預期狀況；
+        // 其他錯誤（如 EACCES/EPERM）顯示 warn 便於排查
+        if (e.code !== 'ENOENT' && e.code !== 'ENOTEMPTY') {
+          console.warn(col.yellow(`  [warn] 清理空目錄失敗（${e.code}）：${toRelativePath(sub)}`));
+        }
+      }
     }
   }
 }
@@ -1386,8 +1412,9 @@ function appendSyncLog(direction, changes) {
       '',
     ].join('\n');
     fs.appendFileSync(SYNC_HISTORY_LOG, entry + '\n');
-  } catch (_) {
-    // 日誌寫入失敗不影響主流程
+  } catch (e) {
+    // 日誌寫入失敗不影響主流程，但需 warn 讓使用者察覺 audit trail 中斷
+    console.warn(col.yellow(`  [warn] 寫入同步日誌失敗（${e.code || 'unknown'}）：${toRelativePath(SYNC_HISTORY_LOG)}`));
   }
 }
 
@@ -1564,16 +1591,20 @@ function diffCodexConfigItem(item) {
   let tmpSrc = null;
   if (fs.existsSync(localPath)) {
     const portable = getPortableCodexConfig(localPath);
-    tmpSrc = path.join(os.tmpdir(), `sync-ai-codex-config-diff-${process.pid}.toml`);
-    registerTempFile(tmpSrc);
-    fs.writeFileSync(tmpSrc, portable);
-    if (!fs.existsSync(repoPath)) {
-      status = portable ? 'new' : null;
-    } else {
-      const repoBuf = fs.readFileSync(repoPath);
-      const portableBuf = Buffer.from(portable);
-      if (!repoBuf.equals(portableBuf)) {
-        status = isEolOnlyDiff(repoBuf, portableBuf) ? 'eol' : 'changed';
+    // portable 為 null 代表本機 config.toml 無可同步欄位，視同無差異
+    if (portable !== null) {
+      tmpSrc = path.join(os.tmpdir(), `sync-ai-codex-config-diff-${process.pid}.toml`);
+      registerTempFile(tmpSrc);
+      fs.writeFileSync(tmpSrc, portable);
+      if (!fs.existsSync(repoPath)) {
+        // 空字串也視為「新增」，避免 truthy 檢查吞掉 portable === '' 的合法新檔
+        status = 'new';
+      } else {
+        const repoBuf = fs.readFileSync(repoPath);
+        const portableBuf = Buffer.from(portable);
+        if (!repoBuf.equals(portableBuf)) {
+          status = isEolOnlyDiff(repoBuf, portableBuf) ? 'eol' : 'changed';
+        }
       }
     }
   }
@@ -2060,7 +2091,7 @@ async function runToLocal(opts) {
   const items = buildSyncItems('to-local');
   const diffResults = diffSyncItems(items, 'to-local');
 
-  if (!diffResults.some(d => d.status !== null)) {
+  if (diffResults.every(d => d.status === null)) {
     console.log(col.green('  本機與 repo 完全一致，無需套用\n'));
     return EXIT_OK;
   }
@@ -2374,8 +2405,11 @@ function readPackageJson() {
   const pkgPath = path.join(REPO_ROOT, 'package.json');
   try {
     return readJson(pkgPath);
-  } catch (_) {
-    return null;
+  } catch (e) {
+    // 檔案不存在視為 null（呼叫端會 fallback 為 'unknown'）；
+    // JSON parse / 權限等錯誤需重拋，避免靜默掩蓋 package.json 損壞
+    if (e instanceof SyncError && e.code === ERR.FILE_NOT_FOUND) return null;
+    throw e;
   }
 }
 
