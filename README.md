@@ -111,7 +111,7 @@ npm run to-local
 
 - `settings.json` 的 `model`、`effortLevel` 為裝置特定設定，to-repo 時自動排除，to-local 時保留本機值
 - `settings.json` 的 `env.OBSIDIAN_VAULT_ROOT` 同屬裝置特定（`DEVICE_ENV_KEYS`），同步時排除但保留本機值；`env` 其他 key（如 `EDITOR`）仍跨裝置同步
-- `codex/config.toml` 只同步可攜欄位：`personality`、`tui.status_line`、`features.memories`、`memories.generate_memories`、`memories.use_memories`、`plugins.*.enabled`
+- `codex/config.toml` 只同步可攜欄位：`personality`、`web_search`、`tui.status_line`、`features.memories`、`memories.generate_memories`、`memories.use_memories`、`plugins.*.enabled`
 - `codex/config.toml` 會排除 `model`、`model_reasoning_effort`、`projects.*`、`marketplaces.*`、`windows`、`tui.model_availability_nux` 與未知欄位；to-local 時保留本機未受管理欄位
 - `.agents/skills/` 是本地 skill 實體目錄，已納入版控；`.claude/skills` 與 `.codex/skills` 以 symlink 共用同一份來源
 - Claude agents 儲存於 `claude/agents/`，以 package 子目錄分組（`awesome-claude-code-subagents/`、`everything-claude-code/`）；Codex agents 儲存於 `codex/agents/`，同樣以 package 子目錄分組（`awesome-codex-subagents/`），Codex CLI 會遞迴掃描子目錄

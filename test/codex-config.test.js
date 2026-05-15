@@ -21,6 +21,7 @@ const { withTmpDir } = require('./helpers');
 const LOCAL_CONFIG = `model = "gpt-5.5"
 model_reasoning_effort = "medium"
 personality = "pragmatic"
+web_search = "live"
 
 [marketplaces.openai-bundled]
 last_updated = "2026-05-05T01:18:43Z"
@@ -53,6 +54,7 @@ use_memories = true
 `;
 
 const PORTABLE_CONFIG = `personality = "pragmatic"
+web_search = "live"
 
 [tui]
 status_line = ["model-with-reasoning", "project-name"]
@@ -90,6 +92,7 @@ test('serializePortableCodexConfig：輸出順序穩定且含結尾換行', () =
 
 test('mergePortableCodexConfig：to-local 保留本機 device 與未知欄位', () => {
   const repo = parsePortableCodexConfig(`personality = "focused"
+web_search = "cached"
 
 [tui]
 status_line = ["project-name"]
@@ -103,6 +106,7 @@ enabled = false
   assert.ok(merged.includes("[projects.'d:\\code\\sync-ai']"));
   assert.ok(merged.includes('trust_level = "trusted"'));
   assert.ok(merged.includes('personality = "focused"'));
+  assert.ok(merged.includes('web_search = "cached"'));
   assert.ok(merged.includes('status_line = ["project-name"]'));
   assert.ok(merged.includes('[plugins."github@openai-curated"]\nenabled = false'));
 });

@@ -38,7 +38,7 @@ const DEVICE_FIELDS = ['model', 'effortLevel'];
 const DEVICE_ENV_KEYS = ['OBSIDIAN_VAULT_ROOT'];
 
 /** Codex config.toml 中允許跨裝置同步的 top-level key */
-const CODEX_CONFIG_TOP_KEYS = ['personality'];
+const CODEX_CONFIG_TOP_KEYS = ['personality', 'web_search'];
 
 /** Codex config.toml 中允許跨裝置同步的固定 section key */
 const CODEX_CONFIG_SECTION_KEYS = {

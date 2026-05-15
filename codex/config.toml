@@ -1,4 +1,5 @@
 personality = "pragmatic"
+web_search = "live"
 
 [tui]
 status_line = ["model-with-reasoning", "project-name", "git-branch", "five-hour-limit", "weekly-limit"]
