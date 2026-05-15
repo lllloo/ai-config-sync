@@ -2,6 +2,8 @@
 
 跨裝置同步 Claude Code / Codex 設定的私有 Git repo 工具。
 
+**這是一個 GitHub Template**：點 [Use this template](https://github.com/) 建立自己的私有 repo，再執行 `npm run init` 清空作者範例後填入自己的設定。詳見下方「Fork 後初次設定」。
+
 **同步項目**：`~/.claude/CLAUDE.md`、`~/.claude/settings.json`、`~/.claude/statusline.sh`、全域 agents、全域 skills、全域 rules、`~/.codex/AGENTS.md`、`~/.codex/config.toml`（過濾版）、`~/.codex/agents/`
 
 > **目錄命名**：
@@ -53,6 +55,7 @@ npm test
 | `skills:diff` | `sd` |
 | `skills:add` | `sa` |
 | `skills:remove` | `sr` |
+| `init` | — |
 
 ### 旗標
 
@@ -71,11 +74,38 @@ node sync.js to-repo --dry-run
 node sync.js diff --verbose
 ```
 
+## Fork 後初次設定
+
+如果你是從 template 建立自己的 repo（而不是回到自己已有的設定 repo），執行以下流程清空作者範例：
+
+```bash
+# 1. 從 template 建立自己的 repo 後 clone
+git clone <your-new-repo-url>
+cd <your-new-repo>
+
+# 2. 清空作者個人內容為空骨架（會互動確認，可加 --dry-run 預覽）
+npm run init
+
+# 3. 修改 package.json 的 name 與 description 為你自己的
+# 4. 在主力機把本機現有設定推上 repo
+npm run to-repo
+git add . && git commit -m "init: my settings" && git push
+
+# 5. 其他裝置 clone 後直接 to-local 即可
+```
+
+`npm run init` 會：
+- 把 `claude/CLAUDE.md`、`codex/AGENTS.md`、`claude/settings.json`、`skills-lock.json` 重置為空骨架（由 `.example` 範本覆寫）
+- 刪除 `claude/rules/` 下作者個人化規則檔
+- **不會動** `claude/agents/`、`codex/agents/`、`claude/skills/`、`.agents/skills/`、`sync.js`、`test/`（這些對所有人都有用）
+
 ## 新裝置部署
+
+如果你已經完成 Fork 後初次設定，第二台之後的機器只要：
 
 ```bash
 git clone <your-repo-url>
-cd sync-ai
+cd <your-repo>
 npm run to-local
 ```
 
@@ -98,6 +128,10 @@ npm run to-local
 | `codex/config.toml` | 對應 `~/.codex/config.toml` 的可攜欄位（過濾版） |
 | `codex/agents/` | 對應 `~/.codex/agents/`（以 package 子目錄組織，`.toml` 格式） |
 | `skills-lock.json` | 全域 skills 清單（跨裝置 source of truth） |
+| `claude/CLAUDE.example.md` | Fork 後 `npm run init` 用的空骨架範本 |
+| `claude/settings.example.json` | 同上，設定檔範本（僅基本 permissions） |
+| `codex/AGENTS.example.md` | 同上，Codex 全域指示範本 |
+| `skills-lock.example.json` | 同上，空 skills 清單範本 |
 
 ## Exit Code
 

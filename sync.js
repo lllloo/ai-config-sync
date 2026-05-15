@@ -84,8 +84,31 @@ const COMMANDS = {
   'skills:diff':   { alias: 'sd', desc: '比對 skills 差異',                handler: null },
   'skills:add':    { alias: 'sa', desc: '新增 skill 到 skills-lock.json',  handler: null },
   'skills:remove': { alias: 'sr', desc: '從 skills-lock.json 移除 skill',  handler: null },
+  'init':        { alias: null, desc: '重置為空骨架（fork 後執行一次）',  handler: null },
   'help':        { alias: null, desc: '顯示此說明',                    handler: null },
 };
+
+/**
+ * Init 指令的檔案對應：把 .example 範本覆寫到正式檔
+ * @type {Array<{src: string, dest: string, type: 'json'|'text'}>}
+ */
+const INIT_FILE_MAP = [
+  { src: 'claude/settings.example.json', dest: 'claude/settings.json', type: 'json' },
+  { src: 'skills-lock.example.json',     dest: 'skills-lock.json',     type: 'json' },
+  { src: 'claude/CLAUDE.example.md',     dest: 'claude/CLAUDE.md',     type: 'text' },
+  { src: 'codex/AGENTS.example.md',      dest: 'codex/AGENTS.md',      type: 'text' },
+];
+
+/**
+ * Init 指令要刪除的個人化 rules 檔（相對 REPO_ROOT）
+ * @type {string[]}
+ */
+const INIT_RULES_TO_REMOVE = [
+  'claude/rules/bmad.md',
+  'claude/rules/nuxt4.md',
+  'claude/rules/obsidian.md',
+  'claude/rules/skill-writing.md',
+];
 
 /** 由 COMMANDS 自動建立的別名對應表 */
 const COMMAND_ALIASES = Object.fromEntries(
@@ -2312,6 +2335,84 @@ function printVersion() {
  * help 指令：顯示所有可用指令與說明
  * @returns {void}
  */
+// =============================================================================
+// Section: Init -- 重置為空骨架（給 fork 後使用者執行一次）
+// =============================================================================
+
+/**
+ * Init 指令：把 repo 內作者個人資料重置為空骨架
+ * 適用情境：使用 template 建立新 repo 後，第一次執行清空作者範例
+ * @param {ParsedArgs} opts
+ * @returns {Promise<number>}
+ */
+async function runInit(opts) {
+  console.log(col.bold('\n  sync-ai init'));
+  console.log(col.dim('  將下列項目重置為空骨架，方便填入自己的設定：'));
+  console.log('');
+
+  for (const item of INIT_FILE_MAP) {
+    const destAbs = path.join(REPO_ROOT, item.dest);
+    console.log(`    ${col.yellow('~')} ${toRelativePath(destAbs)}  ${col.dim('<- ' + item.src)}`);
+  }
+  for (const rel of INIT_RULES_TO_REMOVE) {
+    const full = path.join(REPO_ROOT, rel);
+    if (fs.existsSync(full)) {
+      console.log(`    ${col.red('-')} ${toRelativePath(full)}`);
+    }
+  }
+  console.log('');
+  console.log(col.dim('  不會動：claude/agents/、codex/agents/、claude/skills/、.agents/skills/、sync.js、test/'));
+  console.log('');
+
+  if (opts.dryRun) {
+    console.log(col.yellow('  [dry-run] 上述變更未實際執行'));
+    return EXIT_OK;
+  }
+
+  const ok = await askConfirm(col.bold('  確定要繼續？(y/N) '));
+  if (!ok) {
+    console.log(col.dim('  已取消'));
+    return EXIT_OK;
+  }
+
+  applyInitChanges();
+
+  console.log('');
+  console.log(col.bold('  下一步：'));
+  console.log(col.dim('    1. 改 package.json 的 name 與 description 為你自己的'));
+  console.log(col.dim('    2. 主力機執行 npm run to-repo 把本機設定推上 repo'));
+  console.log(col.dim('    3. git add . && git commit -m "init: my settings" && git push'));
+  console.log(col.dim('    4. 其他裝置 git clone 後執行 npm run to-local 套用'));
+  console.log('');
+  return EXIT_OK;
+}
+
+/**
+ * 套用 init 變更：複製 .example 覆寫正式檔、刪除個人 rules
+ * @returns {void}
+ */
+function applyInitChanges() {
+  for (const item of INIT_FILE_MAP) {
+    const srcAbs = path.join(REPO_ROOT, item.src);
+    const destAbs = path.join(REPO_ROOT, item.dest);
+    if (item.type === 'json') {
+      writeJsonSafe(destAbs, readJson(srcAbs));
+    } else {
+      writeTextSafe(destAbs, fs.readFileSync(srcAbs, 'utf8'));
+    }
+    console.log(`    ${col.green('✓')} ${toRelativePath(destAbs)}`);
+  }
+  for (const rel of INIT_RULES_TO_REMOVE) {
+    const full = path.join(REPO_ROOT, rel);
+    try {
+      fs.unlinkSync(full);
+      console.log(`    ${col.green('✓')} 已刪除 ${toRelativePath(full)}`);
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw toSyncFsError(e, full, '刪除');
+    }
+  }
+}
+
 function runHelp() {
   const pkg = readPackageJson();
   const version = pkg ? pkg.version : 'unknown';
@@ -2487,6 +2588,7 @@ function attachCommandHandlers() {
   COMMANDS['skills:diff'].handler = ()     => runSkillsDiff();
   COMMANDS['skills:add'].handler    = (opts) => runSkillsAdd(opts);
   COMMANDS['skills:remove'].handler = (opts) => runSkillsRemove(opts);
+  COMMANDS['init'].handler        = (opts) => runInit(opts);
   COMMANDS['help'].handler        = ()     => { runHelp(); return EXIT_OK; };
 }
 
@@ -2527,6 +2629,8 @@ if (require.main === module) {
     DEVICE_ENV_KEYS,
     CODEX_CONFIG_TOP_KEYS,
     CODEX_CONFIG_SECTION_KEYS,
+    INIT_FILE_MAP,
+    INIT_RULES_TO_REMOVE,
     SyncError,
     ERR,
     EXIT_OK,
