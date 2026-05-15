@@ -8,8 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 目錄命名（重要）
 
-- **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、agents、skills），由 `sync.js` 管理。
-- **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（目前僅 `agents/`，`.toml` 格式），由 `sync.js` 管理。
+- **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、statusline.sh、agents、commands、skills、rules），由 `sync.js` 管理。
+- **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（AGENTS.md、config.toml 過濾欄位、agents `.toml`），由 `sync.js` 管理。
 - **`.claude/`**（有點）— 本 repo 專用的 Claude Code 本地設定（`settings.json` 等），**不參與同步、不映射到 `~/.claude/`**。`.claude/skills` 是 symlink 指向 `../.agents/skills`。
 - **`.codex/`** — 對稱於 `.claude/` 的 Codex 本地設定，`.codex/skills` 同為 symlink 指向 `../.agents/skills`，與 Claude Code 共用同一份本地 skill 實體。
 - **`.agents/skills/`** — 本地 skill **實體目錄**（已納入版控），跨工具（Claude Code / Codex）共用來源；遵循 [Agent Skills](https://agentskills.io) 開放標準。
@@ -52,9 +52,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `claude/settings.json` | `~/.claude/settings.json` | **比對時 strip `model`、`effortLevel`（裝置特定欄位）** |
 | `claude/statusline.sh` | `~/.claude/statusline.sh` | 全文比對 |
 | `claude/agents/` | `~/.claude/agents/` | 以 package 子目錄組織（如 `awesome-claude-code-subagents/`） |
+| `claude/commands/` | `~/.claude/commands/` | 目錄鏡射 |
 | `claude/skills/` | `~/.claude/skills/` | 目錄鏡射 |
 | `claude/rules/` | `~/.claude/rules/` | 模組化全域規則（CLAUDE.md 的拆分檔），支援 frontmatter `paths:` 做 path-specific scoping |
 | `codex/AGENTS.md` | `~/.codex/AGENTS.md` | Codex 全域指示（跨專案規則），全文比對 |
+| `codex/config.toml` | `~/.codex/config.toml` | 僅同步可攜欄位（`personality`、`web_search`、`tui.status_line`、`features.memories`、`memories.*`、`plugins.*.enabled`）；裝置特定欄位與未知欄位保留本機值 |
 | `codex/agents/` | `~/.codex/agents/` | Codex `.toml` agents，以 package 子目錄組織（如 `awesome-codex-subagents/`）；Codex CLI 遞迴掃描子目錄載入 |
 
 ## 架構重點
@@ -70,7 +72,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Relative path 遮罩**：`toRelativePath` 處理 REPO_ROOT 與 `$HOME` → `~/`，`printFileDiff` 的 diff header 亦走此函式避免洩漏使用者名稱
 - **Skills lock 為純資料 manifest**：`skills-lock.json` 不參與同步流程；`runSkillsDiff` 透過 `npx skills list` 抓本機狀態做集合比對，**只輸出建議指令、不執行安裝/移除**。本機多裝的 skills 會同時列出（A）`npm run skills:add` 加入 repo 與（B）`npx skills remove` 從本機移除兩種選項
 
-**測試策略**：`test/` 下分四個檔案（`sync.test.js` 純函式、`settings.test.js` 設定欄位、`diff-integration.test.js` diff 整合、`boundary.test.js` 邊界情境），共用 helper 在 `test/helpers.js`。純函式測試含 `computeLineDiff`、`matchExclude`、`statusToStatsKey`、`parseSkillSource`、`parseArgs`、`toRelativePath`、`COMMANDS` 完整性。有 IO 的路徑靠 smoke test 人工驗證。若改純函式，**必須**同步更新 unit test，維持全數通過（視同 100% 覆蓋）。
+**測試策略**：`test/` 下分五個檔案（`sync.test.js` 純函式、`settings.test.js` 設定欄位、`codex-config.test.js` Codex config.toml 過濾、`diff-integration.test.js` diff 整合、`boundary.test.js` 邊界情境），共用 helper 在 `test/helpers.js`。純函式測試含 `computeLineDiff`、`matchExclude`、`statusToStatsKey`、`parseSkillSource`、`parseArgs`、`toRelativePath`、`COMMANDS` 完整性。有 IO 的路徑靠 smoke test 人工驗證。若改純函式，**必須**同步更新 unit test，維持全數通過（視同 100% 覆蓋）。
 
 ## 修改守則
 

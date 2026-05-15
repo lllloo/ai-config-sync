@@ -482,19 +482,28 @@ function ensureDir(dir) {
 function copyFile(src, dest, force = false, dryRun = false) {
   if (!fs.existsSync(src)) return false;
   checkReadAccess(src);
-  const srcContent = fs.readFileSync(src);
+  let srcContent;
+  try { srcContent = fs.readFileSync(src); }
+  catch (e) { throw toSyncFsError(e, src, '讀取'); }
 
   // dry-run 時一律比對內容，不受 force 影響
   if (dryRun) {
     if (!fs.existsSync(dest)) return true;
-    return !srcContent.equals(fs.readFileSync(dest));
+    try { return !srcContent.equals(fs.readFileSync(dest)); }
+    catch (e) { throw toSyncFsError(e, dest, '讀取'); }
   }
 
   // 非 dry-run：force 或內容不同才寫入
-  if (!force && fs.existsSync(dest) && srcContent.equals(fs.readFileSync(dest))) return false;
+  if (!force && fs.existsSync(dest)) {
+    let destContent;
+    try { destContent = fs.readFileSync(dest); }
+    catch (e) { throw toSyncFsError(e, dest, '讀取'); }
+    if (srcContent.equals(destContent)) return false;
+  }
   checkWriteAccess(dest);
   ensureDir(path.dirname(dest));
-  fs.writeFileSync(dest, srcContent);
+  try { fs.writeFileSync(dest, srcContent); }
+  catch (e) { throw toSyncFsError(e, dest, '寫入'); }
   return true;
 }
 
@@ -2219,6 +2228,39 @@ function runSkillsDiff() {
 }
 
 /**
+ * 驗證 skill name 格式：只允許英數、底線、點、連字號
+ * 防止換行、ANSI escape、控制字元造成 terminal log injection
+ * @param {string} name
+ * @throws {SyncError}
+ */
+function validateSkillName(name) {
+  if (!/^[A-Za-z0-9_.-]+$/.test(name)) {
+    throw new SyncError(
+      'skill name 含非法字元（僅允許英數、底線、點、連字號）',
+      ERR.INVALID_ARGS,
+      { name },
+    );
+  }
+}
+
+/**
+ * 驗證 skill source 格式：禁止控制字元、空白、ANSI escape
+ * 防止 terminal log injection 與誤導性建議指令
+ * @param {string} source
+ * @throws {SyncError}
+ */
+function validateSkillSource(source) {
+  // \x00-\x1f 涵蓋 \n \r \t \x1b（ESC）等控制字元；空白與 \x7f（DEL）一併禁止
+  if (/[\x00-\x20\x7f]/.test(source)) {
+    throw new SyncError(
+      'skill source 含非法字元（控制字元或空白）',
+      ERR.INVALID_ARGS,
+      { source },
+    );
+  }
+}
+
+/**
  * 解析 skill 來源引數，回傳 name 與 source
  * @param {ParsedArgs} opts - CLI 引數
  * @returns {{name: string, source: string}}
@@ -2236,7 +2278,7 @@ function parseSkillSource(opts) {
   }
 
   if (arg1.startsWith('https://skills.sh/')) {
-    const parts = arg1.replace('https://skills.sh/', '').split('/');
+    const parts = arg1.replace('https://skills.sh/', '').split('/').filter(Boolean);
     if (parts.length < 3) {
       throw new SyncError(
         '無法解析 skills.sh URL，格式應為 https://skills.sh/<org>/<repo>/<skill>',
@@ -2244,10 +2286,16 @@ function parseSkillSource(opts) {
         { url: arg1 },
       );
     }
-    return { name: parts[2], source: `${parts[0]}/${parts[1]}` };
+    const name = parts[2];
+    const source = `${parts[0]}/${parts[1]}`;
+    validateSkillName(name);
+    validateSkillSource(source);
+    return { name, source };
   }
 
   if (arg1 && arg2) {
+    validateSkillName(arg1);
+    validateSkillSource(arg2);
     return { name: arg1, source: arg2 };
   }
 
@@ -2398,7 +2446,10 @@ function applyInitChanges() {
     if (item.type === 'json') {
       writeJsonSafe(destAbs, readJson(srcAbs));
     } else {
-      writeTextSafe(destAbs, fs.readFileSync(srcAbs, 'utf8'));
+      let content;
+      try { content = fs.readFileSync(srcAbs, 'utf8'); }
+      catch (e) { throw toSyncFsError(e, srcAbs, '讀取範本'); }
+      writeTextSafe(destAbs, content);
     }
     console.log(`    ${col.green('✓')} ${toRelativePath(destAbs)}`);
   }

@@ -135,6 +135,34 @@ test('parseSkillSource：單一非 URL 引數應丟錯', () => {
   );
 });
 
+test('parseSkillSource：name 含換行應丟錯（log injection 防護）', () => {
+  assert.throws(
+    () => parseSkillSource({ extraArgs: ['evil\nname', 'org/repo'] }),
+    (err) => err instanceof SyncError && err.code === ERR.INVALID_ARGS,
+  );
+});
+
+test('parseSkillSource：source 含換行應丟錯（log injection 防護）', () => {
+  assert.throws(
+    () => parseSkillSource({ extraArgs: ['my-skill', 'org/repo\nrm -rf'] }),
+    (err) => err instanceof SyncError && err.code === ERR.INVALID_ARGS,
+  );
+});
+
+test('parseSkillSource：source 含 ANSI escape 應丟錯', () => {
+  assert.throws(
+    () => parseSkillSource({ extraArgs: ['my-skill', 'org/repo\x1b[31m'] }),
+    (err) => err instanceof SyncError && err.code === ERR.INVALID_ARGS,
+  );
+});
+
+test('parseSkillSource：name 含特殊字元應丟錯', () => {
+  assert.throws(
+    () => parseSkillSource({ extraArgs: ['my skill', 'org/repo'] }),
+    (err) => err instanceof SyncError && err.code === ERR.INVALID_ARGS,
+  );
+});
+
 // -----------------------------------------------------------------------------
 // parseArgs（透過 mutate process.argv）
 // -----------------------------------------------------------------------------

@@ -196,9 +196,8 @@ test('parseSkillSource：URL 有尾部斜線仍可解析', () => {
   const result = parseSkillSource({
     extraArgs: ['https://skills.sh/org/repo/skill/'],
   });
-  // 尾部斜線可能產生空 segment，看實作是否能處理
-  // 若拋錯也合理（格式不標準），這裡測試不 crash
-  assert.ok(result.name || true);
+  assert.equal(result.name, 'skill');
+  assert.equal(result.source, 'org/repo');
 });
 
 test('parseSkillSource：URL 有多餘路徑段', () => {
