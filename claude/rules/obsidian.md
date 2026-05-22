@@ -30,3 +30,12 @@
 ```
 
 禁止不請自來寫 vault；建檔一律由用戶用 `/ob` 觸發。
+
+## Windows obsidian CLI 呼叫
+
+CLI = `C:\Program Files\Obsidian\Obsidian.com`（terminal redirector，1.12.7+ 隨桌面 app 內建，需在 Obsidian → 設定 → General 啟用「Command line interface」並重開 terminal），呼叫方式因 shell 而異：
+
+- **PowerShell**：認 `.com` 經 `PATHEXT`，`obsidian <cmd>` 可直接用 → **Windows 預設用此**
+- **Git Bash**：不認 `.com`，`obsidian` 會 not found。改用顯式 `Obsidian.com <cmd>` 或 `powershell.exe -Command "obsidian ..."`
+- **Claude Code session**：啟動時 snapshot PATH；新裝 CLI 後**這個 session 看不到**，要重開才生效
+- CLI 偵測失敗時 `/ob` skill 自動 fallback Write/Edit（提醒用戶在 Obsidian 按 `Ctrl+P → Reload app without saving`）

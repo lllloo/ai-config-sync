@@ -2,7 +2,7 @@ personality = "pragmatic"
 web_search = "live"
 
 [tui]
-status_line = ["model-with-reasoning", "project-name", "git-branch", "five-hour-limit", "weekly-limit"]
+status_line = [ "model-with-reasoning", "project-name", "git-branch", "five-hour-limit", "weekly-limit" ]
 
 [features]
 memories = true
@@ -12,6 +12,9 @@ generate_memories = true
 use_memories = true
 
 [plugins."browser-use@openai-bundled"]
+enabled = true
+
+[plugins."browser@openai-bundled"]
 enabled = true
 
 [plugins."documents@openai-primary-runtime"]
