@@ -27,7 +27,7 @@
 | [#155 project 安裝未被 lock 追蹤](https://github.com/vercel-labs/skills/issues/155) | Open | 2026-05-08 | 與本 repo 全域同步設計無直接衝突，僅參考 |
 | [#666 `experimental_install` 把 `https://` 砍掉](https://github.com/vercel-labs/skills/issues/666) | Open bug | 2026-03-16 | 若改採 `experimental_install` 橋接需處理 |
 | [#1005 `experimental_install` strip subpath](https://github.com/vercel-labs/skills/issues/1005) | Open bug | 2026-04-27 | 同上 |
-| [#132 .skills 版控檔跨裝置](https://github.com/vercel-labs/skills/issues/132) | Closed 2026-01-30（completed） | 2026-02-16 | 維護者以「已由 `~/.agents/.skills-lock.json` 提供」為由關閉，但未解決跨裝置還原 |
+| [#132 .skills 版控檔跨裝置](https://github.com/vercel-labs/skills/issues/132) | Closed 2026-01-30（completed） | 2026-02-16 | 維護者以「已由 `~/.agents/.skill-lock.json` 提供」為由關閉，但未解決跨裝置還原 |
 | [#937 merge skills-npm features into experimental_sync](https://github.com/vercel-labs/skills/pull/937) | Open PR | 2026-04-17 | 相關但非直接解決 |
 
 **目前可用的 workaround（社群回報）：**
