@@ -34,9 +34,6 @@ const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
 /** settings.json 中各裝置獨立的欄位，同步時排除 */
 const DEVICE_FIELDS = ['model', 'effortLevel'];
 
-/** settings.json `env` 物件中各裝置獨立的 key，同步時排除（to-local 套用時保留本機值） */
-const DEVICE_ENV_KEYS = ['OBSIDIAN_VAULT_ROOT'];
-
 /** Codex config.toml 中允許跨裝置同步的 top-level key */
 const CODEX_CONFIG_TOP_KEYS = ['personality', 'web_search'];
 
@@ -1039,37 +1036,20 @@ function loadStrippedSettings(filePath) {
   if (!fs.existsSync(filePath)) return null;
   const data = readJson(filePath);
   for (const field of DEVICE_FIELDS) delete data[field];
-  stripDeviceEnvKeys(data);
   return { clean: data, serialized: serializeSettings(data) };
 }
 
 /**
- * 從 settings 物件 mutate 掉 `env` 下的裝置特定 key；env 清空後整個刪除
- * @param {Record<string, unknown>} data
- */
-function stripDeviceEnvKeys(data) {
-  if (!data.env || typeof data.env !== 'object') return;
-  for (const key of DEVICE_ENV_KEYS) delete data.env[key];
-  if (Object.keys(data.env).length === 0) delete data.env;
-}
-
-/**
- * 從 local settings 萃取裝置特定欄位與 env key（供 to-local 套用時保留）
+ * 從 local settings 萃取裝置特定欄位（供 to-local 套用時保留）
  * @param {Record<string, unknown>} local
- * @returns {{ deviceValues: Record<string, unknown>, envPreserve: Record<string, unknown> }}
+ * @returns {{ deviceValues: Record<string, unknown> }}
  */
 function extractDeviceValues(local) {
   const deviceValues = {};
   for (const field of DEVICE_FIELDS) {
     if (local[field] !== undefined) deviceValues[field] = local[field];
   }
-  const envPreserve = {};
-  if (local.env && typeof local.env === 'object') {
-    for (const key of DEVICE_ENV_KEYS) {
-      if (local.env[key] !== undefined) envPreserve[key] = local.env[key];
-    }
-  }
-  return { deviceValues, envPreserve };
+  return { deviceValues };
 }
 
 /**
@@ -1117,11 +1097,8 @@ function mergeSettingsJson(direction, dryRun = false) {
 
     if (dryRun) return true;
     const local = fs.existsSync(localPath) ? readJson(localPath) : {};
-    const { deviceValues, envPreserve } = extractDeviceValues(local);
+    const { deviceValues } = extractDeviceValues(local);
     const merged = { ...repo, ...deviceValues };
-    if (Object.keys(envPreserve).length > 0) {
-      merged.env = { ...(repo.env || {}), ...envPreserve };
-    }
     writeJsonSafe(localPath, merged);
     return true;
   }
@@ -2676,8 +2653,8 @@ if (require.main === module) {
     loadPortableCodexConfig,
     getPortableCodexConfig,
     loadSkillsFromLock,
+    extractDeviceValues,
     DEVICE_FIELDS,
-    DEVICE_ENV_KEYS,
     CODEX_CONFIG_TOP_KEYS,
     CODEX_CONFIG_SECTION_KEYS,
     INIT_FILE_MAP,

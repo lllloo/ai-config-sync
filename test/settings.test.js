@@ -16,8 +16,8 @@ const {
   serializeSettings,
   loadStrippedSettings,
   getStrippedSettings,
+  extractDeviceValues,
   DEVICE_FIELDS,
-  DEVICE_ENV_KEYS,
 } = require('../sync.js');
 const { withTmpDir } = require('./helpers');
 
@@ -89,40 +89,37 @@ test('loadStrippedSettings：無 DEVICE_FIELDS 時保持原樣', () => {
 });
 
 // -----------------------------------------------------------------------------
-// DEVICE_ENV_KEYS：env 子欄位的裝置特定 key 排除
+// env 欄位同步：env 內所有 key 皆跨裝置同步，不再有裝置特定排除
 // -----------------------------------------------------------------------------
-test('DEVICE_ENV_KEYS 含 OBSIDIAN_VAULT_ROOT', () => {
-  assert.ok(DEVICE_ENV_KEYS.includes('OBSIDIAN_VAULT_ROOT'));
-});
-
-test('loadStrippedSettings：移除 env 下所有 DEVICE_ENV_KEYS，保留共用 env key', () => {
+test('loadStrippedSettings：env 內所有 key 保留不被剝除', () => {
   withTmpDir((dir) => {
     const fp = path.join(dir, 'settings.json');
     writeJson(fp, {
-      env: { SHARED: '1', OBSIDIAN_VAULT_ROOT: '/some/path' },
+      env: { EDITOR: 'nvim', MY_KEY: 'value' },
       permissions: ['a'],
     });
 
     const result = loadStrippedSettings(fp);
-    for (const key of DEVICE_ENV_KEYS) {
-      assert.ok(!(key in (result.clean.env || {})), `${key} 應從 env 移除`);
-    }
-    assert.deepEqual(result.clean, { env: { SHARED: '1' }, permissions: ['a'] });
+    assert.deepEqual(result.clean, { env: { EDITOR: 'nvim', MY_KEY: 'value' }, permissions: ['a'] });
   });
 });
 
-test('loadStrippedSettings：env 僅含裝置 key 時整個 env 被刪除', () => {
-  withTmpDir((dir) => {
-    const fp = path.join(dir, 'settings.json');
-    writeJson(fp, {
-      env: { OBSIDIAN_VAULT_ROOT: '/x' },
-      permissions: ['a'],
-    });
+test('extractDeviceValues：只回傳 DEVICE_FIELDS 值，不含 env 欄位', () => {
+  const local = {
+    model: 'opus',
+    effortLevel: 'high',
+    env: { EDITOR: 'nvim' },
+    permissions: ['a'],
+  };
+  const { deviceValues } = extractDeviceValues(local);
+  assert.deepEqual(deviceValues, { model: 'opus', effortLevel: 'high' });
+  assert.ok(!('env' in deviceValues), 'deviceValues 不應含 env');
+  assert.ok(!('envPreserve' in extractDeviceValues(local)), '回傳值不應含 envPreserve');
+});
 
-    const result = loadStrippedSettings(fp);
-    assert.ok(!('env' in result.clean), 'env 清空後應整個刪除');
-    assert.deepEqual(result.clean, { permissions: ['a'] });
-  });
+test('extractDeviceValues：local 無 DEVICE_FIELDS 時回傳空 deviceValues', () => {
+  const { deviceValues } = extractDeviceValues({ env: { X: '1' } });
+  assert.deepEqual(deviceValues, {});
 });
 
 test('loadStrippedSettings：env 不存在時不報錯', () => {

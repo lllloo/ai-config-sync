@@ -81,7 +81,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **函式行數守則**：新增或重構後若某函式 > 60 行，需拆分（`buildSyncItems` 54 行為宣告式陣列，例外）。
 - **禁止新增外部相依**：所有功能必須使用 Node.js 內建模組，不得 `npm install` 任何套件。
 - **settings.json 裝置特定欄位**（`model`、`effortLevel`）若要增減，需同步改 `DEVICE_FIELDS` 常數與 README 注意事項。
-- **settings.json `env` 子欄位裝置特定 key**（如 `OBSIDIAN_VAULT_ROOT`）若要增減，需同步改 `DEVICE_ENV_KEYS` 常數、測試與 README；`env` 其他 key 仍跨裝置同步。
 - **構建規則**（來自全域 CLAUDE.md）：禁擅自執行 `npm run build`。
 - **嚴禁洩漏敏感資訊**：輸出、log、diff 內容中不得出現 API Key、token 或完整使用者路徑。
 
