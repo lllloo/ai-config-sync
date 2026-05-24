@@ -4,7 +4,7 @@ paths: **/skills/**
 
 # Skill 寫作原則
 
-**核心**：skill 自包含跨工具可用，不綁 Claude Code 專屬機制，規則不在多處重複。
+**核心**：憲法級／跨 skill 共用規則集中在 `CLAUDE.md`（有 `AGENTS.md` symlink，Cursor / Codex / Gemini CLI 等啟動時也讀得到）。SKILL.md 主流程靠這份憲法，只寫該 skill 自己的程序——**不重述憲法、不寫「見 CLAUDE.md」指回**。唯 `references/*.md`（subagent prompt）需自包含：subagent 不保證載入 AGENTS.md。不綁 Claude Code 專屬機制，規則不在多處重複。
 
 **通則**：description 寫法、frontmatter 規格、progressive disclosure 等請依 `/skill-creator` 與 [Anthropic 官方 best-practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)，本檔不重複。
 
@@ -13,6 +13,8 @@ paths: **/skills/**
 - subagent 一律 `Agent` + `subagent_type: "general-purpose"`，prompt = `references/*.md` 全文 + 本次需求（不要叫 subagent 自己 Read）
 - 工具限制等規則寫在 references 正文，自包含、不引用命名 agent
 - 補 fallback 條款：「無 Agent 工具時主 agent 直接 Read references 跑同一流程」
+- SKILL.md 主流程不寫憲法級規則（不自動 commit、通用 wikilink/frontmatter、卡片盒升級流程等）——這些在 `CLAUDE.md`，不重述也不指回
+- 但 subagent 經 `references/*.md` 執行時要遵守的寫作規則（繁中、時間抗性等）必須在該 prompt 內可達（inline 或叫它先讀 AGENTS.md），不能只靠 AGENTS.md
 
 **跨工具可移植性（避免）**：
 
