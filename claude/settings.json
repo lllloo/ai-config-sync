@@ -53,6 +53,36 @@
     "command": "bash ~/.claude/statusline.sh"
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe",
+            "args": [
+              "-NoProfile",
+              "-Command",
+              "$e=[char]27;$b=[char]7;@{terminalSequence=\"$e]9;4;0;0$b\"}|ConvertTo-Json -Compress"
+            ]
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe",
+            "args": [
+              "-NoProfile",
+              "-Command",
+              "$e=[char]27;$b=[char]7;@{terminalSequence=\"$e]9;4;3;0$b\"}|ConvertTo-Json -Compress"
+            ]
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
@@ -62,7 +92,7 @@
             "args": [
               "-NoProfile",
               "-Command",
-              "@{terminalSequence=[char]7}|ConvertTo-Json -Compress"
+              "$e=[char]27;$b=[char]7;@{terminalSequence=\"$e]9;4;0;0$b\"}|ConvertTo-Json -Compress"
             ]
           }
         ]
