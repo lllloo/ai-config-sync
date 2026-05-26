@@ -60,6 +60,22 @@
           }
         ]
       }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe",
+            "args": [
+              "-NoProfile",
+              "-Command",
+              "$e=[char]27;$b=[char]7;@{terminalSequence=\"$e]9;4;4;100$b\"}|ConvertTo-Json -Compress"
+            ]
+          }
+        ]
+      }
     ]
   },
   "enabledPlugins": {
