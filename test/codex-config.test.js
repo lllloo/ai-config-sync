@@ -47,6 +47,7 @@ sandbox = "unelevated"
 
 [features]
 memories = true
+goals = true
 
 [memories]
 generate_memories = true
@@ -61,6 +62,7 @@ status_line = ["model-with-reasoning", "project-name"]
 
 [features]
 memories = true
+goals = true
 
 [memories]
 generate_memories = true
