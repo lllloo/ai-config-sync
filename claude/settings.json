@@ -21,12 +21,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe",
-            "args": [
-              "-NoProfile",
-              "-Command",
-              "$e=[char]27;$b=[char]7;@{terminalSequence=\"$e]9;4;0;0$b\"}|ConvertTo-Json -Compress"
-            ]
+            "command": "printf '%s' '{\"terminalSequence\":\"\\u001b]9;4;0;0\\u0007\"}'"
           }
         ]
       }
@@ -36,12 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe",
-            "args": [
-              "-NoProfile",
-              "-Command",
-              "$e=[char]27;$b=[char]7;@{terminalSequence=\"$e]9;4;3;0$b\"}|ConvertTo-Json -Compress"
-            ]
+            "command": "printf '%s' '{\"terminalSequence\":\"\\u001b]9;4;3;0\\u0007\"}'"
           }
         ]
       }
@@ -51,12 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe",
-            "args": [
-              "-NoProfile",
-              "-Command",
-              "$e=[char]27;$b=[char]7;@{terminalSequence=\"$e]9;4;0;0$b\"}|ConvertTo-Json -Compress"
-            ]
+            "command": "printf '%s' '{\"terminalSequence\":\"\\u001b]9;4;0;0\\u0007\"}'"
           }
         ]
       }
@@ -67,12 +52,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe",
-            "args": [
-              "-NoProfile",
-              "-Command",
-              "$e=[char]27;$b=[char]7;@{terminalSequence=\"$e]9;4;4;100$b\"}|ConvertTo-Json -Compress"
-            ]
+            "command": "printf '%s' '{\"terminalSequence\":\"\\u001b]9;4;4;100\\u0007\"}'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '%s' '{\"terminalSequence\":\"\\u001b]9;4;3;0\\u0007\"}'"
           }
         ]
       }
