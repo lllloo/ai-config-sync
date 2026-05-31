@@ -6,7 +6,6 @@ status_line = [ "model-with-reasoning", "project-name", "git-branch", "five-hour
 
 [features]
 memories = true
-goals = true
 
 [memories]
 generate_memories = true
@@ -16,6 +15,9 @@ use_memories = true
 enabled = true
 
 [plugins."browser@openai-bundled"]
+enabled = true
+
+[plugins."chrome@openai-bundled"]
 enabled = true
 
 [plugins."documents@openai-primary-runtime"]

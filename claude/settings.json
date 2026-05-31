@@ -4,7 +4,44 @@
     "EDITOR": "code --wait"
   },
   "permissions": {
-    "allow": [],
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(cd:*)",
+      "Bash(cp:*)",
+      "Bash(date:*)",
+      "Bash(du:*)",
+      "Bash(echo:*)",
+      "Bash(find*)",
+      "Bash(grep:*)",
+      "Bash(head:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(sort:*)",
+      "Bash(tail:*)",
+      "Bash(tr:*)",
+      "Bash(wc:*)",
+      "Bash(git:*)",
+      "Bash(gh api:*)",
+      "Bash(gh repo:*)",
+      "Bash(node *)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(npx skills:*)",
+      "Bash(npx playwright:*)",
+      "Bash(python3:*)",
+      "Bash(docker-compose exec:*)",
+      "Bash(docker-compose logs:*)",
+      "Bash(code --wait *)",
+      "Bash(obsidian:*)",
+      "Bash(~/.claude/CLAUDE.md:*)",
+      "WebFetch(*)",
+      "WebSearch",
+      "Bash(defuddle parse *)",
+      "mcp__claude-in-chrome__get_page_text",
+      "mcp__claude-in-chrome__read_page",
+      "mcp__claude-in-chrome__tabs_context_mcp",
+      "mcp__pencil"
+    ],
     "deny": [],
     "ask": [
       "Bash(git push:*)"
@@ -14,59 +51,6 @@
   "statusLine": {
     "type": "command",
     "command": "bash ~/.claude/statusline.sh"
-  },
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "printf '%s' '{\"terminalSequence\":\"\\u001b]9;4;0;0\\u0007\"}'"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "printf '%s' '{\"terminalSequence\":\"\\u001b]9;4;3;0\\u0007\"}'"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "printf '%s' '{\"terminalSequence\":\"\\u001b]9;4;0;0\\u0007\"}'"
-          }
-        ]
-      }
-    ],
-    "Notification": [
-      {
-        "matcher": "permission_prompt",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "printf '%s' '{\"terminalSequence\":\"\\u001b]9;4;4;100\\u0007\"}'"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "printf '%s' '{\"terminalSequence\":\"\\u001b]9;4;3;0\\u0007\"}'"
-          }
-        ]
-      }
-    ]
   },
   "enabledPlugins": {
     "codex@openai-codex": true
@@ -83,5 +67,7 @@
   "spinnerTipsEnabled": false,
   "autoUpdatesChannel": "latest",
   "skipDangerousModePermissionPrompt": true,
-  "skipAutoPermissionPrompt": true
+  "autoCompactEnabled": true,
+  "skipAutoPermissionPrompt": true,
+  "enableWorkflows": true
 }
