@@ -17,6 +17,7 @@ const {
   loadStrippedSettings,
   getStrippedSettings,
   extractDeviceValues,
+  mergeDeviceValues,
   DEVICE_FIELDS,
 } = require('../sync.js');
 const { withTmpDir } = require('./helpers');
@@ -53,18 +54,25 @@ test('loadStrippedSettings：檔案不存在回傳 null', () => {
   assert.equal(result, null);
 });
 
-test('loadStrippedSettings：移除所有 DEVICE_FIELDS', () => {
+test('loadStrippedSettings：移除所有 DEVICE_FIELDS（含 dot-notation 巢狀 key）', () => {
   withTmpDir((dir) => {
     const fp = path.join(dir, 'settings.json');
-    const original = { permissions: ['a'], model: 'opus', effortLevel: 'high' };
-    writeJson(fp, original);
+    writeJson(fp, {
+      permissions: ['a'],
+      model: 'opus',
+      effortLevel: 'high',
+      defaultShell: 'powershell',
+      env: { EDITOR: 'code --wait', CLAUDE_CODE_USE_POWERSHELL_TOOL: '1' },
+    });
 
     const result = loadStrippedSettings(fp);
     assert.ok(result, '應回傳 { clean, serialized }');
-    for (const field of DEVICE_FIELDS) {
-      assert.ok(!(field in result.clean), `${field} 應被移除`);
-    }
-    assert.deepEqual(result.clean, { permissions: ['a'] });
+    assert.ok(!('model' in result.clean), 'model 應被移除');
+    assert.ok(!('effortLevel' in result.clean), 'effortLevel 應被移除');
+    assert.ok(!('defaultShell' in result.clean), 'defaultShell 應被移除');
+    assert.ok(!('CLAUDE_CODE_USE_POWERSHELL_TOOL' in (result.clean.env ?? {})),
+      'env.CLAUDE_CODE_USE_POWERSHELL_TOOL 應被移除');
+    assert.deepEqual(result.clean, { permissions: ['a'], env: { EDITOR: 'code --wait' } });
   });
 });
 
@@ -89,13 +97,13 @@ test('loadStrippedSettings：無 DEVICE_FIELDS 時保持原樣', () => {
 });
 
 // -----------------------------------------------------------------------------
-// env 欄位同步：env 內所有 key 皆跨裝置同步，不再有裝置特定排除
+// env 欄位同步：非裝置特定 env key 跨裝置同步；裝置特定 env key（dot-notation）排除
 // -----------------------------------------------------------------------------
-test('loadStrippedSettings：env 內所有 key 保留不被剝除', () => {
+test('loadStrippedSettings：env 非裝置特定 key 保留，裝置特定 key 剝除', () => {
   withTmpDir((dir) => {
     const fp = path.join(dir, 'settings.json');
     writeJson(fp, {
-      env: { EDITOR: 'nvim', MY_KEY: 'value' },
+      env: { EDITOR: 'nvim', MY_KEY: 'value', CLAUDE_CODE_USE_POWERSHELL_TOOL: '1' },
       permissions: ['a'],
     });
 
@@ -104,17 +112,22 @@ test('loadStrippedSettings：env 內所有 key 保留不被剝除', () => {
   });
 });
 
-test('extractDeviceValues：只回傳 DEVICE_FIELDS 值，不含 env 欄位', () => {
+test('extractDeviceValues：回傳 top-level 及 dot-notation DEVICE_FIELDS 值', () => {
   const local = {
     model: 'opus',
     effortLevel: 'high',
-    env: { EDITOR: 'nvim' },
+    defaultShell: 'powershell',
+    env: { EDITOR: 'nvim', CLAUDE_CODE_USE_POWERSHELL_TOOL: '1' },
     permissions: ['a'],
   };
   const { deviceValues } = extractDeviceValues(local);
-  assert.deepEqual(deviceValues, { model: 'opus', effortLevel: 'high' });
-  assert.ok(!('env' in deviceValues), 'deviceValues 不應含 env');
-  assert.ok(!('envPreserve' in extractDeviceValues(local)), '回傳值不應含 envPreserve');
+  assert.deepEqual(deviceValues, {
+    model: 'opus',
+    effortLevel: 'high',
+    defaultShell: 'powershell',
+    env: { CLAUDE_CODE_USE_POWERSHELL_TOOL: '1' },
+  });
+  assert.ok(!('permissions' in deviceValues), 'permissions 不應在 deviceValues');
 });
 
 test('extractDeviceValues：local 無 DEVICE_FIELDS 時回傳空 deviceValues', () => {
@@ -176,11 +189,18 @@ test('回歸：to-local 比對 — 相同內容（僅 device fields 不同）應
     // repo 不含 device fields，內容其餘相同
     writeJson(repoPath, { permissions: ['Bash(ls)'] });
 
-    // 模擬 mergeSettingsJson(to-local) 的比對邏輯
+    // 模擬 mergeSettingsJson(to-local) 的比對邏輯（需處理 dot-notation DEVICE_FIELDS）
     const repo = JSON.parse(fs.readFileSync(repoPath, 'utf8'));
     const local = JSON.parse(fs.readFileSync(localPath, 'utf8'));
     const localClean = { ...local };
-    for (const field of DEVICE_FIELDS) delete localClean[field];
+    for (const field of DEVICE_FIELDS) {
+      if (field.includes('.')) {
+        const [obj, key] = field.split('.');
+        if (localClean[obj]) delete localClean[obj][key];
+      } else {
+        delete localClean[field];
+      }
+    }
 
     // 兩邊都用 serializeSettings，必須相等（這是 #3 fix 的核心）
     assert.equal(
@@ -189,6 +209,34 @@ test('回歸：to-local 比對 — 相同內容（僅 device fields 不同）應
       'to-local 不應因結尾換行差異誤判為 changed',
     );
   });
+});
+
+// -----------------------------------------------------------------------------
+// mergeDeviceValues：to-local 合併，巢狀 env 物件 shallow merge
+// -----------------------------------------------------------------------------
+test('mergeDeviceValues：env 巢狀 key 不覆蓋 repo 的其他 env key', () => {
+  const repo = { env: { EDITOR: 'code --wait' }, permissions: ['a'] };
+  const deviceValues = { env: { CLAUDE_CODE_USE_POWERSHELL_TOOL: '1' } };
+  const merged = mergeDeviceValues(repo, deviceValues);
+  assert.deepEqual(merged, {
+    env: { EDITOR: 'code --wait', CLAUDE_CODE_USE_POWERSHELL_TOOL: '1' },
+    permissions: ['a'],
+  });
+});
+
+test('mergeDeviceValues：top-level deviceValues 覆蓋 repo 對應欄位', () => {
+  const repo = { defaultShell: 'zsh', permissions: ['a'] };
+  const deviceValues = { defaultShell: 'powershell' };
+  const merged = mergeDeviceValues(repo, deviceValues);
+  assert.equal(merged.defaultShell, 'powershell');
+  assert.deepEqual(merged.permissions, ['a']);
+});
+
+test('mergeDeviceValues：deviceValues 為空時回傳 repo 副本', () => {
+  const repo = { env: { EDITOR: 'vim' }, permissions: ['a'] };
+  const merged = mergeDeviceValues(repo, {});
+  assert.deepEqual(merged, repo);
+  assert.ok(merged !== repo, '應為新物件，非原始 reference');
 });
 
 test('回歸：to-repo 寫入後再讀回，與 loadStrippedSettings.serialized 完全相符', () => {

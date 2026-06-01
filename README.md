@@ -143,7 +143,7 @@ npm run to-local
 
 ## 注意事項
 
-- `settings.json` 的 `model`、`effortLevel` 為裝置特定設定，to-repo 時自動排除，to-local 時保留本機值；`env` 其他 key 皆跨裝置同步
+- `settings.json` 的 `model`、`effortLevel`、`defaultShell`、`env.CLAUDE_CODE_USE_POWERSHELL_TOOL` 為裝置特定設定，to-repo 時自動排除，to-local 時保留本機值；`env` 其他 key 皆跨裝置同步
 - `codex/config.toml` 只同步可攜欄位：`personality`、`web_search`、`tui.status_line`、`features.memories`、`features.goals`、`memories.generate_memories`、`memories.use_memories`、`plugins.*.enabled`
 - `codex/config.toml` 會排除 `model`、`model_reasoning_effort`、`projects.*`、`marketplaces.*`、`windows`、`tui.model_availability_nux` 與未知欄位；to-local 時保留本機未受管理欄位
 - `.agents/skills/` 是本地 skill 實體目錄，已納入版控；`.claude/skills` 與 `.codex/skills` 以 symlink 共用同一份來源

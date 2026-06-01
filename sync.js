@@ -32,7 +32,7 @@ const SYNC_HISTORY_LOG = path.join(REPO_ROOT, '.sync-history.log');
 const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
 
 /** settings.json 中各裝置獨立的欄位，同步時排除 */
-const DEVICE_FIELDS = ['model', 'effortLevel'];
+const DEVICE_FIELDS = ['model', 'effortLevel', 'defaultShell', 'env.CLAUDE_CODE_USE_POWERSHELL_TOOL'];
 
 /** Codex config.toml 中允許跨裝置同步的 top-level key */
 const CODEX_CONFIG_TOP_KEYS = ['personality', 'web_search'];
@@ -1035,7 +1035,14 @@ function serializeSettings(obj) {
 function loadStrippedSettings(filePath) {
   if (!fs.existsSync(filePath)) return null;
   const data = readJson(filePath);
-  for (const field of DEVICE_FIELDS) delete data[field];
+  for (const field of DEVICE_FIELDS) {
+    if (field.includes('.')) {
+      const [obj, key] = field.split('.');
+      if (data[obj]) delete data[obj][key];
+    } else {
+      delete data[field];
+    }
+  }
   return { clean: data, serialized: serializeSettings(data) };
 }
 
@@ -1047,9 +1054,36 @@ function loadStrippedSettings(filePath) {
 function extractDeviceValues(local) {
   const deviceValues = {};
   for (const field of DEVICE_FIELDS) {
-    if (local[field] !== undefined) deviceValues[field] = local[field];
+    if (field.includes('.')) {
+      const [obj, key] = field.split('.');
+      if (local[obj]?.[key] !== undefined) {
+        if (!deviceValues[obj]) deviceValues[obj] = {};
+        deviceValues[obj][key] = local[obj][key];
+      }
+    } else {
+      if (local[field] !== undefined) deviceValues[field] = local[field];
+    }
   }
   return { deviceValues };
+}
+
+/**
+ * 合併 deviceValues 回 repo 設定，對巢狀物件做 shallow merge（避免整個 env 被覆蓋）
+ * @param {Record<string, unknown>} repo
+ * @param {Record<string, unknown>} deviceValues
+ * @returns {Record<string, unknown>}
+ */
+function mergeDeviceValues(repo, deviceValues) {
+  const merged = { ...repo };
+  for (const [key, val] of Object.entries(deviceValues)) {
+    if (val !== null && typeof val === 'object' && !Array.isArray(val)
+        && typeof merged[key] === 'object' && merged[key] !== null) {
+      merged[key] = { ...merged[key], ...val };
+    } else {
+      merged[key] = val;
+    }
+  }
+  return merged;
 }
 
 /**
@@ -1098,7 +1132,7 @@ function mergeSettingsJson(direction, dryRun = false) {
     if (dryRun) return true;
     const local = fs.existsSync(localPath) ? readJson(localPath) : {};
     const { deviceValues } = extractDeviceValues(local);
-    const merged = { ...repo, ...deviceValues };
+    const merged = mergeDeviceValues(repo, deviceValues);
     writeJsonSafe(localPath, merged);
     return true;
   }
@@ -2654,6 +2688,7 @@ if (require.main === module) {
     getPortableCodexConfig,
     loadSkillsFromLock,
     extractDeviceValues,
+    mergeDeviceValues,
     DEVICE_FIELDS,
     CODEX_CONFIG_TOP_KEYS,
     CODEX_CONFIG_SECTION_KEYS,
