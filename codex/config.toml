@@ -6,6 +6,7 @@ status_line = [ "model-with-reasoning", "project-name", "git-branch", "five-hour
 
 [features]
 memories = true
+goals = true
 
 [memories]
 generate_memories = true
