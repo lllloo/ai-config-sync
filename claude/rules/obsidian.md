@@ -5,7 +5,7 @@
 兩個 skill：
 
 - **`ob-write`（global，任何專案可呼叫）**：寫進 vault。skill 內部判 cwd——在 repo（cwd = vault root）走本地、不限工具；在其他專案走跨專案、嚴格 CLI（自動用 obsidian CLI 定位 vault 並建檔，CLI 不可用即中止、不降級寫檔）。
-- **`ob-read`（repo-local，只在 repo 內可用）**：vault 查詢。
+- **`ob-read`（global，任何專案可呼叫）**：vault 查詢。skill 內部判 cwd——在 repo 走本地直接搜；在其他專案走跨專案、嚴格 CLI 定位 vault 後唯讀三層搜尋（CLI 不可用或身分不符即回未命中、不降級亂搜）。
 
 本檔是**跨專案全域協議**：人在其他專案如何與 vault 互動。在 repo 內工作時，操作規格交給該 repo 的 `CLAUDE.md`，本檔不重述。
 
@@ -21,7 +21,7 @@
 
 ## 跨專案查詢與技術提問
 
-`ob-read` 是 repo-local，跨專案沒有。要查 vault：直接用檔案工具（Grep / Read）搜 `C:\code\obsidian-memory\` 下的 `.md`。
+查 vault 一律用 `/ob-read`（global，任何專案可呼叫）。它偵測 cwd 不在 vault 即走跨專案模式：嚴格 obsidian CLI 定位 vault 並硬 gate 身分，通過後對 vault 絕對路徑跑唯讀三層搜尋；CLI 不可用或身分不符即回未命中並提示啟用 CLI，不降級亂搜。CLI 暫時不可用時才退而用檔案工具（Grep / Read）直接搜 `C:\code\obsidian-memory\` 下的 `.md`。
 
 技術／知識性提問（已記過主題、Claude Code、RAG、Agent、前端切版等）：可並行查 vault + WebSearch。純語法、即時系統狀態、閒聊不觸發。
 

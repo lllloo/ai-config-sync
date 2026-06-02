@@ -20,7 +20,8 @@ paths: **/skills/**
 
 - 檔案動作（存在檢查、讀、搜尋、寫、改）一律 `Read`/`Grep`/`Glob`/`Write`/`Edit`，不落 shell、不分 OS。
 - 逃不掉的邏輯（跑程式、解析、聚合、外部 CLI）包進 bundled Python 腳本（`scripts/*.py`，純 stdlib），SKILL.md 只留一行呼叫——跨平台複雜度藏進 Python，呼叫行沒有 shell 方言差異。**不要**「挑一支 shell 寫死」或「宣告一律用 Bash 工具」當解法（綁 OS、Windows 預設 PowerShell 易翻車）。
-- 腳本呼叫路徑：cwd 契約是 vault root，腳本在 `.agents/skills/<skill>/scripts/`，故寫**從 root 起算的完整相對路徑**（`python .agents/skills/<skill>/scripts/x.py`），不是 `python scripts/x.py`。
+- 腳本呼叫路徑：cwd 契約是 vault root，腳本在 `.agents/skills/<skill>/scripts/`，故寫**從 root 起算的完整相對路徑**（`python3 .agents/skills/<skill>/scripts/x.py`），不是 `python3 scripts/x.py`。
+- 直譯器名一律 `python3`，不留 `python` fallback：`python3` 是 mac/Linux 正規名（mac 現代版裸 `python` 直接 not found，這是 fallback 寫法害 mac 每跑一次必先失敗一次才切換的根因），Windows Store Python/conda 也都有。唯一破口是 python.org 官方 Windows installer（只建 `python.exe`/`py.exe`、無 `python3.exe`），屬已知範圍明確例外，不為它在每行加 fallback。範圍限「呼叫 stdlib-only 的 bundled 腳本」，非泛指所有 python 指令。
 - 腳本 Windows 編碼：開頭 `sys.stdout.reconfigure(encoding="utf-8", errors="replace")`；所有 `subprocess.run(..., text=True)` 必加 `encoding="utf-8", errors="replace"`（否則 cp950 解碼 UTF-8 回傳會崩、`stdout` 變 None）。
 - 真無法避的外部 CLI（如 obsidian CLI）：code fence 不標 `bash`，標明 shell 差異（PowerShell `obsidian` / Git Bash `Obsidian.com`）。
 
