@@ -4,9 +4,9 @@
 
 ## vercel-labs/skills — 從 lock 檔跨裝置還原 global skills
 
-**現況（2026-05-15 重新確認）**：CLI 已到 **1.5.7**（2026-05-14 釋出），但**仍無 global scope 的一鍵還原**。本 repo `skills-lock.json` 作各裝置 source of truth 的設計依舊有效，`npm run skills:diff` 仍只能提示指令、不自動執行。
+**現況（2026-06-04 重新確認）**：CLI 已到 **1.5.10**（2026-06-03 釋出），但**仍無 global scope 的一鍵還原**。1.5.8～1.5.10 僅零碎修補（git source update、subpath、list 歸屬），`experimental_install` 僅 project、不裝 agent 目錄的核心痛點未動。本 repo `skills-lock.json` 作各裝置 source of truth 的設計依舊有效，`npm run skills:diff` 仍只能提示指令、不自動執行。
 
-**1.5.7 實際能力盤點：**
+**能力盤點（1.5.7 起，下表仍適用於 1.5.10）：**
 
 | 指令 | 範圍 | 用途 | 對本 repo 的意義 |
 |---|---|---|---|
@@ -22,8 +22,8 @@
 | Issue / PR | 狀態 | 最後更新 | 備註 |
 |---|---|---|---|
 | [#683 global restore/relink from `~/.agents/.skill-lock.json`](https://github.com/vercel-labs/skills/issues/683) | **Open（最對題）** | 2026-05-04 | 明文點出本 repo 痛點：「沒有 first-class workflow 還原 global canonical skills 與 agent 連結」 |
-| [#549 `npx skills install`（npm ci 等價）](https://github.com/vercel-labs/skills/issues/549) | Open | 2026-04-26 | `experimental_install` 僅 project；Claude Code symlink 議題已被 #683 接續 |
-| [#283 `skills install` / `skills sync` from lock](https://github.com/vercel-labs/skills/issues/283) | Open | 2026-05-09 | 社群 workaround：`npx skills update -p`（慢但能跑） |
+| [#549 `npx skills install`（npm ci 等價）](https://github.com/vercel-labs/skills/issues/549) | Open | 2026-05-18 | `experimental_install` 僅 project；Claude Code symlink 議題已被 #683 接續 |
+| [#283 `skills install` / `skills sync` from lock](https://github.com/vercel-labs/skills/issues/283) | Open | 2026-05-27 | 社群 workaround：`npx skills update -p`（慢但能跑） |
 | [#155 project 安裝未被 lock 追蹤](https://github.com/vercel-labs/skills/issues/155) | Open | 2026-05-08 | 與本 repo 全域同步設計無直接衝突，僅參考 |
 | [#666 `experimental_install` 把 `https://` 砍掉](https://github.com/vercel-labs/skills/issues/666) | Open bug | 2026-03-16 | 若改採 `experimental_install` 橋接需處理 |
 | [#1005 `experimental_install` strip subpath](https://github.com/vercel-labs/skills/issues/1005) | Open bug | 2026-04-27 | 同上 |
