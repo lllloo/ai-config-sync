@@ -19,7 +19,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "printf '%s' '{\"terminalSequence\":\"\\u001b]9;4;0;0\\u0007\"}'"
+            "command": "$seq=[char]27+']9;4;0;0'+[char]7; @{terminalSequence=$seq}|ConvertTo-Json -Compress",
+            "shell": "powershell"
           }
         ]
       }
@@ -29,17 +30,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "printf '%s' '{\"terminalSequence\":\"\\u001b]9;4;3;0\\u0007\"}'"
+            "command": "$seq=[char]27+']9;4;3;0'+[char]7; @{terminalSequence=$seq}|ConvertTo-Json -Compress",
+            "shell": "powershell"
           }
         ]
       }
     ],
-    "Stop": [
+    "PostToolBatch": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "printf '%s' '{\"terminalSequence\":\"\\u001b]9;4;0;0\\u0007\"}'"
+            "command": "$seq=[char]27+']9;4;3;0'+[char]7; @{terminalSequence=$seq}|ConvertTo-Json -Compress",
+            "shell": "powershell"
           }
         ]
       }
@@ -50,17 +53,40 @@
         "hooks": [
           {
             "type": "command",
-            "command": "printf '%s' '{\"terminalSequence\":\"\\u001b]9;4;4;100\\u0007\"}'"
+            "command": "$seq=[char]27+']9;4;4;100'+[char]7; @{terminalSequence=$seq}|ConvertTo-Json -Compress",
+            "shell": "powershell"
+          }
+        ]
+      },
+      {
+        "matcher": "elicitation_dialog",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$seq=[char]27+']9;4;4;100'+[char]7; @{terminalSequence=$seq}|ConvertTo-Json -Compress",
+            "shell": "powershell"
           }
         ]
       }
     ],
-    "PostToolUse": [
+    "Stop": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "printf '%s' '{\"terminalSequence\":\"\\u001b]9;4;3;0\\u0007\"}'"
+            "command": "$seq=[char]27+']9;4;0;0'+[char]7; @{terminalSequence=$seq}|ConvertTo-Json -Compress",
+            "shell": "powershell"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$seq=[char]27+']9;4;0;0'+[char]7; @{terminalSequence=$seq}|ConvertTo-Json -Compress",
+            "shell": "powershell"
           }
         ]
       }
