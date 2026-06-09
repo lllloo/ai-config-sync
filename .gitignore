@@ -1,2 +1,5 @@
 node_modules/
 *.log
+
+# sync-agents-new 個人技術棧 profile（個人資料，不進版控）
+.agents/skills/sync-agents-new/profile.md

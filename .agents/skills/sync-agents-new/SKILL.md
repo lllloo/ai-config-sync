@@ -3,28 +3,15 @@ name: sync-agents-new
 description: 檢查上游 agent 來源（everything-claude-code、awesome-claude-code-subagents）是否有尚未安裝的新 agent。觸發時機：使用者詢問「有沒有新 agent」「推薦什麼 agent」「上游有哪些 agent 沒裝」「agents-new」等語意時使用。
 ---
 
-比對本機已安裝 agent 與上游兩個來源，找出未安裝且對**前端工程師**有價值的 agent。
+比對本機已安裝 agent 與上游兩個來源，找出未安裝且對**使用者技術棧**有價值的 agent。
 
 ## 使用者背景
 
-前端工程師（主力），技術棧：Vue 3 / TypeScript / Node.js / 跨平台 CLI。兼職後端 PHP / Laravel / Node。優先推薦：
+讀同目錄 `profile.md` 取得使用者技術棧與優先序，作為後續過濾與排序依據。
 
-**前端（主）：**
-- 前端框架與語言（Vue、React、TS、JS）
-- UI / UX / 視覺設計 / 無障礙（a11y）
-- 前端效能、bundle 體積、渲染優化
-- E2E / 單元測試、瀏覽器自動化
-- CSS、設計系統、元件庫
-- 前端工具鏈（Vite、Webpack、ESLint）
-
-**後端（副）：**
-- PHP / Laravel
-- Node.js（Express、NestJS、Fastify 等）
-- API 設計、資料庫、認證、queue
-
-**通用：**
-- code review、重構、文件、git 流程
-- 安全性、效能、測試、DevOps 基礎
+- `profile.md` 為個人資料、已 gitignore（不進版控）。
+- **缺檔時不降級、不硬編**：請使用者先建立 `profile.md`（可參考下方欄位）後再執行，不要自行假設技術棧。
+- profile 結構：主力領域與優先技術、次要領域、通用技能；過濾「相關／略過」與排序皆以此為準。
 
 ## 步驟
 
@@ -71,12 +58,12 @@ description: 檢查上游 agent 來源（everything-claude-code、awesome-claude
 
 3. **分類輸出**：
 
-   - **推薦安裝**：契合前端工程師日常工作（見上方清單）的 agent
+   - **推薦安裝**：契合 `profile.md` 所列技術棧與日常工作的 agent
      - **每個區塊（來源 A 整體 / 來源 B 每個 category）主推薦最多 3 個**，附一行用途說明
      - 該區塊剩餘未跳過的 agent 壓到區塊尾端的「其他相關：`name1`、`name2`、...」單行 digest（僅列名稱，無說明），由使用者自行深究
      - 🔥 新增項目不受 3 個上限限制（永遠列為主推薦）
    - **略過**（以下兩類直接跳過，**不進入待定**）：
-     - 與 Vue/TS/JS/Node/PHP/Laravel 技術棧無關者（其他程式語言、非 PHP/Node 後端框架、區塊鏈／遊戲／ML 訓練等）
+     - 與 `profile.md` 技術棧無關者（profile 未涵蓋的程式語言／框架、區塊鏈／遊戲／ML 訓練等）
      - 與已安裝 agent 名稱或用途明顯重疊者，例如：
        - `refactoring-specialist` vs 已安裝的 `refactor-cleaner`
        - `security-auditor` vs `security-reviewer`
