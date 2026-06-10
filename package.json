@@ -1,5 +1,5 @@
 {
-  "name": "sync-ai",
+  "name": "ai-config-sync",
   "version": "1.0.0",
   "description": "跨裝置同步 Claude Code 設定",
   "scripts": {

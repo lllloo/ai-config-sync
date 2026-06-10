@@ -1,4 +1,4 @@
-# sync-ai
+# ai-config-sync
 
 跨裝置同步 Claude Code / Codex 設定的私有 Git repo 工具。
 

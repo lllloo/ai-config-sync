@@ -2,7 +2,7 @@
 'use strict';
 
 // =============================================================================
-// sync-ai -- 跨裝置 Claude Code 設定同步工具
+// ai-config-sync -- 跨裝置 Claude Code 設定同步工具
 // 單檔架構，零外部相依
 // =============================================================================
 
@@ -1597,7 +1597,7 @@ function diffSettingsItem(item) {
   let tmpSrc = null;
   if (fs.existsSync(localPath)) {
     const stripped = getStrippedSettings(localPath);
-    tmpSrc = path.join(os.tmpdir(), `sync-ai-settings-diff-${process.pid}.json`);
+    tmpSrc = path.join(os.tmpdir(), `ai-config-sync-settings-diff-${process.pid}.json`);
     registerTempFile(tmpSrc);
     fs.writeFileSync(tmpSrc, stripped);
     if (!fs.existsSync(repoPath)) {
@@ -1636,7 +1636,7 @@ function diffCodexConfigItem(item) {
     const portable = getPortableCodexConfig(localPath);
     // portable 為 null 代表本機 config.toml 無可同步欄位，視同無差異
     if (portable !== null) {
-      tmpSrc = path.join(os.tmpdir(), `sync-ai-codex-config-diff-${process.pid}.toml`);
+      tmpSrc = path.join(os.tmpdir(), `ai-config-sync-codex-config-diff-${process.pid}.toml`);
       registerTempFile(tmpSrc);
       fs.writeFileSync(tmpSrc, portable);
       if (!fs.existsSync(repoPath)) {
@@ -2405,7 +2405,7 @@ function printVersion() {
  * @returns {Promise<number>}
  */
 async function runInit(opts) {
-  console.log(col.bold('\n  sync-ai init'));
+  console.log(col.bold('\n  ai-config-sync init'));
   console.log(col.dim('  將下列項目重置為空骨架，方便填入自己的設定：'));
   console.log('');
 
@@ -2479,7 +2479,7 @@ function runHelp() {
   const pkg = readPackageJson();
   const version = pkg ? pkg.version : 'unknown';
 
-  console.log(col.bold(`\n  sync-ai v${version}`));
+  console.log(col.bold(`\n  ai-config-sync v${version}`));
   console.log(col.dim('  跨裝置 Claude Code 設定同步工具\n'));
 
   console.log(col.bold('  指令：'));

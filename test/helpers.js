@@ -29,7 +29,7 @@ function withArgv(argv, fn) {
  * @returns {T}
  */
 function withTmpDir(fn) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-ai-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-config-sync-test-'));
   try { return fn(dir); }
   finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
