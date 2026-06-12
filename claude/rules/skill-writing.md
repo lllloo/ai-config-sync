@@ -4,7 +4,7 @@ paths: **/skills/**
 
 # Skill 寫作原則
 
-**核心**：憲法級／跨 skill 共用規則集中在 `CLAUDE.md`（有 `AGENTS.md` symlink，Cursor / Codex / Gemini CLI 等啟動時也讀得到）。SKILL.md 主流程靠這份憲法，只寫該 skill 自己的程序——**不重述憲法、不寫「見 CLAUDE.md」指回**。唯 `references/*.md`（subagent prompt）需自包含：subagent 不保證載入 AGENTS.md。不綁 Claude Code 專屬機制，規則不在多處重複。
+**核心**：憲法級／跨 skill 共用規則集中在 `CLAUDE.md`。各專案根放 `AGENTS.md → CLAUDE.md` symlink（如 vault repo），Cursor / Codex / Gemini CLI 從**專案根**讀得到；全域 `~/.claude/` 不靠此機制跨工具共用。SKILL.md 主流程靠這份憲法，只寫該 skill 自己的程序——**不重述憲法、不寫「見 CLAUDE.md」指回**。唯 `references/*.md`（subagent prompt）需自包含：subagent 不保證載入 AGENTS.md。不綁 Claude Code 專屬機制，規則不在多處重複。
 
 **通則**：description 寫法、frontmatter 規格、progressive disclosure 等請依 `/skill-creator` 與 [Anthropic 官方 best-practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)，本檔不重複。
 

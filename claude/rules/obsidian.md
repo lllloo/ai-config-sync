@@ -11,6 +11,8 @@
 
 禁止不請自來寫 vault；一律由使用者明確要求才動。
 
+兩個 skill 都設 `disable-model-invocation: true`（Claude Code 專屬欄位，其他工具不認）：**Claude 不依 description 自動觸發、也不主動代呼**，只有使用者親自輸入 `/ob-write`、`/ob-read` 才會跑。下文「用 `/ob-write`／`/ob-read`」一律解讀為「提示使用者輸入該 slash command」，而非 Claude 自行呼叫。判斷到該寫／該查時，Claude 提議並請使用者輸入指令。
+
 ## 跨專案寫入 → `/ob-write`
 
 使用者在其他專案說「記到 ob」「存進 vault」「記一下這段」「筆記關於…」時，用 `/ob-write`。它會偵測 cwd 不在 vault，自動走跨專案模式（嚴格 CLI 定位 vault 並建檔；vault 身分不符或 CLI 不可用即中止）。
