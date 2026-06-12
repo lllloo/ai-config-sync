@@ -9,8 +9,7 @@
     ],
     "deny": [],
     "ask": [
-      "Bash(git push:*)",
-      "Bash(curl:*)"
+      "Bash(git push:*)"
     ],
     "defaultMode": "auto"
   },
