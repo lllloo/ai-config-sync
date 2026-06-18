@@ -1,0 +1,2 @@
+# 統一行尾為 LF，避免 Windows / macOS 間 CRLF 漂移
+* text=auto eol=lf
