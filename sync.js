@@ -31,8 +31,11 @@ const AGENTS_HOME = path.join(HOME, '.agents');
 const SYNC_HISTORY_LOG = path.join(REPO_ROOT, '.sync-history.log');
 const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
 
-/** settings.json 中各裝置獨立的欄位，同步時排除 */
-const DEVICE_FIELDS = ['model', 'effortLevel', 'defaultShell', 'env.CLAUDE_CODE_USE_POWERSHELL_TOOL'];
+/**
+ * settings.json 中各裝置獨立的欄位，同步時排除（to-repo 剝除、to-local 保留本機值）。
+ * `hooks` 為平台綁定（command 多為 PowerShell／終端跳脫序列，跨平台無意義），故不同步、各機自管。
+ */
+const DEVICE_FIELDS = ['model', 'effortLevel', 'defaultShell', 'env.CLAUDE_CODE_USE_POWERSHELL_TOOL', 'hooks'];
 
 /** Codex config.toml 中允許跨裝置同步的 top-level key */
 const CODEX_CONFIG_TOP_KEYS = ['personality', 'web_search'];

@@ -135,6 +135,41 @@ test('extractDeviceValues：local 無 DEVICE_FIELDS 時回傳空 deviceValues', 
   assert.deepEqual(deviceValues, {});
 });
 
+// -----------------------------------------------------------------------------
+// hooks 為平台綁定欄位：to-repo 剝除、to-local 保留本機值，永不跨裝置同步
+// -----------------------------------------------------------------------------
+test('hooks 在 DEVICE_FIELDS 中（平台綁定、不同步）', () => {
+  assert.ok(DEVICE_FIELDS.includes('hooks'), 'hooks 應為裝置特定欄位');
+});
+
+test('loadStrippedSettings：剝除 hooks（to-repo 不帶平台綁定 hooks）', () => {
+  withTmpDir((dir) => {
+    const fp = path.join(dir, 'settings.json');
+    writeJson(fp, {
+      permissions: ['a'],
+      hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'x', shell: 'powershell' }] }] },
+    });
+
+    const result = loadStrippedSettings(fp);
+    assert.ok(!('hooks' in result.clean), 'hooks 應被剝除');
+    assert.deepEqual(result.clean, { permissions: ['a'] });
+  });
+});
+
+test('extractDeviceValues：回傳本機 hooks 供 to-local 保留', () => {
+  const hooks = { Stop: [{ hooks: [{ type: 'command', command: 'y', shell: 'powershell' }] }] };
+  const { deviceValues } = extractDeviceValues({ hooks, permissions: ['a'] });
+  assert.deepEqual(deviceValues, { hooks });
+});
+
+test('mergeDeviceValues：repo 無 hooks 時整批採用本機 hooks（不部分合併）', () => {
+  const repo = { permissions: ['a'] };
+  const localHooks = { Stop: [{ hooks: [{ type: 'command', command: 'z' }] }] };
+  const merged = mergeDeviceValues(repo, { hooks: localHooks });
+  assert.deepEqual(merged.hooks, localHooks, '本機 hooks 應原樣保留');
+  assert.deepEqual(merged.permissions, ['a'], '非裝置欄位不受影響');
+});
+
 test('loadStrippedSettings：env 不存在時不報錯', () => {
   withTmpDir((dir) => {
     const fp = path.join(dir, 'settings.json');

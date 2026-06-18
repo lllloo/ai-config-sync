@@ -49,7 +49,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | repo 路徑 | 本機路徑 | 備註 |
 |-----------|----------|------|
 | `claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | 全文比對 |
-| `claude/settings.json` | `~/.claude/settings.json` | **比對時 strip `model`、`effortLevel`、`defaultShell`、`env.CLAUDE_CODE_USE_POWERSHELL_TOOL`（裝置特定欄位）** |
+| `claude/settings.json` | `~/.claude/settings.json` | **比對時 strip `model`、`effortLevel`、`defaultShell`、`env.CLAUDE_CODE_USE_POWERSHELL_TOOL`、`hooks`（裝置特定欄位）**。`hooks` 為平台綁定（PowerShell／終端序列），不跨裝置同步、各機自管 |
 | `claude/statusline.sh` | `~/.claude/statusline.sh` | 全文比對 |
 | `claude/agents/` | `~/.claude/agents/` | 以 package 子目錄組織（如 `awesome-claude-code-subagents/`） |
 | `claude/commands/` | `~/.claude/commands/` | 目錄鏡射 |
@@ -80,7 +80,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **新增/調整 npm script 時須同步更新 README 的指令別名表與 `COMMANDS` 物件**，避免別名與 handler 漂移。
 - **函式行數守則**：新增或重構後若某函式 > 60 行，需拆分（`buildSyncItems` 54 行為宣告式陣列，例外）。
 - **禁止新增外部相依**：所有功能必須使用 Node.js 內建模組，不得 `npm install` 任何套件。
-- **settings.json 裝置特定欄位**（`model`、`effortLevel`、`defaultShell`、`env.CLAUDE_CODE_USE_POWERSHELL_TOOL`）若要增減，需同步改 `DEVICE_FIELDS` 常數與 README 注意事項。支援 dot-notation（`obj.key`）排除巢狀欄位。
+- **settings.json 裝置特定欄位**（`model`、`effortLevel`、`defaultShell`、`env.CLAUDE_CODE_USE_POWERSHELL_TOOL`、`hooks`）若要增減，需同步改 `DEVICE_FIELDS` 常數與 README 注意事項。支援 dot-notation（`obj.key`）排除巢狀欄位。`hooks` 因 command 平台綁定（PowerShell／終端跳脫序列）刻意不同步，各裝置自管；此不變式依賴「repo settings.json 永遠為 stripped 版」，故 repo 來源檔不得保留 `hooks`。
 - **構建規則**（來自全域 CLAUDE.md）：禁擅自執行 `npm run build`。
 - **嚴禁洩漏敏感資訊**：輸出、log、diff 內容中不得出現 API Key、token 或完整使用者路徑。
 
