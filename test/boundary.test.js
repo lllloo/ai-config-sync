@@ -15,6 +15,9 @@ const {
   parseArgs,
   parseSkillSource,
   toRelativePath,
+  isEolOnlyDiff,
+  isPathInside,
+  mirrorDir,
   SyncError,
   ERR,
   EXIT_OK,
@@ -26,7 +29,9 @@ const {
   attachCommandHandlers,
   formatError,
 } = require('../sync.js');
-const { withArgv } = require('./helpers');
+const fs = require('node:fs');
+const path = require('node:path');
+const { withArgv, withTmpDir } = require('./helpers');
 
 // =============================================================================
 // 高優先：computeSimpleLineDiff（大檔案 fallback）
@@ -256,4 +261,137 @@ test('DEVICE_FIELDS 包含 model 與 effortLevel', () => {
   const { DEVICE_FIELDS } = require('../sync.js');
   assert.ok(DEVICE_FIELDS.includes('model'));
   assert.ok(DEVICE_FIELDS.includes('effortLevel'));
+});
+
+// =============================================================================
+// 高優先：isEolOnlyDiff（四條 diff 路徑共用的核心判斷，先前零覆蓋）
+// 語義：normalize = CRLF→LF + 去尾部換行；相等即視為「僅換行差異」
+// =============================================================================
+
+test('isEolOnlyDiff：LF vs CRLF 同內容 → true', () => {
+  assert.equal(isEolOnlyDiff(Buffer.from('a\nb\n'), Buffer.from('a\r\nb\r\n')), true);
+});
+
+test('isEolOnlyDiff：有無尾部換行差異 → true', () => {
+  assert.equal(isEolOnlyDiff(Buffer.from('hello'), Buffer.from('hello\n')), true);
+});
+
+test('isEolOnlyDiff：尾部多個換行視為等價 → true', () => {
+  assert.equal(isEolOnlyDiff(Buffer.from('x\n'), Buffer.from('x\n\n\n')), true);
+});
+
+test('isEolOnlyDiff：真實內容差異（一字不同）→ false', () => {
+  assert.equal(isEolOnlyDiff(Buffer.from('foo\n'), Buffer.from('bar\n')), false);
+});
+
+test('isEolOnlyDiff：內容差異即使換行也不同 → false（不可被換行正規化吞掉）', () => {
+  assert.equal(isEolOnlyDiff(Buffer.from('a\nb'), Buffer.from('a\r\nc\r\n')), false);
+});
+
+test('isEolOnlyDiff：行中（非尾部）插入空行屬內容差異 → false', () => {
+  // normalize 只移除「尾部」換行，中間空行不會被吸收
+  assert.equal(isEolOnlyDiff(Buffer.from('a\nb'), Buffer.from('a\n\nb')), false);
+});
+
+// =============================================================================
+// 高優先：isPathInside（symlink 逃逸防線，先前零覆蓋）
+// 以 path.join 建構路徑以跨平台正確處理 path.sep
+// =============================================================================
+
+test('isPathInside：target 等於 root → true', () => {
+  const root = path.join('base', 'repo');
+  assert.equal(isPathInside(root, root), true);
+});
+
+test('isPathInside：target 是 root 子路徑 → true', () => {
+  const root = path.join('base', 'repo');
+  assert.equal(isPathInside(path.join(root, 'a', 'b.txt'), root), true);
+});
+
+test('isPathInside：target 在 root 外（sibling）→ false', () => {
+  const base = 'base';
+  assert.equal(isPathInside(path.join(base, 'other'), path.join(base, 'repo')), false);
+});
+
+test('isPathInside：前綴陷阱 foo vs foobar → false（防 startsWith 誤判）', () => {
+  const base = 'base';
+  // foobar 以 foo 為字串前綴，但不在 foo 目錄內；:519 補 path.sep 正是為此
+  assert.equal(isPathInside(path.join(base, 'foobar'), path.join(base, 'foo')), false);
+});
+
+test('isPathInside：root 帶尾部分隔符仍正確判定子路徑 → true', () => {
+  const root = path.join('base', 'repo');
+  assert.equal(isPathInside(path.join(root, 'x.txt'), root + path.sep), true);
+});
+
+// =============================================================================
+// 高優先：mirrorDir 的刪除路徑（破壞性操作，先前零覆蓋）
+// =============================================================================
+
+function seedFile(dir, rel, content) {
+  const fp = path.join(dir, rel);
+  fs.mkdirSync(path.dirname(fp), { recursive: true });
+  fs.writeFileSync(fp, content);
+}
+
+test('mirrorDir：dest 多餘檔被刪除，changed 標記 deleted', () => {
+  withTmpDir((base) => {
+    const src = path.join(base, 'src');
+    const dest = path.join(base, 'dest');
+    seedFile(src, 'a.txt', 'A');
+    seedFile(dest, 'a.txt', 'A');
+    seedFile(dest, 'b.txt', 'STALE'); // src 沒有 → 應被刪
+
+    const changed = mirrorDir(src, dest);
+
+    assert.equal(fs.existsSync(path.join(dest, 'b.txt')), false, 'b.txt 應被刪除');
+    assert.equal(fs.existsSync(path.join(dest, 'a.txt')), true, 'a.txt 應保留');
+    assert.ok(
+      changed.some(c => c.rel === 'b.txt' && c.action === 'deleted'),
+      'changed 應含 {rel:b.txt, action:deleted}'
+    );
+  });
+});
+
+test('mirrorDir：dry-run 報告 deleted 但不實際刪檔', () => {
+  withTmpDir((base) => {
+    const src = path.join(base, 'src');
+    const dest = path.join(base, 'dest');
+    seedFile(src, 'a.txt', 'A');
+    seedFile(dest, 'a.txt', 'A');
+    seedFile(dest, 'b.txt', 'STALE');
+
+    const changed = mirrorDir(src, dest, [], false, true); // dryRun=true
+
+    assert.equal(fs.existsSync(path.join(dest, 'b.txt')), true, 'dry-run 不得實刪');
+    assert.ok(changed.some(c => c.rel === 'b.txt' && c.action === 'deleted'));
+  });
+});
+
+test('mirrorDir：excludePatterns 命中的 dest 檔不被刪除', () => {
+  withTmpDir((base) => {
+    const src = path.join(base, 'src');
+    const dest = path.join(base, 'dest');
+    seedFile(src, 'a.txt', 'A');
+    seedFile(dest, 'a.txt', 'A');
+    seedFile(dest, 'keep.log', 'KEEP'); // src 無，但被 exclude → 不刪
+
+    const changed = mirrorDir(src, dest, ['keep.log']);
+
+    assert.equal(fs.existsSync(path.join(dest, 'keep.log')), true, 'exclude 檔不應被刪');
+    assert.ok(!changed.some(c => c.rel === 'keep.log'), 'exclude 檔不應出現在 changed');
+  });
+});
+
+test('mirrorDir：src 新檔寫入 dest，changed 標記 added', () => {
+  withTmpDir((base) => {
+    const src = path.join(base, 'src');
+    const dest = path.join(base, 'dest');
+    seedFile(src, 'nested/new.txt', 'NEW');
+
+    const changed = mirrorDir(src, dest);
+
+    assert.equal(fs.readFileSync(path.join(dest, 'nested', 'new.txt'), 'utf8'), 'NEW');
+    assert.ok(changed.some(c => c.rel === 'nested/new.txt' && c.action === 'added'));
+  });
 });
