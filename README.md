@@ -148,7 +148,7 @@ npm run to-local
 - `codex/config.toml` 只同步可攜欄位：`personality`、`web_search`、`tui.status_line`、`features.memories`、`features.goals`、`memories.generate_memories`、`memories.use_memories`、`plugins.*.enabled`
 - `codex/config.toml` 會排除 `model`、`model_reasoning_effort`、`projects.*`、`marketplaces.*`、`windows`、`tui.model_availability_nux` 與未知欄位；to-local 時保留本機未受管理欄位
 - `.agents/skills/` 是本地 skill 實體目錄，已納入版控；`.claude/skills` 與 `.codex/skills` 以 symlink 共用同一份來源
-- Claude agents 儲存於 `claude/agents/`，以 package 子目錄分組（`awesome-claude-code-subagents/`、`everything-claude-code/`）；Codex agents 儲存於 `codex/agents/`，同樣以 package 子目錄分組（`awesome-codex-subagents/`），Codex CLI 會遞迴掃描子目錄
+- Claude agents 儲存於 `claude/agents/`，以 package 子目錄分組（目前為 `everything-claude-code/`）；Codex agents 儲存於 `codex/agents/`，同樣以 package 子目錄分組，Codex CLI 會遞迴掃描子目錄
 - Skills 不在自動同步範圍內，用 `npm run skills:diff` 查看差異；本機多裝者會列出 `npm run skills:add`（加入 repo）與 `npx skills remove`（從本機移除）兩種建議
 - JSON 寫入使用 atomic write（先寫暫存檔再 rename），避免中途斷電導致檔案損壞
 - 每次 to-repo / to-local 操作會記錄到 `.sync-history.log`（已加入 .gitignore）

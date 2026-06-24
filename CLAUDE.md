@@ -51,13 +51,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | 全文比對 |
 | `claude/settings.json` | `~/.claude/settings.json` | **比對時 strip `model`、`effortLevel`、`defaultShell`、`env.CLAUDE_CODE_USE_POWERSHELL_TOOL`、`hooks`（裝置特定欄位）**。`hooks` 為平台綁定（PowerShell／終端序列），不跨裝置同步、各機自管 |
 | `claude/statusline.sh` | `~/.claude/statusline.sh` | 全文比對 |
-| `claude/agents/` | `~/.claude/agents/` | 以 package 子目錄組織（如 `awesome-claude-code-subagents/`） |
+| `claude/agents/` | `~/.claude/agents/` | 以 package 子目錄組織（如 `everything-claude-code/`） |
 | `claude/commands/` | `~/.claude/commands/` | 目錄鏡射 |
 | `claude/skills/` | `~/.claude/skills/` | 目錄鏡射 |
 | `claude/rules/` | `~/.claude/rules/` | 模組化全域規則（CLAUDE.md 的拆分檔），支援 frontmatter `paths:` 做 path-specific scoping |
 | `codex/AGENTS.md` | `~/.codex/AGENTS.md` | Codex 全域指示（跨專案規則），全文比對 |
 | `codex/config.toml` | `~/.codex/config.toml` | 僅同步可攜欄位（`personality`、`web_search`、`tui.status_line`、`features.memories`、`memories.*`、`plugins.*.enabled`）；裝置特定欄位與未知欄位保留本機值 |
-| `codex/agents/` | `~/.codex/agents/` | Codex `.toml` agents，以 package 子目錄組織（如 `awesome-codex-subagents/`）；Codex CLI 遞迴掃描子目錄載入 |
+| `codex/agents/` | `~/.codex/agents/` | Codex `.toml` agents，以 package 子目錄組織；Codex CLI 遞迴掃描子目錄載入（目前無 agent） |
 
 ## 架構重點
 
@@ -105,32 +105,23 @@ Skills 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具
 
 ### Claude Code（`claude/agents/`）
 
-以 package 子目錄組織，來源優先順序：
+以 package 子目錄組織，目前唯一來源：
 
-1. **`everything-claude-code/`**（主要）— 來自 `affaan-m/everything-claude-code`
-2. **`awesome-claude-code-subagents/`**（補充）— 來自 `VoltAgent/awesome-claude-code-subagents`，上游依分類子目錄組織（`categories/01-core-development/` 等），**本機落地時扁平化**（不保留分類層級，所有 `.md` 直接放在 `awesome-claude-code-subagents/` 下），僅安裝 `everything-claude-code` 未涵蓋的功能
+1. **`everything-claude-code/`** — 來自 `affaan-m/everything-claude-code`，上游 `agents/` 為扁平結構（無分類層級）
+
+> `VoltAgent/awesome-claude-code-subagents`（原補充來源）已於 2026-06 下架移除；此 repo 的 agent 庫定位為「只收隔離審查／探索型 agent」，builder 類一律走 skill，不再以 agent 收錄。
 
 **新增 agent 的方式**（用 `gh` 抓原始內容）：
 ```bash
 # 從 everything-claude-code
 gh api repos/affaan-m/everything-claude-code/contents/agents/<name>.md --jq '.content' | base64 -d > claude/agents/everything-claude-code/<name>.md
-
-# 從 awesome-claude-code-subagents（需指定分類路徑）
-gh api "repos/VoltAgent/awesome-claude-code-subagents/contents/categories/<category>/<name>.md" --jq '.content' | base64 -d > claude/agents/awesome-claude-code-subagents/<name>.md
 ```
 
 ### Codex（`codex/agents/`）
 
 以 package 子目錄組織（對稱於 `claude/agents/`）。Codex CLI 透過 `collect_agent_role_files` 遞迴掃描 `~/.codex/agents/` 下所有層級的 `.toml`（[原始碼參考](https://github.com/openai/codex/blob/main/codex-rs/core/src/config/agent_roles.rs)），agent 識別以 TOML 內 `name` 欄位為準，與檔名/路徑無關。
 
-目前唯一上游為 `VoltAgent/awesome-codex-subagents`（`.toml` 格式），上游本身依分類子目錄組織（`categories/01-core-development/` 等），**本機落地時扁平化**（不保留分類層級，所有 `.toml` 直接放在 `awesome-codex-subagents/` 下）。
-
-**抓取原則**：只抓 Claude 端已有同名 agent 的對應 `.toml`（避免 codex agents 與 claude agents 失同步）。
-
-```bash
-# 從 awesome-codex-subagents（需指定分類路徑）
-gh api "repos/VoltAgent/awesome-codex-subagents/contents/categories/<category>/<name>.toml" --jq '.content' | base64 -d > codex/agents/awesome-codex-subagents/<name>.toml
-```
+**目前 `codex/agents/` 無任何 agent**（原唯一上游 `VoltAgent/awesome-codex-subagents` 已隨 claude 端 awesome 一併下架）。日後若要新增，原則為只抓 Claude 端已有同名 agent 的對應 `.toml`（避免 codex 與 claude agents 失同步）。
 
 ## 注意事項
 

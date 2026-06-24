@@ -1,6 +1,6 @@
 ---
 name: sync-check-updates
-description: 比對本機已安裝的 agents（everything-claude-code、awesome-claude-code-subagents）與 skills（skills-lock.json）和上游來源，找出有更新但尚未同步的項目。觸發時機：使用者詢問「有沒有更新」「agents/skills 有沒有落後」「check-updates」「上游有沒有新版」等語意時使用。
+description: 比對本機已安裝的 agents（everything-claude-code）與 skills（skills-lock.json）和上游來源，找出有更新但尚未同步的項目。觸發時機：使用者詢問「有沒有更新」「agents/skills 有沒有落後」「check-updates」「上游有沒有新版」等語意時使用。
 ---
 
 比對本機檔案與上游來源，找出**已安裝但有更新**的 agents / skills。與 `agents-new` skill 分工：那個找「沒裝過但值得裝的」，這個找「裝了但落後的」。
@@ -10,7 +10,6 @@ description: 比對本機已安裝的 agents（everything-claude-code、awesome-
 | 類別 | 本機位置 | 上游 |
 |---|---|---|
 | agents（everything） | `claude/agents/everything-claude-code/*.md` | `affaan-m/everything-claude-code` (`agents/`) |
-| agents（awesome） | `claude/agents/awesome-claude-code-subagents/*.md` | `VoltAgent/awesome-claude-code-subagents` (`categories/**/`) |
 | skills | `skills-lock.json` 各項 `source` | 各自上游 repo |
 
 `claude/skills/pen-design/`、`claude/commands/*.md`、`claude/CLAUDE.md`、`claude/settings.json` 為自維護內容，**不檢查**。
@@ -22,23 +21,15 @@ description: 比對本機已安裝的 agents（everything-claude-code、awesome-
 ```bash
 gh api "repos/affaan-m/everything-claude-code/git/trees/main?recursive=1" \
   --jq '.tree[] | select(.type == "blob" and (.path | startswith("agents/") and endswith(".md"))) | "\(.path)\t\(.sha)"'
-
-gh api "repos/VoltAgent/awesome-claude-code-subagents/git/trees/main?recursive=1" \
-  --jq '.tree[] | select(.type == "blob" and (.path | startswith("categories/") and endswith(".md"))) | "\(.path)\t\(.sha)"'
 ```
 
-產出 `<upstream-path>\t<blob-sha>` 兩張表。
+產出 `<upstream-path>\t<blob-sha>` 表。
 
 ### 2. 計算本機 blob SHA
 
 ```bash
 # everything-claude-code
 for f in claude/agents/everything-claude-code/*.md; do
-  git hash-object "$f"
-done
-
-# awesome-claude-code-subagents（已扁平化）
-for f in claude/agents/awesome-claude-code-subagents/*.md; do
   git hash-object "$f"
 done
 ```
@@ -48,8 +39,6 @@ done
 ### 3. 比對
 
 **everything-claude-code**：以檔名（basename）對應 upstream `agents/<name>.md`。
-
-**awesome-claude-code-subagents**：本機扁平化，upstream 有分類層級。以 basename 匹配，若 upstream 同名檔跨多分類，全部列出讓使用者判斷。
 
 狀態分類：
 - `OK` — SHA 相同
@@ -137,12 +126,6 @@ gh api "repos/<owner>/<repo>/contents/<path>?ref=<commit-sha>" --jq '.sha'
 | foo | OK | — |
 | bar | UPDATED | 上游 blob `abc123` → 本機 `def456` |
 
-## Agents：awesome-claude-code-subagents
-
-| Name | 狀態 | upstream 分類 | 備註 |
-|---|---|---|---|
-| ... |
-
 ## Skills（真比對 SKILL.md blob SHA）
 
 | Name | Source | 狀態 | 備註 |
@@ -158,8 +141,6 @@ gh api "repos/<owner>/<repo>/contents/<path>?ref=<commit-sha>" --jq '.sha'
 
 ### Agents（單檔覆寫）
 gh api repos/affaan-m/everything-claude-code/contents/agents/<name>.md --jq '.content' | base64 -d > claude/agents/everything-claude-code/<name>.md
-
-gh api "repos/VoltAgent/awesome-claude-code-subagents/contents/categories/<category>/<name>.md" --jq '.content' | base64 -d > claude/agents/awesome-claude-code-subagents/<name>.md
 
 ### Skills（已安裝有更新 → 首選）
 npx skills update -g <name>
