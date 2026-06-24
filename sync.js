@@ -200,7 +200,7 @@ const ERR = {
  */
 function formatError(err) {
   if (!(err instanceof SyncError)) {
-    console.error(col.red(`  [!] 未預期的錯誤：${err.message}`));
+    console.error(col.red(`  [!] 未預期的錯誤：${maskHome(err.message)}`));
     return;
   }
 
@@ -264,6 +264,21 @@ function toRelativePath(filePath) {
   }
   // 其它：系統暫存檔等，保留原路徑
   return filePath;
+}
+
+/**
+ * 將文字中所有 HOME 絕對路徑出現替換為 ~（縱深防禦）。
+ * 用於無結構的錯誤訊息字串（如非 SyncError 的原生 Error.message，可能內嵌絕對路徑）；
+ * 同時處理 Windows 反斜線與正斜線兩種寫法。
+ * @param {string} text
+ * @returns {string}
+ */
+function maskHome(text) {
+  if (!text || !HOME) return text;
+  let out = text.split(HOME).join('~');
+  const homeFwd = HOME.replace(/\\/g, '/');
+  if (homeFwd !== HOME) out = out.split(homeFwd).join('~');
+  return out;
 }
 
 // =============================================================================
@@ -2737,6 +2752,7 @@ if (require.main === module) {
     parseSkillSource,
     parseArgs,
     toRelativePath,
+    maskHome,
     serializeSettings,
     loadStrippedSettings,
     getStrippedSettings,
