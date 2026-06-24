@@ -19,6 +19,7 @@ const {
   isPathInside,
   mirrorDir,
   readFileSafe,
+  writeFileSafe,
   SyncError,
   ERR,
   EXIT_OK,
@@ -422,5 +423,28 @@ test('readFileSafe：讀取不存在檔 → 拋 SyncError（非裸 Error）含 p
         return true;
       }
     );
+  });
+});
+
+// =============================================================================
+// writeFileSafe：原子寫入（tmp+rename），成功後不留暫存檔、自動建中間目錄
+// =============================================================================
+
+test('writeFileSafe：寫入 string/Buffer 內容正確，且自動建立中間目錄', () => {
+  withTmpDir((dir) => {
+    const fp = path.join(dir, 'a', 'b', 'out.txt');
+    writeFileSafe(fp, 'STR', '寫入');
+    assert.equal(fs.readFileSync(fp, 'utf8'), 'STR');
+    writeFileSafe(fp, Buffer.from('BUF'), '寫入');
+    assert.equal(fs.readFileSync(fp, 'utf8'), 'BUF', '應覆蓋為 Buffer 內容');
+  });
+});
+
+test('writeFileSafe：成功寫入後不殘留 .tmp 暫存檔', () => {
+  withTmpDir((dir) => {
+    const fp = path.join(dir, 'out.txt');
+    writeFileSafe(fp, 'DATA', '寫入');
+    const leftover = fs.readdirSync(dir).filter(n => n.includes('.tmp.'));
+    assert.deepEqual(leftover, [], '不應殘留 .tmp.<pid> 暫存檔');
   });
 });

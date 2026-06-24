@@ -415,15 +415,16 @@ function readJson(filePath) {
 }
 
 /**
- * 安全寫入 JSON 檔案（write-to-tmp + rename，防止寫入中途斷電損壞）
+ * 安全寫入檔案（write-to-tmp + rename，原子操作，防止寫入中途斷電損壞）。
+ * tmpPath 與目標同目錄，確保 rename 在同一檔案系統內、不觸發 EXDEV；
+ * 失敗時清理暫存檔並包成 SyncError。content 可為 string 或 Buffer。
  * @param {string} filePath - 目標檔案路徑
- * @param {unknown} data - 要序列化的資料
+ * @param {string|Buffer} content - 要寫入的內容
+ * @param {string} [op='寫入檔案'] - 操作名稱（中文），用於錯誤訊息
  * @returns {void}
  */
-function writeJsonSafe(filePath, data) {
+function writeFileSafe(filePath, content, op = '寫入檔案') {
   checkWriteAccess(filePath);
-  const content = JSON.stringify(data, null, 2) + '\n';
-  // tmpPath 與目標同目錄，確保 rename 在同一檔案系統內，為原子操作且不會觸發 EXDEV
   const tmpPath = filePath + `.tmp.${process.pid}`;
   registerTempFile(tmpPath);
   try {
@@ -432,32 +433,30 @@ function writeJsonSafe(filePath, data) {
     fs.renameSync(tmpPath, filePath);
   } catch (e) {
     try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
-    throw toSyncFsError(e, filePath, '寫入 JSON');
+    throw toSyncFsError(e, filePath, op);
   } finally {
     tempFiles.delete(tmpPath);
   }
 }
 
 /**
- * 安全寫入文字檔（write-to-tmp + rename）
+ * 安全寫入 JSON 檔案（序列化後走 writeFileSafe 原子寫入）
+ * @param {string} filePath - 目標檔案路徑
+ * @param {unknown} data - 要序列化的資料
+ * @returns {void}
+ */
+function writeJsonSafe(filePath, data) {
+  writeFileSafe(filePath, JSON.stringify(data, null, 2) + '\n', '寫入 JSON');
+}
+
+/**
+ * 安全寫入文字檔（走 writeFileSafe 原子寫入）
  * @param {string} filePath - 目標檔案路徑
  * @param {string} content - 要寫入的文字內容
  * @returns {void}
  */
 function writeTextSafe(filePath, content) {
-  checkWriteAccess(filePath);
-  const tmpPath = filePath + `.tmp.${process.pid}`;
-  registerTempFile(tmpPath);
-  try {
-    ensureDir(path.dirname(filePath));
-    fs.writeFileSync(tmpPath, content);
-    fs.renameSync(tmpPath, filePath);
-  } catch (e) {
-    try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
-    throw toSyncFsError(e, filePath, '寫入文字檔');
-  } finally {
-    tempFiles.delete(tmpPath);
-  }
+  writeFileSafe(filePath, content, '寫入文字檔');
 }
 
 /**
@@ -519,10 +518,7 @@ function copyFile(src, dest, force = false, dryRun = false) {
     catch (e) { throw toSyncFsError(e, dest, '讀取'); }
     if (srcContent.equals(destContent)) return false;
   }
-  checkWriteAccess(dest);
-  ensureDir(path.dirname(dest));
-  try { fs.writeFileSync(dest, srcContent); }
-  catch (e) { throw toSyncFsError(e, dest, '寫入'); }
+  writeFileSafe(dest, srcContent, '寫入');
   return true;
 }
 
@@ -646,14 +642,7 @@ function mirrorDir(src, dest, excludePatterns = [], force = false, dryRun = fals
       : (force || !destExists || !srcContent.equals(readFileSafe(destFile, '讀取目的檔案')));
 
     if (needsWrite) {
-      if (!dryRun) {
-        try {
-          ensureDir(path.dirname(destFile));
-          fs.writeFileSync(destFile, srcContent);
-        } catch (e) {
-          throw toSyncFsError(e, destFile, '寫入檔案');
-        }
-      }
+      if (!dryRun) writeFileSafe(destFile, srcContent, '寫入檔案');
       changed.push({ rel, action: destExists ? 'updated' : 'added' });
     }
   }
@@ -2710,6 +2699,7 @@ if (require.main === module) {
     isPathInside,
     mirrorDir,
     readFileSafe,
+    writeFileSafe,
     statusToStatsKey,
     parseSkillSource,
     parseArgs,
