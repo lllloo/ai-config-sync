@@ -34,8 +34,17 @@ const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
 /**
  * settings.json 中各裝置獨立的欄位，同步時排除（to-repo 剝除、to-local 保留本機值）。
  * `hooks` 為平台綁定（command 多為 PowerShell／終端跳脫序列，跨平台無意義），故不同步、各機自管。
+ * 註：`env` 區塊改由白名單（PORTABLE_ENV_KEYS）獨立管理，不在此列舉；
+ * dot-notation 分支保留為通用能力（未來若有非 env 的巢狀裝置欄位可直接加入）。
  */
-const DEVICE_FIELDS = ['model', 'effortLevel', 'defaultShell', 'env.CLAUDE_CODE_USE_POWERSHELL_TOOL', 'hooks'];
+const DEVICE_FIELDS = ['model', 'effortLevel', 'defaultShell', 'hooks'];
+
+/**
+ * settings.json `env` 區塊唯一允許跨裝置同步的 key（白名單）。
+ * 採白名單而非黑名單：任何未列舉的 env key（API Key、token、裝置特定值）一律不寫進 repo、
+ * 不出現在 diff 輸出；to-local 時保留本機原值（避免覆寫掉本機金鑰）。新增可攜 env key 須在此明列。
+ */
+const PORTABLE_ENV_KEYS = ['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', 'EDITOR'];
 
 /** Codex config.toml 中允許跨裝置同步的 top-level key */
 const CODEX_CONFIG_TOP_KEYS = ['personality', 'web_search'];
@@ -1087,6 +1096,19 @@ function serializeSettings(obj) {
 }
 
 /**
+ * 將 settings 物件的 env 區塊收斂為白名單：只保留 PORTABLE_ENV_KEYS，其餘（含金鑰／token）移除。
+ * env 收斂後為空物件時刪除 env 鍵，保持 repo 設定乾淨。原地修改 data。
+ * @param {Record<string, unknown>} data
+ */
+function stripNonPortableEnv(data) {
+  if (!data.env || typeof data.env !== 'object') return;
+  for (const key of Object.keys(data.env)) {
+    if (!PORTABLE_ENV_KEYS.includes(key)) delete data.env[key];
+  }
+  if (Object.keys(data.env).length === 0) delete data.env;
+}
+
+/**
  * 將 settings.json 去除裝置欄位後回傳 { clean, serialized }
  * @param {string} filePath - settings.json 路徑
  * @returns {{ clean: Record<string, unknown>, serialized: string } | null} 檔案不存在時回傳 null
@@ -1107,6 +1129,7 @@ function loadStrippedSettings(filePath) {
       delete data[field];
     }
   }
+  stripNonPortableEnv(data);
   return { clean: data, serialized: serializeSettings(data) };
 }
 
@@ -1126,6 +1149,14 @@ function extractDeviceValues(local) {
       }
     } else {
       if (local[field] !== undefined) deviceValues[field] = local[field];
+    }
+  }
+  // env 非白名單 key（金鑰／token／裝置特定值）：to-local 須保留本機原值，避免被 repo 覆寫掉
+  if (local.env && typeof local.env === 'object') {
+    for (const [key, val] of Object.entries(local.env)) {
+      if (PORTABLE_ENV_KEYS.includes(key)) continue;
+      if (!deviceValues.env) deviceValues.env = {};
+      deviceValues.env[key] = val;
     }
   }
   return { deviceValues };
@@ -1650,81 +1681,102 @@ function statusToStatsKey(status) {
 }
 
 /**
- * 為 settings 項目產生 diff result entry
- * 注意：settings.json 的比對方向固定（local stripped vs repo），不受 direction 參數影響
- * @param {SyncItem} item
- * @returns {{label: string, status: string|null, src: string|null, dest: string, verboseSrc: string, verboseDest: string, itemType: string}}
+ * 比較 stripped 內容與 repo 檔案，回傳 diff status（呼叫端確保 repo 檔存在）
+ * 先判斷是否僅 EOL 差異，避免 CRLF/LF 被誤判為 changed
+ * @param {string} strippedContent - 已去裝置欄位的內容
+ * @param {string} repoPath
+ * @param {string} op - 讀取操作名稱（中文）
+ * @returns {null|'eol'|'changed'}
  */
-function diffSettingsItem(item) {
-  const localPath = path.join(CLAUDE_HOME, 'settings.json');
-  const repoPath = path.join(REPO_ROOT, 'claude', 'settings.json');
-  let status = null;
-  let tmpSrc = null;
-  if (fs.existsSync(localPath)) {
-    const stripped = getStrippedSettings(localPath);
-    tmpSrc = path.join(os.tmpdir(), `ai-config-sync-settings-diff-${process.pid}.json`);
-    registerTempFile(tmpSrc);
-    writeTmpDiffFile(tmpSrc, stripped);
-    if (!fs.existsSync(repoPath)) {
-      status = 'new';
-    } else {
-      // 與 diffFile 對齊：先判斷是否僅 EOL 差異，避免 CRLF/LF 被誤判為 changed
-      const repoBuf = readFileSafe(repoPath, '讀取 repo 設定');
-      const strippedBuf = Buffer.from(stripped);
-      if (!repoBuf.equals(strippedBuf)) {
-        status = isEolOnlyDiff(repoBuf, strippedBuf) ? 'eol' : 'changed';
-      }
-    }
-  }
-  return {
-    label: `claude/${item.label}`,
-    status,
-    src: tmpSrc,
-    dest: repoPath,
-    verboseSrc: localPath,
-    verboseDest: repoPath,
-    itemType: 'settings',
-  };
+function compareStrippedToRepo(strippedContent, repoPath, op) {
+  const repoBuf = readFileSafe(repoPath, op);
+  const strippedBuf = Buffer.from(strippedContent);
+  if (repoBuf.equals(strippedBuf)) return null;
+  return isEolOnlyDiff(repoBuf, strippedBuf) ? 'eol' : 'changed';
 }
 
 /**
- * 為 Codex config.toml 產生 diff result entry
+ * 為 settings 項目產生 diff result entry（direction-aware，與實際 apply 判斷對齊）
+ * to-repo：本機 stripped → repo；to-local：repo → 本機（本機缺檔時回 'new'，避免 preview 漏列）
  * @param {SyncItem} item
+ * @param {'to-repo'|'to-local'} direction
  * @returns {{label: string, status: string|null, src: string|null, dest: string, verboseSrc: string, verboseDest: string, itemType: string}}
  */
-function diffCodexConfigItem(item) {
+function diffSettingsItem(item, direction) {
+  const localPath = path.join(CLAUDE_HOME, 'settings.json');
+  const repoPath = path.join(REPO_ROOT, 'claude', 'settings.json');
+  const base = {
+    label: `claude/${item.label}`,
+    dest: repoPath, verboseSrc: localPath, verboseDest: repoPath, itemType: 'settings',
+  };
+
+  if (direction === 'to-local') {
+    // repo → 本機：repo 缺檔則無可同步；本機缺檔則將新增（與 mergeSettingsJson('to-local') 對齊）
+    if (!fs.existsSync(repoPath)) return { ...base, status: null, src: null };
+    if (!fs.existsSync(localPath)) return { ...base, status: 'new', src: null };
+    const stripped = getStrippedSettings(localPath);
+    return { ...base, status: compareStrippedToRepo(stripped, repoPath, '讀取 repo 設定'), src: null };
+  }
+
+  // to-repo：本機 stripped → repo
+  if (!fs.existsSync(localPath)) return { ...base, status: null, src: null };
+  const stripped = getStrippedSettings(localPath);
+  const tmpSrc = path.join(os.tmpdir(), `ai-config-sync-settings-diff-${process.pid}.json`);
+  registerTempFile(tmpSrc);
+  writeTmpDiffFile(tmpSrc, stripped);
+  const status = fs.existsSync(repoPath)
+    ? compareStrippedToRepo(stripped, repoPath, '讀取 repo 設定')
+    : 'new';
+  return { ...base, status, src: tmpSrc };
+}
+
+/**
+ * Codex config.toml 的 to-local diff：鏡射 mergeCodexConfigToLocal 的判斷（merged vs 本機 content）
+ * @param {object} base - 共用回傳欄位
+ * @param {string} localPath
+ * @param {string} repoPath
+ * @returns {object}
+ */
+function diffCodexConfigToLocal(base, localPath, repoPath) {
+  const portable = loadPortableCodexConfig(repoPath);
+  if (!portable) return { ...base, status: null, src: null };  // repo 無可攜欄位 → apply 不動
+  const localExists = fs.existsSync(localPath);
+  const localContent = localExists ? readFileSafe(localPath, '讀取本機 Codex 設定', 'utf8') : '';
+  const merged = mergePortableCodexConfig(localContent, portable.data);
+  if (localContent === merged) return { ...base, status: null, src: null };
+  if (!localExists) return { ...base, status: 'new', src: null };
+  const status = isEolOnlyDiff(Buffer.from(localContent), Buffer.from(merged)) ? 'eol' : 'changed';
+  return { ...base, status, src: null };
+}
+
+/**
+ * 為 Codex config.toml 產生 diff result entry（direction-aware，與實際 apply 判斷對齊）
+ * @param {SyncItem} item
+ * @param {'to-repo'|'to-local'} direction
+ * @returns {{label: string, status: string|null, src: string|null, dest: string, verboseSrc: string, verboseDest: string, itemType: string}}
+ */
+function diffCodexConfigItem(item, direction) {
   const localPath = path.join(CODEX_HOME, 'config.toml');
   const repoPath = path.join(REPO_ROOT, 'codex', 'config.toml');
-  let status = null;
-  let tmpSrc = null;
-  if (fs.existsSync(localPath)) {
-    const portable = getPortableCodexConfig(localPath);
-    // portable 為 null 代表本機 config.toml 無可同步欄位，視同無差異
-    if (portable !== null) {
-      tmpSrc = path.join(os.tmpdir(), `ai-config-sync-codex-config-diff-${process.pid}.toml`);
-      registerTempFile(tmpSrc);
-      writeTmpDiffFile(tmpSrc, portable);
-      if (!fs.existsSync(repoPath)) {
-        // 空字串也視為「新增」，避免 truthy 檢查吞掉 portable === '' 的合法新檔
-        status = 'new';
-      } else {
-        const repoBuf = readFileSafe(repoPath, '讀取 repo Codex 設定');
-        const portableBuf = Buffer.from(portable);
-        if (!repoBuf.equals(portableBuf)) {
-          status = isEolOnlyDiff(repoBuf, portableBuf) ? 'eol' : 'changed';
-        }
-      }
-    }
-  }
-  return {
+  const base = {
     label: `codex/${item.label}`,
-    status,
-    src: tmpSrc,
-    dest: repoPath,
-    verboseSrc: localPath,
-    verboseDest: repoPath,
-    itemType: 'codex-config',
+    dest: repoPath, verboseSrc: localPath, verboseDest: repoPath, itemType: 'codex-config',
   };
+
+  if (direction === 'to-local') return diffCodexConfigToLocal(base, localPath, repoPath);
+
+  // to-repo：本機 portable → repo（portable 為 null 代表本機無可同步欄位，視同無差異）
+  if (!fs.existsSync(localPath)) return { ...base, status: null, src: null };
+  const portable = getPortableCodexConfig(localPath);
+  if (portable === null) return { ...base, status: null, src: null };
+  const tmpSrc = path.join(os.tmpdir(), `ai-config-sync-codex-config-diff-${process.pid}.toml`);
+  registerTempFile(tmpSrc);
+  writeTmpDiffFile(tmpSrc, portable);
+  // 空字串也視為「新增」，避免 truthy 檢查吞掉 portable === '' 的合法新檔
+  const status = fs.existsSync(repoPath)
+    ? compareStrippedToRepo(portable, repoPath, '讀取 repo Codex 設定')
+    : 'new';
+  return { ...base, status, src: tmpSrc };
 }
 
 /**
@@ -1738,9 +1790,9 @@ function diffSyncItems(items, direction) {
 
   for (const item of items) {
     if (item.type === 'settings') {
-      result.push(diffSettingsItem(item));
+      result.push(diffSettingsItem(item, direction));
     } else if (item.type === 'codex-config') {
-      result.push(diffCodexConfigItem(item));
+      result.push(diffCodexConfigItem(item, direction));
     } else if (item.type === 'file') {
       const status = diffFile(item.src, item.dest);
       result.push({
@@ -2746,6 +2798,7 @@ if (require.main === module) {
     mirrorDir,
     readFileSafe,
     writeFileSafe,
+    toSyncFsError,
     runSkillsRemove,
     validateSkillName,
     statusToStatsKey,
@@ -2765,6 +2818,7 @@ if (require.main === module) {
     extractDeviceValues,
     mergeDeviceValues,
     DEVICE_FIELDS,
+    PORTABLE_ENV_KEYS,
     CODEX_CONFIG_TOP_KEYS,
     CODEX_CONFIG_SECTION_KEYS,
     INIT_FILE_MAP,

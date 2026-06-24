@@ -143,7 +143,8 @@ npm run to-local
 
 ## 注意事項
 
-- `settings.json` 的 `model`、`effortLevel`、`defaultShell`、`env.CLAUDE_CODE_USE_POWERSHELL_TOOL`、`hooks` 為裝置特定設定，to-repo 時自動排除，to-local 時保留本機值；`env` 其他 key 皆跨裝置同步
+- `settings.json` 的 `model`、`effortLevel`、`defaultShell`、`hooks` 為裝置特定設定，to-repo 時自動排除，to-local 時保留本機值
+- `settings.json` 的 `env` 區塊採**白名單**：僅 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`EDITOR` 跨裝置同步，其餘 env key（含 API Key／token、`CLAUDE_CODE_USE_POWERSHELL_TOOL` 等裝置特定值）一律不進 repo、不入 diff 輸出；to-local 時保留本機原值，避免覆寫本機金鑰
 - **`hooks` 不跨裝置同步**：hook command 多為平台綁定（PowerShell／終端跳脫序列），在 Windows 與 macOS 無法共用，故各裝置自行維護本機 `hooks`，repo 不攜帶。需在新裝置重建 hook 時手動設定
 - `codex/config.toml` 只同步可攜欄位：`personality`、`web_search`、`tui.status_line`、`features.memories`、`features.goals`、`memories.generate_memories`、`memories.use_memories`、`plugins.*.enabled`
 - `codex/config.toml` 會排除 `model`、`model_reasoning_effort`、`projects.*`、`marketplaces.*`、`windows`、`tui.model_availability_nux` 與未知欄位；to-local 時保留本機未受管理欄位

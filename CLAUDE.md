@@ -49,14 +49,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | repo 路徑 | 本機路徑 | 備註 |
 |-----------|----------|------|
 | `claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | 全文比對 |
-| `claude/settings.json` | `~/.claude/settings.json` | **比對時 strip `model`、`effortLevel`、`defaultShell`、`env.CLAUDE_CODE_USE_POWERSHELL_TOOL`、`hooks`（裝置特定欄位）**。`hooks` 為平台綁定（PowerShell／終端序列），不跨裝置同步、各機自管 |
+| `claude/settings.json` | `~/.claude/settings.json` | **比對時 strip `model`、`effortLevel`、`defaultShell`、`hooks`（裝置特定欄位）；`env` 區塊採白名單，僅保留 `PORTABLE_ENV_KEYS`（`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`EDITOR`），其餘 env key（含 API Key／token、`CLAUDE_CODE_USE_POWERSHELL_TOOL`）一律不進 repo、不入 diff 輸出**。`hooks` 為平台綁定（PowerShell／終端序列），不跨裝置同步、各機自管 |
 | `claude/statusline.sh` | `~/.claude/statusline.sh` | 全文比對 |
 | `claude/agents/` | `~/.claude/agents/` | 以 package 子目錄組織（如 `everything-claude-code/`） |
 | `claude/commands/` | `~/.claude/commands/` | 目錄鏡射 |
 | `claude/skills/` | `~/.claude/skills/` | 目錄鏡射 |
 | `claude/rules/` | `~/.claude/rules/` | 模組化全域規則（CLAUDE.md 的拆分檔），支援 frontmatter `paths:` 做 path-specific scoping |
 | `codex/AGENTS.md` | `~/.codex/AGENTS.md` | Codex 全域指示（跨專案規則），全文比對 |
-| `codex/config.toml` | `~/.codex/config.toml` | 僅同步可攜欄位（`personality`、`web_search`、`tui.status_line`、`features.memories`、`memories.*`、`plugins.*.enabled`）；裝置特定欄位與未知欄位保留本機值 |
+| `codex/config.toml` | `~/.codex/config.toml` | 僅同步可攜欄位（`personality`、`web_search`、`tui.status_line`、`features.memories`、`features.goals`、`memories.*`、`plugins.*.enabled`）；裝置特定欄位與未知欄位保留本機值 |
 | `codex/agents/` | `~/.codex/agents/` | Codex `.toml` agents，以 package 子目錄組織；Codex CLI 遞迴掃描子目錄載入（目前無 agent） |
 
 ## 架構重點
@@ -80,7 +80,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **新增/調整 npm script 時須同步更新 README 的指令別名表與 `COMMANDS` 物件**，避免別名與 handler 漂移。
 - **函式行數守則**：新增或重構後若某函式 > 60 行，需拆分（`buildSyncItems` 54 行為宣告式陣列，例外）。
 - **禁止新增外部相依**：所有功能必須使用 Node.js 內建模組，不得 `npm install` 任何套件。
-- **settings.json 裝置特定欄位**（`model`、`effortLevel`、`defaultShell`、`env.CLAUDE_CODE_USE_POWERSHELL_TOOL`、`hooks`）若要增減，需同步改 `DEVICE_FIELDS` 常數與 README 注意事項。支援 dot-notation（`obj.key`）排除巢狀欄位。`hooks` 因 command 平台綁定（PowerShell／終端跳脫序列）刻意不同步，各裝置自管；此不變式依賴「repo settings.json 永遠為 stripped 版」，故 repo 來源檔不得保留 `hooks`。
+- **settings.json 裝置特定欄位**（`model`、`effortLevel`、`defaultShell`、`hooks`）若要增減，需同步改 `DEVICE_FIELDS` 常數與 README 注意事項。`loadStrippedSettings` 仍支援 dot-notation（`obj.key`）排除巢狀欄位（通用機制，目前 DEVICE_FIELDS 無 dot 項）。`hooks` 因 command 平台綁定（PowerShell／終端跳脫序列）刻意不同步，各裝置自管；此不變式依賴「repo settings.json 永遠為 stripped 版」，故 repo 來源檔不得保留 `hooks`。
+- **settings.json `env` 區塊採白名單**（`PORTABLE_ENV_KEYS`）：只有列舉的 key 才跨裝置同步，其餘 env key（API Key、token、`CLAUDE_CODE_USE_POWERSHELL_TOOL` 等裝置特定值）一律 strip、不進 repo、不入 diff 輸出；to-local 時則保留本機原值（避免覆寫掉本機金鑰）。增減可攜 env key 須改 `PORTABLE_ENV_KEYS` 常數與 README。此為核心安全不變式「輸出／log／diff 不得出現 API Key、token」的主要防線，**新增 env 同步欄位前務必確認非敏感**。
 - **構建規則**（來自全域 CLAUDE.md）：禁擅自執行 `npm run build`。
 - **嚴禁洩漏敏感資訊**：輸出、log、diff 內容中不得出現 API Key、token 或完整使用者路徑。
 

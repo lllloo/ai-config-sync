@@ -21,6 +21,7 @@ const {
   mirrorDir,
   readFileSafe,
   writeFileSafe,
+  toSyncFsError,
   runSkillsRemove,
   validateSkillName,
   SyncError,
@@ -92,6 +93,37 @@ test('SyncError：具有正確的 name、code、context 屬性', () => {
 test('SyncError：context 預設為空物件', () => {
   const err = new SyncError('msg', ERR.IO_ERROR);
   assert.deepEqual(err.context, {});
+});
+
+// -----------------------------------------------------------------------------
+// toSyncFsError：fs 錯誤碼 → SyncError 分類映射
+// EACCES/EPERM → PERMISSION，其餘 → IO_ERROR；訊息不嵌入 Node 原生 e.message、路徑經遮罩
+// -----------------------------------------------------------------------------
+test('toSyncFsError：EACCES → PERMISSION', () => {
+  const err = toSyncFsError({ code: 'EACCES' }, '/tmp/x', '寫入');
+  assert.ok(err instanceof SyncError, '應為 SyncError');
+  assert.equal(err.code, ERR.PERMISSION, 'EACCES 須映射為 PERMISSION');
+  assert.match(err.message, /權限不足/);
+});
+
+test('toSyncFsError：EPERM → PERMISSION', () => {
+  const err = toSyncFsError({ code: 'EPERM' }, '/tmp/x', '重新命名');
+  assert.equal(err.code, ERR.PERMISSION, 'EPERM 須映射為 PERMISSION');
+});
+
+test('toSyncFsError：其餘錯誤碼（ENOSPC/EXDEV 等）→ IO_ERROR，且訊息帶錯誤碼', () => {
+  const err = toSyncFsError({ code: 'ENOSPC' }, '/tmp/x', '寫入');
+  assert.equal(err.code, ERR.IO_ERROR, '非權限類須映射為 IO_ERROR');
+  assert.match(err.message, /ENOSPC/, '訊息應帶上 fs 錯誤碼');
+});
+
+test('toSyncFsError：訊息不嵌入 Node 原生 e.message，HOME 路徑經遮罩', () => {
+  const os = require('node:os');
+  const secretPath = path.join(os.homedir(), '.claude', 'settings.json');
+  // e.message 含絕對路徑，不得滲入 SyncError 訊息
+  const err = toSyncFsError({ code: 'EACCES', message: `EACCES: ${secretPath}` }, secretPath, '讀取');
+  assert.ok(!err.message.includes(os.homedir()), '訊息不得洩漏 HOME 絕對路徑');
+  assert.ok(!err.message.includes('EACCES: '), '不得嵌入 Node 原生 e.message');
 });
 
 // =============================================================================
