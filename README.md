@@ -126,7 +126,7 @@ npm run to-local
 | `claude/rules/` | 對應 `~/.claude/rules/`（CLAUDE.md 的模組化拆分，支援 frontmatter `paths:` 做 path-specific scoping） |
 | `codex/AGENTS.md` | 對應 `~/.codex/AGENTS.md`（Codex 全域指示，跨專案規則） |
 | `codex/config.toml` | 對應 `~/.codex/config.toml` 的可攜欄位（過濾版） |
-| `codex/agents/` | 對應 `~/.codex/agents/`（以 package 子目錄組織，`.toml` 格式） |
+| `codex/agents/` | 對應 `~/.codex/agents/`（以 package 子目錄組織，`.toml` 格式；目前無 agent） |
 | `skills-lock.json` | 全域 skills 清單（跨裝置 source of truth） |
 | `claude/CLAUDE.example.md` | Fork 後 `npm run init` 用的空骨架範本 |
 | `claude/settings.example.json` | 同上，設定檔範本（僅基本 permissions） |
@@ -148,7 +148,7 @@ npm run to-local
 - `codex/config.toml` 只同步可攜欄位：`personality`、`web_search`、`tui.status_line`、`features.memories`、`features.goals`、`memories.generate_memories`、`memories.use_memories`、`plugins.*.enabled`
 - `codex/config.toml` 會排除 `model`、`model_reasoning_effort`、`projects.*`、`marketplaces.*`、`windows`、`tui.model_availability_nux` 與未知欄位；to-local 時保留本機未受管理欄位
 - `.agents/skills/` 是本地 skill 實體目錄，已納入版控；`.claude/skills` 與 `.codex/skills` 以 symlink 共用同一份來源
-- Claude agents 儲存於 `claude/agents/`，以 package 子目錄分組（目前為 `everything-claude-code/`）；Codex agents 儲存於 `codex/agents/`，同樣以 package 子目錄分組，Codex CLI 會遞迴掃描子目錄
+- Claude agents 儲存於 `claude/agents/`，以 package 子目錄分組（目前為 `everything-claude-code/`）；Codex agents 儲存於 `codex/agents/`，同樣以 package 子目錄分組（目前無 agent），Codex CLI 會遞迴掃描子目錄
 - Skills 不在自動同步範圍內，用 `npm run skills:diff` 查看差異；本機多裝者會列出 `npm run skills:add`（加入 repo）與 `npx skills remove`（從本機移除）兩種建議
 - JSON 寫入使用 atomic write（先寫暫存檔再 rename），避免中途斷電導致檔案損壞
 - 每次 to-repo / to-local 操作會記錄到 `.sync-history.log`（已加入 .gitignore）

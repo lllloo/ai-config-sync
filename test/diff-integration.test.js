@@ -28,7 +28,11 @@ test('runDiff (to-repo)：本機 HOME 為空 → 應回 EXIT_DIFF 並列出 dele
     const result = runDiffWithFakeHome(tmpHome);
     assert.equal(result.status, 1, `預期 EXIT_DIFF=1，實得 ${result.status}\n${result.stdout}\n${result.stderr}`);
     assert.match(result.stdout, /repo 有、本機沒有/, '應出現 deleted 訊息');
-    assert.match(result.stdout, /codex\/agents\//, '應列出 codex/agents/ 下的檔案');
+    assert.match(
+      result.stdout,
+      /\[-\] claude\/agents\/everything-claude-code\/.*repo 有、本機沒有/,
+      '應將 claude/agents/everything-claude-code/ 下的檔案逐一列為 deleted'
+    );
     assert.doesNotMatch(result.stdout, /本機與 repo 完全一致/, '不該宣告完全一致');
   } finally {
     fs.rmSync(tmpHome, { recursive: true, force: true });
