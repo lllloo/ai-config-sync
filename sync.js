@@ -470,6 +470,25 @@ function ensureDir(dir) {
 }
 
 /**
+ * 安全讀取檔案：將 fs 例外統一包成 SyncError（帶 path context 與操作脈絡）。
+ * 用於 existsSync 後仍可能 race 消失、或權限/IO 失敗的讀取點，
+ * 確保錯誤經 toSyncFsError 轉換，而非裸 Error 穿透到 formatError（丟失 path/hint）。
+ * @param {string} filePath - 檔案路徑
+ * @param {string} [op='讀取檔案'] - 操作名稱（中文），用於錯誤訊息
+ * @param {BufferEncoding} [encoding] - 省略則回傳 Buffer，指定則回傳字串
+ * @returns {Buffer|string}
+ */
+function readFileSafe(filePath, op = '讀取檔案', encoding) {
+  try {
+    return encoding === undefined
+      ? fs.readFileSync(filePath)
+      : fs.readFileSync(filePath, encoding);
+  } catch (e) {
+    throw toSyncFsError(e, filePath, op);
+  }
+}
+
+/**
  * 複製單一檔案，回傳是否有實際寫入（或在 dry-run 下是否「將會」寫入）
  * 注意：dry-run 模式下無論 force 為何，都必須比對檔案內容，
  * 只有內容真的不同時才回傳 true
@@ -618,13 +637,13 @@ function mirrorDir(src, dest, excludePatterns = [], force = false, dryRun = fals
   for (const rel of srcFiles) {
     const srcFile = path.join(src, rel);
     const destFile = path.join(dest, rel);
-    const srcContent = fs.readFileSync(srcFile);
+    const srcContent = readFileSafe(srcFile, '讀取來源檔案');
     const destExists = fs.existsSync(destFile);
 
     // dry-run 時一律比對內容，不受 force 影響
     const needsWrite = dryRun
-      ? (!destExists || !srcContent.equals(fs.readFileSync(destFile)))
-      : (force || !destExists || !srcContent.equals(fs.readFileSync(destFile)));
+      ? (!destExists || !srcContent.equals(readFileSafe(destFile, '讀取目的檔案')))
+      : (force || !destExists || !srcContent.equals(readFileSafe(destFile, '讀取目的檔案')));
 
     if (needsWrite) {
       if (!dryRun) {
@@ -666,7 +685,17 @@ function mirrorDir(src, dest, excludePatterns = [], force = false, dryRun = fals
  */
 function cleanEmptyDirs(dir) {
   if (!fs.existsSync(dir)) return;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (e) {
+    // race（ENOENT）靜默跳過；其他錯誤 warn 後跳過，不中斷主流程
+    if (e.code !== 'ENOENT') {
+      console.warn(col.yellow(`  [warn] 讀取目錄失敗（${e.code}）：${toRelativePath(dir)}`));
+    }
+    return;
+  }
+  for (const entry of entries) {
     if (entry.isDirectory()) {
       const sub = path.join(dir, entry.name);
       cleanEmptyDirs(sub);
@@ -738,8 +767,8 @@ function isGitAvailable() {
 function diffFile(src, dest) {
   if (!fs.existsSync(src)) return fs.existsSync(dest) ? 'deleted' : null;
   if (!fs.existsSync(dest)) return 'new';
-  const a = fs.readFileSync(src);
-  const b = fs.readFileSync(dest);
+  const a = readFileSafe(src, '讀取');
+  const b = readFileSafe(dest, '讀取');
   if (a.equals(b)) return null;
   return isEolOnlyDiff(a, b) ? 'eol' : 'changed';
 }
@@ -782,8 +811,8 @@ function diffDir(src, dest, excludePatterns = []) {
     if (!destFiles.has(rel)) {
       result.push({ rel, status: 'new' });
     } else {
-      const a = fs.readFileSync(path.join(src, rel));
-      const b = fs.readFileSync(path.join(dest, rel));
+      const a = readFileSafe(path.join(src, rel), '讀取');
+      const b = readFileSafe(path.join(dest, rel), '讀取');
       if (!a.equals(b)) {
         result.push({ rel, status: isEolOnlyDiff(a, b) ? 'eol' : 'changed' });
       }
@@ -1116,7 +1145,7 @@ function mergeSettingsJson(direction, dryRun = false) {
     if (stripped === null) return false;
 
     const repoContent = fs.existsSync(repoPath)
-      ? fs.readFileSync(repoPath, 'utf8')
+      ? readFileSafe(repoPath, '讀取 repo 設定', 'utf8')
       : null;
     if (repoContent === stripped.serialized) return false;
 
@@ -1284,7 +1313,7 @@ function deleteCodexConfigValue(data, section, key) {
  */
 function loadPortableCodexConfig(filePath) {
   if (!fs.existsSync(filePath)) return null;
-  const data = parsePortableCodexConfig(fs.readFileSync(filePath, 'utf8'));
+  const data = parsePortableCodexConfig(readFileSafe(filePath, '讀取 Codex 設定', 'utf8'));
   return { data, serialized: serializePortableCodexConfig(data) };
 }
 
@@ -1412,7 +1441,7 @@ function mergeCodexConfigToRepo(localPath, repoPath, dryRun) {
   const portable = loadPortableCodexConfig(localPath);
   if (!portable) return false;
   if (portable.serialized === '' && !fs.existsSync(repoPath)) return false;
-  const repoContent = fs.existsSync(repoPath) ? fs.readFileSync(repoPath, 'utf8') : null;
+  const repoContent = fs.existsSync(repoPath) ? readFileSafe(repoPath, '讀取 repo Codex 設定', 'utf8') : null;
   if (repoContent === portable.serialized) return false;
   if (dryRun) return true;
   writeTextSafe(repoPath, portable.serialized);
@@ -1429,7 +1458,7 @@ function mergeCodexConfigToRepo(localPath, repoPath, dryRun) {
 function mergeCodexConfigToLocal(localPath, repoPath, dryRun) {
   const portable = loadPortableCodexConfig(repoPath);
   if (!portable) return false;
-  const localContent = fs.existsSync(localPath) ? fs.readFileSync(localPath, 'utf8') : '';
+  const localContent = fs.existsSync(localPath) ? readFileSafe(localPath, '讀取本機 Codex 設定', 'utf8') : '';
   const merged = mergePortableCodexConfig(localContent, portable.data);
   if (localContent === merged) return false;
   if (dryRun) return true;
@@ -1607,7 +1636,7 @@ function diffSettingsItem(item) {
       status = 'new';
     } else {
       // 與 diffFile 對齊：先判斷是否僅 EOL 差異，避免 CRLF/LF 被誤判為 changed
-      const repoBuf = fs.readFileSync(repoPath);
+      const repoBuf = readFileSafe(repoPath, '讀取 repo 設定');
       const strippedBuf = Buffer.from(stripped);
       if (!repoBuf.equals(strippedBuf)) {
         status = isEolOnlyDiff(repoBuf, strippedBuf) ? 'eol' : 'changed';
@@ -1646,7 +1675,7 @@ function diffCodexConfigItem(item) {
         // 空字串也視為「新增」，避免 truthy 檢查吞掉 portable === '' 的合法新檔
         status = 'new';
       } else {
-        const repoBuf = fs.readFileSync(repoPath);
+        const repoBuf = readFileSafe(repoPath, '讀取 repo Codex 設定');
         const portableBuf = Buffer.from(portable);
         if (!repoBuf.equals(portableBuf)) {
           status = isEolOnlyDiff(repoBuf, portableBuf) ? 'eol' : 'changed';
@@ -1897,7 +1926,7 @@ function printDetailedDiff(diffItems) {
       printFileDiff(item.src, item.dest, item.label);
     } else if (item.status === 'new' && item.src && fs.existsSync(item.src)) {
       console.log(col.bold(`\n  -- ${item.label}  ${col.green('（新增）')}`));
-      const lines = fs.readFileSync(item.src, 'utf8').split('\n');
+      const lines = readFileSafe(item.src, '讀取', 'utf8').split('\n');
       for (const line of lines.slice(0, 30)) console.log(col.green('  +' + line));
       if (lines.length > 30) console.log(col.dim(`  ... 共 ${lines.length} 行`));
     }
@@ -2680,6 +2709,7 @@ if (require.main === module) {
     matchExclude,
     isPathInside,
     mirrorDir,
+    readFileSafe,
     statusToStatsKey,
     parseSkillSource,
     parseArgs,

@@ -18,6 +18,7 @@ const {
   isEolOnlyDiff,
   isPathInside,
   mirrorDir,
+  readFileSafe,
   SyncError,
   ERR,
   EXIT_OK,
@@ -393,5 +394,33 @@ test('mirrorDir：src 新檔寫入 dest，changed 標記 added', () => {
 
     assert.equal(fs.readFileSync(path.join(dest, 'nested', 'new.txt'), 'utf8'), 'NEW');
     assert.ok(changed.some(c => c.rel === 'nested/new.txt' && c.action === 'added'));
+  });
+});
+
+// =============================================================================
+// readFileSafe：fs 例外須包成 SyncError（不得讓裸 Error 穿透 formatError）
+// =============================================================================
+
+test('readFileSafe：讀取存在檔 → 回傳內容（指定 encoding 回字串）', () => {
+  withTmpDir((dir) => {
+    const fp = path.join(dir, 'f.txt');
+    fs.writeFileSync(fp, 'DATA');
+    assert.equal(readFileSafe(fp, '讀取', 'utf8'), 'DATA');
+    assert.ok(Buffer.isBuffer(readFileSafe(fp, '讀取')), '省略 encoding 應回 Buffer');
+  });
+});
+
+test('readFileSafe：讀取不存在檔 → 拋 SyncError（非裸 Error）含 path context', () => {
+  withTmpDir((dir) => {
+    const missing = path.join(dir, 'nope.txt');
+    assert.throws(
+      () => readFileSafe(missing, '讀取設定'),
+      (err) => {
+        assert.ok(err instanceof SyncError, '須為 SyncError 而非裸 Error');
+        assert.equal(err.context.path, missing, 'context 須帶 path 供脫敏輸出');
+        assert.ok(err.message.includes('讀取設定'), '訊息須含操作脈絡');
+        return true;
+      }
+    );
   });
 });
