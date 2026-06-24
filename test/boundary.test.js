@@ -448,3 +448,19 @@ test('writeFileSafe：成功寫入後不殘留 .tmp 暫存檔', () => {
     assert.deepEqual(leftover, [], '不應殘留 .tmp.<pid> 暫存檔');
   });
 });
+
+test('readFileSafe：HOME 下檔案的錯誤訊息經遮罩，不洩漏絕對 HOME 路徑', () => {
+  const home = require('node:os').homedir();
+  const missing = path.join(home, '__ai_config_sync_nonexist__', 'x.txt');
+  assert.throws(
+    () => readFileSafe(missing, '讀取'),
+    (err) => {
+      assert.ok(err instanceof SyncError);
+      // message 須走 toRelativePath：不得含完整 HOME 絕對路徑，須以 ~ 遮罩
+      assert.ok(!err.message.includes(home), 'message 不應含完整 HOME 絕對路徑');
+      assert.ok(err.message.includes('~/'), 'message 應以 ~ 遮罩 HOME');
+      assert.equal(err.context.path, missing, 'context.path 保留原值供內部使用');
+      return true;
+    }
+  );
+});

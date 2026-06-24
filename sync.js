@@ -237,10 +237,12 @@ function formatError(err) {
  * @returns {SyncError}
  */
 function toSyncFsError(e, filePath, op) {
+  // message 一律走 toRelativePath 遮罩；不嵌入 e.message（Node fs 錯誤含絕對路徑）
+  const rel = toRelativePath(filePath);
   if (e.code === 'EACCES' || e.code === 'EPERM') {
-    return new SyncError(`無法${op}（權限不足）：${filePath}`, ERR.PERMISSION, { path: filePath });
+    return new SyncError(`無法${op}（權限不足）：${rel}`, ERR.PERMISSION, { path: filePath });
   }
-  return new SyncError(`${op}失敗：${e.message}`, ERR.IO_ERROR, { path: filePath });
+  return new SyncError(`${op}失敗（${e.code}）：${rel}`, ERR.IO_ERROR, { path: filePath });
 }
 
 /**
@@ -363,9 +365,9 @@ function checkReadAccess(filePath) {
     fs.accessSync(filePath, fs.constants.R_OK);
   } catch (e) {
     if (e.code === 'ENOENT') {
-      throw new SyncError(`檔案不存在：${filePath}`, ERR.FILE_NOT_FOUND, { path: filePath });
+      throw new SyncError(`檔案不存在：${toRelativePath(filePath)}`, ERR.FILE_NOT_FOUND, { path: filePath });
     }
-    throw new SyncError(`無法讀取檔案：${filePath}`, ERR.PERMISSION, { path: filePath });
+    throw new SyncError(`無法讀取檔案：${toRelativePath(filePath)}`, ERR.PERMISSION, { path: filePath });
   }
 }
 
@@ -380,7 +382,7 @@ function checkWriteAccess(filePath) {
   try {
     fs.accessSync(filePath, fs.constants.W_OK);
   } catch (_) {
-    throw new SyncError(`無法寫入檔案（唯讀或權限不足）：${filePath}`, ERR.PERMISSION, { path: filePath });
+    throw new SyncError(`無法寫入檔案（唯讀或權限不足）：${toRelativePath(filePath)}`, ERR.PERMISSION, { path: filePath });
   }
 }
 
@@ -396,18 +398,18 @@ function readJson(filePath) {
     content = fs.readFileSync(filePath, 'utf8');
   } catch (e) {
     if (e.code === 'ENOENT') {
-      throw new SyncError(`JSON 檔案不存在：${filePath}`, ERR.FILE_NOT_FOUND, { path: filePath });
+      throw new SyncError(`JSON 檔案不存在：${toRelativePath(filePath)}`, ERR.FILE_NOT_FOUND, { path: filePath });
     }
     if (e.code === 'EACCES' || e.code === 'EPERM') {
-      throw new SyncError(`無法讀取 JSON 檔案（權限不足）：${filePath}`, ERR.PERMISSION, { path: filePath });
+      throw new SyncError(`無法讀取 JSON 檔案（權限不足）：${toRelativePath(filePath)}`, ERR.PERMISSION, { path: filePath });
     }
-    throw new SyncError(`無法讀取檔案：${e.message}`, ERR.IO_ERROR, { path: filePath });
+    throw new SyncError(`無法讀取檔案（${e.code}）：${toRelativePath(filePath)}`, ERR.IO_ERROR, { path: filePath });
   }
   try {
     return JSON.parse(content);
   } catch (e) {
     throw new SyncError(
-      `JSON 解析失敗：${filePath}`,
+      `JSON 解析失敗：${toRelativePath(filePath)}`,
       ERR.JSON_PARSE,
       { path: filePath, parseError: e.message },
     );
@@ -465,7 +467,11 @@ function writeTextSafe(filePath, content) {
  * @returns {void}
  */
 function ensureDir(dir) {
-  fs.mkdirSync(dir, { recursive: true });
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (e) {
+    throw toSyncFsError(e, dir, '建立目錄');
+  }
 }
 
 /**
@@ -484,6 +490,22 @@ function readFileSafe(filePath, op = '讀取檔案', encoding) {
       : fs.readFileSync(filePath, encoding);
   } catch (e) {
     throw toSyncFsError(e, filePath, op);
+  }
+}
+
+/**
+ * 寫入 diff 用的暫存檔（os.tmpdir()）：限本人可讀（mode 0600），失敗包成 SyncError。
+ * 非同步目標檔故不需 atomic，但仍須錯誤包裝（不讓裸 Error 穿透）與權限收斂
+ * （避免多使用者環境下 stripped settings 以 0644 暴露）。
+ * @param {string} tmpPath - 暫存檔路徑
+ * @param {string|Buffer} content - 要寫入的內容
+ * @returns {void}
+ */
+function writeTmpDiffFile(tmpPath, content) {
+  try {
+    fs.writeFileSync(tmpPath, content, { mode: 0o600 });
+  } catch (e) {
+    throw toSyncFsError(e, tmpPath, '寫入暫存差異檔');
   }
 }
 
@@ -1620,7 +1642,7 @@ function diffSettingsItem(item) {
     const stripped = getStrippedSettings(localPath);
     tmpSrc = path.join(os.tmpdir(), `ai-config-sync-settings-diff-${process.pid}.json`);
     registerTempFile(tmpSrc);
-    fs.writeFileSync(tmpSrc, stripped);
+    writeTmpDiffFile(tmpSrc, stripped);
     if (!fs.existsSync(repoPath)) {
       status = 'new';
     } else {
@@ -1659,7 +1681,7 @@ function diffCodexConfigItem(item) {
     if (portable !== null) {
       tmpSrc = path.join(os.tmpdir(), `ai-config-sync-codex-config-diff-${process.pid}.toml`);
       registerTempFile(tmpSrc);
-      fs.writeFileSync(tmpSrc, portable);
+      writeTmpDiffFile(tmpSrc, portable);
       if (!fs.existsSync(repoPath)) {
         // 空字串也視為「新增」，避免 truthy 檢查吞掉 portable === '' 的合法新檔
         status = 'new';
