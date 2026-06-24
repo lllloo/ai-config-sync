@@ -20,6 +20,8 @@ const {
   mirrorDir,
   readFileSafe,
   writeFileSafe,
+  runSkillsRemove,
+  validateSkillName,
   SyncError,
   ERR,
   EXIT_OK,
@@ -460,6 +462,28 @@ test('readFileSafe：HOME 下檔案的錯誤訊息經遮罩，不洩漏絕對 HO
       assert.ok(!err.message.includes(home), 'message 不應含完整 HOME 絕對路徑');
       assert.ok(err.message.includes('~/'), 'message 應以 ~ 遮罩 HOME');
       assert.equal(err.context.path, missing, 'context.path 保留原值供內部使用');
+      return true;
+    }
+  );
+});
+
+// =============================================================================
+// validateSkillName / runSkillsRemove：輸入驗證防 terminal log injection
+// =============================================================================
+
+test('validateSkillName：含 ANSI escape / 換行的 name 拋 INVALID_ARGS，合法 name 通過', () => {
+  assert.throws(() => validateSkillName('\x1b[2Jevil'), e => e instanceof SyncError && e.code === ERR.INVALID_ARGS);
+  assert.throws(() => validateSkillName('a\nb'), e => e.code === ERR.INVALID_ARGS);
+  assert.doesNotThrow(() => validateSkillName('valid.skill_name-1'));
+});
+
+test('runSkillsRemove：含 ANSI escape 的 name 在驗證階段被擋（非落到「不存在」靜默回傳）', () => {
+  // mutation-safe：若移除 validateSkillName 呼叫，此 name 會落到「不在 lock → return EXIT_OK」而不拋
+  assert.throws(
+    () => runSkillsRemove({ extraArgs: ['\x1b[2Jmalicious'] }),
+    (err) => {
+      assert.ok(err instanceof SyncError);
+      assert.equal(err.code, ERR.INVALID_ARGS);
       return true;
     }
   );

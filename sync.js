@@ -431,7 +431,8 @@ function writeFileSafe(filePath, content, op = '寫入檔案') {
   registerTempFile(tmpPath);
   try {
     ensureDir(path.dirname(filePath));
-    fs.writeFileSync(tmpPath, content);
+    // mode 0600：暫存檔在 rename 前不以預設 umask（常 0644）暴露；對稱 writeTmpDiffFile
+    fs.writeFileSync(tmpPath, content, { mode: 0o600 });
     fs.renameSync(tmpPath, filePath);
   } catch (e) {
     try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
@@ -1080,7 +1081,12 @@ function loadStrippedSettings(filePath) {
   const data = readJson(filePath);
   for (const field of DEVICE_FIELDS) {
     if (field.includes('.')) {
-      const [obj, key] = field.split('.');
+      const parts = field.split('.');
+      // 目前僅支援兩層；超過則明確報錯，避免未來擴充時 strip 靜默失效（裝置欄位漏進 repo）
+      if (parts.length > 2) {
+        throw new SyncError(`DEVICE_FIELDS 不支援超過兩層的巢狀欄位：${field}`, ERR.INVALID_ARGS, { field });
+      }
+      const [obj, key] = parts;
       if (data[obj]) delete data[obj][key];
     } else {
       delete data[field];
@@ -1497,7 +1503,8 @@ function appendSyncLog(direction, changes) {
       ...changes.map(c => `  ${c}`),
       '',
     ].join('\n');
-    fs.appendFileSync(SYNC_HISTORY_LOG, entry + '\n');
+    // mode 0600：log 含 hostname，建立時即收斂為 owner-only
+    fs.appendFileSync(SYNC_HISTORY_LOG, entry + '\n', { mode: 0o600 });
   } catch (e) {
     // 日誌寫入失敗不影響主流程，但需 warn 讓使用者察覺 audit trail 中斷
     console.warn(col.yellow(`  [warn] 寫入同步日誌失敗（${e.code || 'unknown'}）：${toRelativePath(SYNC_HISTORY_LOG)}`));
@@ -2403,6 +2410,8 @@ function runSkillsRemove(opts) {
       ERR.INVALID_ARGS,
     );
   }
+  // 與 skills:add 一致：驗證 name 格式，防 terminal log injection（name 會輸出到建議指令）
+  validateSkillName(name);
 
   const repoLockPath = path.join(REPO_ROOT, 'skills-lock.json');
   if (!fs.existsSync(repoLockPath)) {
@@ -2722,6 +2731,8 @@ if (require.main === module) {
     mirrorDir,
     readFileSafe,
     writeFileSafe,
+    runSkillsRemove,
+    validateSkillName,
     statusToStatsKey,
     parseSkillSource,
     parseArgs,
