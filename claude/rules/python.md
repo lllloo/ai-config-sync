@@ -1,8 +1,13 @@
 # Python 編碼規則
 
-執行環境 locale 編碼不可控（Windows 預設 cp950）。優先用機器級 `PYTHONUTF8` 一次罩住；只有在無法保證目標環境有設時，才退到腳本級顯式設定。
+編碼策略依平台：
 
-## 首選：機器級 `PYTHONUTF8=1`
+- **Windows**：locale 預設 cp950，編碼不可控 → 優先機器級 `PYTHONUTF8` 一次罩住（見下）。
+- **WSL / Linux / macOS**：locale 預設 UTF-8，機器級通常**不需設**，本機跑無痛。
+
+但凡腳本會跑到 **Windows／CI／容器**，無論你在哪開發都要照下方「Fallback 可攜底線」全做——可攜性不靠執行環境的 locale。
+
+## 首選：機器級 `PYTHONUTF8=1`（Windows）
 
 一次轉 UTF-8（stdout/stderr、`open()`、路徑），不必每支腳本重寫。**能掌控執行環境就設這個**。
 
