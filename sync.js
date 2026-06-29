@@ -1715,12 +1715,14 @@ function diffSettingsItem(item, direction) {
     if (!fs.existsSync(repoPath)) return { ...base, status: null, src: null };
     if (!fs.existsSync(localPath)) return { ...base, status: 'new', src: null };
     const stripped = getStrippedSettings(localPath);
+    if (stripped === null) return { ...base, status: null, src: null };
     return { ...base, status: compareStrippedToRepo(stripped, repoPath, '讀取 repo 設定'), src: null };
   }
 
   // to-repo：本機 stripped → repo
   if (!fs.existsSync(localPath)) return { ...base, status: null, src: null };
   const stripped = getStrippedSettings(localPath);
+  if (stripped === null) return { ...base, status: null, src: null };
   const tmpSrc = path.join(os.tmpdir(), `ai-config-sync-settings-diff-${process.pid}.json`);
   registerTempFile(tmpSrc);
   writeTmpDiffFile(tmpSrc, stripped);
@@ -2076,7 +2078,7 @@ function collectSkillDiffSummary(item, summary) {
   const skill = item.label.split('/')[2];
   if (!summary[skill]) summary[skill] = { added: 0, changed: 0, deleted: 0 };
   if (item.status === 'new') summary[skill].added++;
-  else if (item.status === 'changed') summary[skill].changed++;
+  else if (item.status === 'changed' || item.status === 'eol') summary[skill].changed++;
   else if (item.status === 'deleted') summary[skill].deleted++;
   return true;
 }
@@ -2446,7 +2448,7 @@ function runSkillsAdd(opts) {
     lock = { version: 1, skills: {} };
   }
 
-  if (!lock.skills) lock.skills = {};
+  if (!lock.skills || typeof lock.skills !== 'object' || Array.isArray(lock.skills)) lock.skills = {};
 
   if (lock.skills[name]) {
     console.log(col.yellow(`\n  [!] ${name} 已存在於 skills-lock.json（source: ${lock.skills[name].source}）`));
@@ -2790,6 +2792,8 @@ if (require.main === module) {
     // 純函式 / 輔助：供單元測試使用
     computeLineDiff,
     computeSimpleLineDiff,
+    collectSkillDiffSummary,
+    buildFullDiffList,
     diffFile,
     diffDir,
     isEolOnlyDiff,

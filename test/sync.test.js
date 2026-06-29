@@ -12,6 +12,8 @@ const path = require('node:path');
 
 const {
   computeLineDiff,
+  collectSkillDiffSummary,
+  buildFullDiffList,
   diffFile,
   diffDir,
   matchExclude,
@@ -385,4 +387,72 @@ test('diffDir：src 與 dest 都不存在 → 空陣列', () => {
       []
     );
   });
+});
+
+// --- collectSkillDiffSummary -----------------------------------------------
+
+test('collectSkillDiffSummary：非 skills 路徑回 false、不計入', () => {
+  const summary = {};
+  assert.equal(collectSkillDiffSummary({ label: 'claude/CLAUDE.md', status: 'changed' }, summary), false);
+  assert.deepEqual(summary, {});
+});
+
+test('collectSkillDiffSummary：status 為 null（無差異）回 false', () => {
+  const summary = {};
+  assert.equal(collectSkillDiffSummary({ label: 'claude/skills/ob/SKILL.md', status: null }, summary), false);
+  assert.deepEqual(summary, {});
+});
+
+test('collectSkillDiffSummary：eol 狀態計入 changed（回歸：先前漏計顯示「共 0 個檔案」）', () => {
+  const summary = {};
+  assert.equal(collectSkillDiffSummary({ label: 'claude/skills/ob/SKILL.md', status: 'eol' }, summary), true);
+  assert.deepEqual(summary.ob, { added: 0, changed: 1, deleted: 0 });
+});
+
+test('collectSkillDiffSummary：new/changed/deleted 各自累加且依 skill 分組', () => {
+  const summary = {};
+  collectSkillDiffSummary({ label: 'claude/skills/ob/a.md', status: 'new' }, summary);
+  collectSkillDiffSummary({ label: 'claude/skills/ob/b.md', status: 'changed' }, summary);
+  collectSkillDiffSummary({ label: 'claude/skills/ob/c.md', status: 'deleted' }, summary);
+  collectSkillDiffSummary({ label: 'claude/skills/pen/d.md', status: 'changed' }, summary);
+  assert.deepEqual(summary.ob, { added: 1, changed: 1, deleted: 1 });
+  assert.deepEqual(summary.pen, { added: 0, changed: 1, deleted: 0 });
+});
+
+// --- buildFullDiffList ------------------------------------------------------
+
+test('buildFullDiffList：補上無差異的 file 項目（status: null）且不 mutate 輸入', () => {
+  const items = [{ label: 'CLAUDE.md', type: 'file', src: '/s', dest: '/d', verboseSrc: '/s', verboseDest: '/d' }];
+  const diffItems = [];
+  const result = buildFullDiffList(items, diffItems);
+  assert.equal(diffItems.length, 0, '不得 mutate 傳入的 diffItems');
+  assert.deepEqual(result.map(d => ({ label: d.label, status: d.status })), [
+    { label: 'claude/CLAUDE.md', status: null },
+  ]);
+});
+
+test('buildFullDiffList：已有差異的 file 不重複補列', () => {
+  const items = [{ label: 'CLAUDE.md', type: 'file', src: '/s', dest: '/d' }];
+  const diffItems = [{ label: 'claude/CLAUDE.md', status: 'changed', itemType: 'file' }];
+  const result = buildFullDiffList(items, diffItems);
+  assert.equal(result.filter(d => d.label === 'claude/CLAUDE.md').length, 1);
+  assert.equal(result[0].status, 'changed');
+});
+
+test('buildFullDiffList：dir 排在 file/settings 之後', () => {
+  const items = [
+    { label: 'skills', type: 'dir', src: '/s', dest: '/d' },
+    { label: 'CLAUDE.md', type: 'file', src: '/s2', dest: '/d2' },
+  ];
+  const result = buildFullDiffList(items, []);
+  const dirIdx = result.findIndex(d => d.label === 'claude/skills/');
+  const fileIdx = result.findIndex(d => d.label === 'claude/CLAUDE.md');
+  assert.ok(fileIdx < dirIdx, 'file 應排在 dir 之前');
+});
+
+test('buildFullDiffList：dir 已有細項差異時不補摘要行', () => {
+  const items = [{ label: 'skills', type: 'dir', src: '/s', dest: '/d' }];
+  const diffItems = [{ label: 'claude/skills/ob/a.md', status: 'changed', itemType: 'dir' }];
+  const result = buildFullDiffList(items, diffItems);
+  assert.equal(result.some(d => d.label === 'claude/skills/'), false);
 });
