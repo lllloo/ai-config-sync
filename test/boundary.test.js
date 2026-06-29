@@ -21,6 +21,7 @@ const {
   getFiles,
   mirrorDir,
   copyFile,
+  createTmpDiffFile,
   applySyncItems,
   readFileSafe,
   readJson,
@@ -749,5 +750,45 @@ test('applySyncItems：dry-run 計入統計但不實際寫入', () => {
 
     assert.equal(stats.added, 1, 'dry-run 仍計入將新增的統計');
     assert.equal(fs.existsSync(fileDest), false, 'dry-run 不得實際寫入');
+  });
+});
+
+// =============================================================================
+// 安全：createTmpDiffFile 隨機名 + O_EXCL（防共用 /tmp symlink 攻擊）
+// =============================================================================
+
+test('createTmpDiffFile：寫入內容、檔名隨機、落在 os.tmpdir() 下', () => {
+  const os = require('node:os');
+  const p1 = createTmpDiffFile('json', '{"a":1}');
+  const p2 = createTmpDiffFile('json', '{"a":1}');
+  try {
+    assert.equal(fs.readFileSync(p1, 'utf8'), '{"a":1}');
+    assert.notEqual(p1, p2, '兩次呼叫檔名應不同（隨機）');
+    assert.equal(path.dirname(p1), os.tmpdir(), '應落在 os.tmpdir()');
+    assert.match(path.basename(p1), /^ai-config-sync-[0-9a-f]+\.json$/);
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(p1).mode & 0o777, 0o600, '權限應為 0600');
+    }
+  } finally {
+    fs.rmSync(p1, { force: true });
+    fs.rmSync(p2, { force: true });
+  }
+});
+
+itUnix('createTmpDiffFile：O_EXCL 拒絕跟隨既存 symlink（不覆寫目標）', () => {
+  withTmpDir((dir) => {
+    const os = require('node:os');
+    const victim = path.join(dir, 'victim');
+    fs.writeFileSync(victim, 'ORIGINAL');
+    // 預埋一個指向 victim 的 symlink，名稱與「下一個」隨機檔同名——無法預測隨機名，
+    // 故改以固定路徑直接驗證 wx 行為：對已存在路徑寫 'wx' 應拋 EEXIST、不覆寫。
+    const link = path.join(os.tmpdir(), `ai-config-sync-excl-test-${path.basename(dir)}.json`);
+    fs.symlinkSync(victim, link);
+    try {
+      assert.throws(() => fs.writeFileSync(link, 'ATTACK', { flag: 'wx', mode: 0o600 }));
+      assert.equal(fs.readFileSync(victim, 'utf8'), 'ORIGINAL', 'O_EXCL 不得覆寫 symlink 目標');
+    } finally {
+      fs.rmSync(link, { force: true });
+    }
   });
 });

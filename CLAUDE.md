@@ -59,14 +59,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `codex/config.toml` | `~/.codex/config.toml` | 僅同步可攜欄位（`personality`、`web_search`、`tui.status_line`、`features.memories`、`features.goals`、`memories.*`、`plugins.*.enabled`）；裝置特定欄位與未知欄位保留本機值 |
 | `codex/agents/` | `~/.codex/agents/` | Codex `.toml` agents，以 package 子目錄組織；Codex CLI 遞迴掃描子目錄載入（目前無 agent） |
 
+### 刻意不同步（勿加入 `buildSyncItems`）
+
+- **`~/.claude.json`** — 含 MCP server 設定與憑證、專案級狀態，屬高風險敏感檔，**永遠不同步**。
+- **`~/.claude/keybindings.json`** — 雖屬可攜偏好，目前刻意不納入同步（避免擴大同步面）；日後若要收錄需確認鍵位設定不含裝置特定路徑，並改 `buildSyncItems` + README + 對應測試。
+
 ## 架構重點
 
 **單檔 CLI 設計**：所有邏輯在 `sync.js`（~2700 行，零外部相依，只用 Node.js 內建模組）。檔案結構採 section banner 分段，關鍵不變式：
 
 - **所有函式 ≤ 60 行**（經 iter4/iter5 稽核強制）— 新增函式若超過需拆分
 - **Data-driven dispatch**：`COMMANDS` 物件含 `handler`，`main()` 透過 `await COMMANDS[cmd].handler(opts)` 派發，**新增指令只需改 `COMMANDS`**
-- **SyncItem 抽象**：`buildSyncItems()` 產出宣告式 `SyncItem[]`，後續 `diffSyncItems` / `applySyncItems` 走統一流程
-- **Atomic write**：底層 `writeFileSafe` 先寫同目錄暫存檔再 rename（同檔系統避免 EXDEV），所有寫入路徑（`writeJsonSafe`、`writeTextSafe`、`copyFile`、`mirrorDir`）皆走此函式，避免斷電／中斷造成半截損壞。對稱的 `readFileSafe` 統一將讀取例外包成 `SyncError`（帶 path context），不讓裸 fs 例外穿透 `formatError`
+- **SyncItem 抽象 + 型別行為查表**：`buildSyncItems()` 產出宣告式 `SyncItem[]`；型別行為由 `SYNC_TYPE_HANDLERS`（`{ diff, apply, isDir }`）集中分派，`diffSyncItems` / `applySyncItems` / `buildFullDiffList` 三個消費端皆查表，**新增同步類型只需在 `SYNC_TYPE_HANDLERS` 加一筆**，不必逐處改 `if (type===...)`。方向相依的 codex 項目走 `buildSwapItem` 統一交換 src/dest
+- **Atomic write**：底層 `writeFileSafe` 先寫同目錄暫存檔（隨機尾碼 + `flag:'wx'` O_EXCL）再 rename（同檔系統避免 EXDEV），所有寫入路徑（`writeJsonSafe`、`writeTextSafe`、`copyFile`、`mirrorDir`）皆走此函式。提供**原子性**（避免半截損壞），但**不付 fsync 成本、不保證持久性**（設定檔對持久性需求低）。diff 暫存檔走 `createTmpDiffFile`（os.tmpdir() 下隨機名 + O_EXCL，防共用 /tmp 的 symlink 攻擊 CWE-377/59）。對稱的 `readFileSafe` 統一將讀取例外包成 `SyncError`（帶 path context），不讓裸 fs 例外穿透 `formatError`
 - **統一錯誤處理**：`SyncError` class（`code` + `context`）+ 檔尾 `.catch(formatError)`，所有路徑經 `formatError`，**禁止**裸 `console.error + process.exit`
 - **Exit code 語義**：`EXIT_OK=0`（成功或 diff 無差異）、`EXIT_DIFF=1`（diff 有差異，可用於 CI）、`EXIT_ERROR=2`
 - **Relative path 遮罩**：`toRelativePath` 處理 REPO_ROOT 與 `$HOME` → `~/`，`printFileDiff` 的 diff header 亦走此函式避免洩漏使用者名稱

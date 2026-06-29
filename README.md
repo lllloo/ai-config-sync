@@ -63,8 +63,9 @@ npm test
 |------|------|
 | `--dry-run` | 預覽操作，不實際寫入（適用 to-repo / to-local） |
 | `--yes` | 略過互動確認（別名 `--force`）；非互動環境（CI / pipe）執行 to-local / init 時必加，否則會直接報錯而非卡住 |
+| `--no-color` | 關閉色彩輸出（亦支援 `NO_COLOR` 環境變數；`FORCE_COLOR` 可強制開啟） |
 | `--verbose` | 顯示詳細路徑與檔案大小 |
-| `--version` | 顯示版本號 |
+| `--version` | 顯示版本號（別名 `-v`） |
 | `--help` | 顯示指令說明 |
 
 > 不在白名單內的旗標（含 typo 如 `--dryrun`）會直接報錯，不會被靜默忽略——避免打錯字而略過 dry-run 預覽真寫入。

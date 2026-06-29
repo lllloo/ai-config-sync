@@ -22,6 +22,11 @@ const {
   parseArgs,
   toRelativePath,
   loadSkillsFromLock,
+  computeSkillsDiff,
+  sanitizeForTerminal,
+  buildSwapItem,
+  actionToIcon,
+  SYNC_TYPE_HANDLERS,
   SyncError,
   ERR,
   COMMANDS,
@@ -223,6 +228,70 @@ test('parseArgs：未知旗標（含 typo）拋 INVALID_ARGS 而非靜默忽略'
       `應對 ${bad} 拋 INVALID_ARGS`,
     );
   }
+});
+
+test('parseArgs：--no-color 設定 noColor 旗標', () => {
+  assert.equal(withArgv(['diff', '--no-color'], () => parseArgs()).noColor, true);
+  assert.equal(withArgv(['diff'], () => parseArgs()).noColor, false);
+});
+
+test('parseArgs：-v 為 --version 別名', () => {
+  assert.equal(withArgv(['-v'], () => parseArgs()).showVersion, true);
+});
+
+// -----------------------------------------------------------------------------
+// SYNC_TYPE_HANDLERS：型別行為查表（data-driven 不變式）
+// -----------------------------------------------------------------------------
+test('SYNC_TYPE_HANDLERS：涵蓋所有 SyncItem type，且每筆有 diff/apply/isDir', () => {
+  const types = ['file', 'settings', 'codex-config', 'dir'];
+  for (const t of types) {
+    const h = SYNC_TYPE_HANDLERS[t];
+    assert.ok(h, `應有 ${t} handler`);
+    assert.equal(typeof h.diff, 'function', `${t}.diff 應為函式`);
+    assert.equal(typeof h.apply, 'function', `${t}.apply 應為函式`);
+    assert.equal(typeof h.isDir, 'boolean', `${t}.isDir 應為布林`);
+  }
+  assert.equal(SYNC_TYPE_HANDLERS.dir.isDir, true);
+  assert.equal(SYNC_TYPE_HANDLERS.file.isDir, false);
+});
+
+test('actionToIcon：added/deleted 直映，其餘（updated）→ changed', () => {
+  assert.equal(actionToIcon('added'), 'added');
+  assert.equal(actionToIcon('deleted'), 'deleted');
+  assert.equal(actionToIcon('updated'), 'changed');
+});
+
+test('buildSwapItem：to-repo 為 home→repo，to-local 為 repo→home', () => {
+  const toRepo = buildSwapItem('AGENTS.md', '/home/x', '/repo/x', 'file', true, 'codex/');
+  assert.deepEqual(toRepo, { label: 'AGENTS.md', src: '/home/x', dest: '/repo/x', type: 'file', prefix: 'codex/' });
+  const toLocal = buildSwapItem('AGENTS.md', '/home/x', '/repo/x', 'file', false, 'codex/');
+  assert.equal(toLocal.src, '/repo/x');
+  assert.equal(toLocal.dest, '/home/x');
+});
+
+// -----------------------------------------------------------------------------
+// computeSkillsDiff：三向集合差
+// -----------------------------------------------------------------------------
+test('computeSkillsDiff：正確分出 onlyInRepo / onlyInLocal / inBoth', () => {
+  const repo = { a: {}, b: {}, shared: {} };
+  const local = { c: {}, shared: {} };
+  const r = computeSkillsDiff(repo, local);
+  assert.deepEqual(r.onlyInRepo.sort(), ['a', 'b']);
+  assert.deepEqual(r.onlyInLocal, ['c']);
+  assert.deepEqual(r.inBoth, ['shared']);
+});
+
+test('computeSkillsDiff：兩邊皆空時三類皆空', () => {
+  const r = computeSkillsDiff({}, {});
+  assert.deepEqual(r, { onlyInRepo: [], onlyInLocal: [], inBoth: [] });
+});
+
+// -----------------------------------------------------------------------------
+// sanitizeForTerminal：移除控制字元（log-injection 防護）
+// -----------------------------------------------------------------------------
+test('sanitizeForTerminal：剝除 ANSI escape、換行與控制字元', () => {
+  assert.equal(sanitizeForTerminal('a\x1b[31mb\nc\r\x07'), 'a[31mbc');
+  assert.equal(sanitizeForTerminal('https://ok/x'), 'https://ok/x', '正常字串不受影響');
 });
 
 // -----------------------------------------------------------------------------

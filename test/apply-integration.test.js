@@ -166,3 +166,48 @@ test('to-local（非 TTY、無 --yes）：有差異時報錯退出而非 hang', 
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// -----------------------------------------------------------------------------
+// skills:diff：三向集合差 + 退出碼語義（供 CI）+ 建議指令
+// -----------------------------------------------------------------------------
+test('skills:diff：兩邊皆空 → 完全一致、exit 0', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    const r = run(repo, home, ['skills:diff']);
+    assert.equal(r.status, 0, `應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /完全一致/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('skills:diff：repo 有、本機未裝 → exit 1 並建議 npx skills add', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeJson(path.join(repo, 'skills-lock.json'),
+      { skills: { foo: { source: 'https://skills.sh/x/foo' } } });
+
+    const r = run(repo, home, ['skills:diff']);
+    assert.equal(r.status, 1, `差異應 exit EXIT_DIFF=1\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /repo 有、本機未安裝/);
+    assert.match(r.stdout, /npx skills add https:\/\/skills\.sh\/x\/foo .*--skill foo/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('skills:diff：本機有、repo 未記錄 → exit 1 並列出加入/移除兩選項', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeJson(path.join(home, '.agents', '.skill-lock.json'),
+      { skills: { bar: { source: 'org/bar' } } });
+
+    const r = run(repo, home, ['skills:diff']);
+    assert.equal(r.status, 1);
+    assert.match(r.stdout, /本機有、repo 未記錄/);
+    assert.match(r.stdout, /npm run skills:add -- bar org\/bar/);
+    assert.match(r.stdout, /npx skills remove bar/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
