@@ -49,7 +49,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | repo 路徑 | 本機路徑 | 備註 |
 |-----------|----------|------|
 | `claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | 全文比對 |
-| `claude/settings.json` | `~/.claude/settings.json` | **比對時 strip `model`、`effortLevel`、`defaultShell`、`hooks`（裝置特定欄位）；`env` 區塊採白名單，僅保留 `PORTABLE_ENV_KEYS`（`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`EDITOR`），其餘 env key（含 API Key／token、`CLAUDE_CODE_USE_POWERSHELL_TOOL`）一律不進 repo、不入 diff 輸出**。`hooks` 為平台綁定（PowerShell／終端序列），不跨裝置同步、各機自管 |
+| `claude/settings.json` | `~/.claude/settings.json` | **top-level 採白名單（`PORTABLE_SETTINGS_KEYS`），只有列舉的可攜欄位進 repo；其餘（裝置偏好 `model`／`effortLevel`／`defaultShell`／`tui`／`autoUpdatesChannel`、平台綁定 `hooks`、憑證 helper 路徑 `apiKeyHelper`／`*AuthRefresh`、未知新欄位）一律不進 repo、不入 diff，to-local 保留本機值。`env` 另採巢狀白名單 `PORTABLE_ENV_KEYS`（`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`EDITOR`），其餘 env key（含 API Key／token、`CLAUDE_CODE_USE_POWERSHELL_TOOL`）一律剝除**。`--verbose` 下 diff 列出被剝除欄位 |
 | `claude/statusline.sh` | `~/.claude/statusline.sh` | 全文比對 |
 | `claude/agents/` | `~/.claude/agents/` | 以 package 子目錄組織（如 `everything-claude-code/`） |
 | `claude/commands/` | `~/.claude/commands/` | 目錄鏡射 |
@@ -80,8 +80,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **新增/調整 npm script 時須同步更新 README 的指令別名表與 `COMMANDS` 物件**，避免別名與 handler 漂移。
 - **函式行數守則**：新增或重構後若某函式 > 60 行，需拆分（`buildSyncItems` 54 行為宣告式陣列，例外）。
 - **禁止新增外部相依**：所有功能必須使用 Node.js 內建模組，不得 `npm install` 任何套件。
-- **settings.json 裝置特定欄位**（`model`、`effortLevel`、`defaultShell`、`hooks`）若要增減，需同步改 `DEVICE_FIELDS` 常數與 README 注意事項。`loadStrippedSettings` 仍支援 dot-notation（`obj.key`）排除巢狀欄位（通用機制，目前 DEVICE_FIELDS 無 dot 項）。`hooks` 因 command 平台綁定（PowerShell／終端跳脫序列）刻意不同步，各裝置自管；此不變式依賴「repo settings.json 永遠為 stripped 版」，故 repo 來源檔不得保留 `hooks`。
-- **settings.json `env` 區塊採白名單**（`PORTABLE_ENV_KEYS`）：只有列舉的 key 才跨裝置同步，其餘 env key（API Key、token、`CLAUDE_CODE_USE_POWERSHELL_TOOL` 等裝置特定值）一律 strip、不進 repo、不入 diff 輸出；to-local 時則保留本機原值（避免覆寫掉本機金鑰）。增減可攜 env key 須改 `PORTABLE_ENV_KEYS` 常數與 README。此為核心安全不變式「輸出／log／diff 不得出現 API Key、token」的主要防線，**新增 env 同步欄位前務必確認非敏感**。
+- **settings.json top-level 採白名單**（`PORTABLE_SETTINGS_KEYS`）：只有列舉的可攜欄位才 to-repo 寫進 repo，其餘 top-level key（裝置偏好 `model`／`effortLevel`／`defaultShell`／`tui`／`autoUpdatesChannel`、平台綁定 `hooks`、憑證 helper 路徑 `apiKeyHelper`／`awsCredentialExport`／`*AuthRefresh`／`otelHeadersHelper`、未知新欄位）一律不進 repo、不入 diff。**這是結構性安全保證**：官方 settings 欄位持續擴張，白名單讓「未來新欄位預設不外洩」成為預設，而非靠黑名單逐一追補。`loadStrippedSettings` 回傳 `dropped`（被剝除的 key 清單），`--verbose` 下 diff 會列出。to-local 由 `extractDeviceValues` 保留**所有非白名單** top-level key 的本機原值（自動涵蓋憑證 helper、裝置欄位，無需逐一列舉）。增減可攜欄位須改 `PORTABLE_SETTINGS_KEYS` 常數與 README，**新增前務必確認非敏感、非裝置特定、非平台綁定**。`hooks` 因 command 平台綁定刻意不同步；此不變式依賴「repo settings.json 永遠為白名單收斂版」，故 repo 來源檔不得保留非白名單欄位。
+- **settings.json `env` 區塊另採巢狀白名單**（`PORTABLE_ENV_KEYS`）：`env` 雖在 top-level 白名單內（整塊可攜），但其內部 key 再經 `stripNonPortableEnv` 二層收斂——只有列舉的 key 才跨裝置同步，其餘 env key（API Key、token、`CLAUDE_CODE_USE_POWERSHELL_TOOL` 等裝置特定值）一律 strip、不進 repo、不入 diff 輸出；to-local 時保留本機原值（避免覆寫掉本機金鑰）。增減可攜 env key 須改 `PORTABLE_ENV_KEYS` 常數與 README。此為核心安全不變式「輸出／log／diff 不得出現 API Key、token」的主要防線，**新增 env 同步欄位前務必確認非敏感**。
 - **構建規則**（來自全域 CLAUDE.md）：禁擅自執行 `npm run build`。
 - **嚴禁洩漏敏感資訊**：輸出、log、diff 內容中不得出現 API Key、token 或完整使用者路徑。
 

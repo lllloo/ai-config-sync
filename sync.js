@@ -32,12 +32,18 @@ const SYNC_HISTORY_LOG = path.join(REPO_ROOT, '.sync-history.log');
 const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
 
 /**
- * settings.json 中各裝置獨立的欄位，同步時排除（to-repo 剝除、to-local 保留本機值）。
- * `hooks` 為平台綁定（command 多為 PowerShell／終端跳脫序列，跨平台無意義），故不同步、各機自管。
- * 註：`env` 區塊改由白名單（PORTABLE_ENV_KEYS）獨立管理，不在此列舉；
- * dot-notation 分支保留為通用能力（未來若有非 env 的巢狀裝置欄位可直接加入）。
+ * settings.json top-level 採白名單：只有列舉的 key 才跨裝置同步（to-repo 寫入 repo）。
+ * 與 `env`（PORTABLE_ENV_KEYS）、Codex config 一致——任何未列舉的 top-level key 一律不進 repo、
+ * 不入 diff；to-local 時保留本機原值（避免覆寫本機設定）。此為結構性安全保證：未來 Claude Code
+ * 新增的裝置偏好（如 tui／autoUpdatesChannel）、平台綁定欄位（hooks）、憑證 helper 路徑
+ * （apiKeyHelper／awsCredentialExport／*AuthRefresh／otelHeadersHelper）預設**不外洩**，新增可攜
+ * 欄位須在此明列。`env` 另有巢狀白名單（PORTABLE_ENV_KEYS），於 stripNonPortableEnv 兩層收斂。
  */
-const DEVICE_FIELDS = ['model', 'effortLevel', 'defaultShell', 'hooks'];
+const PORTABLE_SETTINGS_KEYS = [
+  'env', 'permissions', 'statusLine', 'enabledPlugins', 'extraKnownMarketplaces',
+  'language', 'spinnerTipsEnabled', 'theme',
+  'skipDangerousModePermissionPrompt', 'skipAutoPermissionPrompt',
+];
 
 /**
  * settings.json `env` 區塊唯一允許跨裝置同步的 key（白名單）。
@@ -1109,49 +1115,37 @@ function stripNonPortableEnv(data) {
 }
 
 /**
- * 將 settings.json 去除裝置欄位後回傳 { clean, serialized }
+ * 將 settings.json 收斂為白名單後回傳 { clean, serialized, dropped }
+ * top-level 只保留 PORTABLE_SETTINGS_KEYS（保持原順序）；env 另經 stripNonPortableEnv 巢狀收斂。
  * @param {string} filePath - settings.json 路徑
- * @returns {{ clean: Record<string, unknown>, serialized: string } | null} 檔案不存在時回傳 null
+ * @returns {{ clean: Record<string, unknown>, serialized: string, dropped: string[] } | null} 檔案不存在時回傳 null
  */
 function loadStrippedSettings(filePath) {
   if (!fs.existsSync(filePath)) return null;
   const data = readJson(filePath);
-  for (const field of DEVICE_FIELDS) {
-    if (field.includes('.')) {
-      const parts = field.split('.');
-      // 目前僅支援兩層；超過則明確報錯，避免未來擴充時 strip 靜默失效（裝置欄位漏進 repo）
-      if (parts.length > 2) {
-        throw new SyncError(`DEVICE_FIELDS 不支援超過兩層的巢狀欄位：${field}`, ERR.INVALID_ARGS, { field });
-      }
-      const [obj, key] = parts;
-      if (data[obj]) delete data[obj][key];
-    } else {
-      delete data[field];
-    }
+  const clean = {};
+  const dropped = [];
+  for (const key of Object.keys(data)) {
+    if (PORTABLE_SETTINGS_KEYS.includes(key)) clean[key] = data[key];
+    else dropped.push(key);
   }
-  stripNonPortableEnv(data);
-  return { clean: data, serialized: serializeSettings(data) };
+  stripNonPortableEnv(clean);
+  return { clean, serialized: serializeSettings(clean), dropped };
 }
 
 /**
- * 從 local settings 萃取裝置特定欄位（供 to-local 套用時保留）
+ * 從 local settings 萃取本機保留欄位（供 to-local 套用時保留，不被 repo 覆寫）
+ * 白名單的反面：所有不在 PORTABLE_SETTINGS_KEYS 的 top-level key（裝置偏好、平台綁定、憑證 helper
+ * 路徑等）整批保留本機原值；env 為可攜欄位但其非白名單 key（金鑰／token）亦保留本機值。
  * @param {Record<string, unknown>} local
  * @returns {{ deviceValues: Record<string, unknown> }}
  */
 function extractDeviceValues(local) {
   const deviceValues = {};
-  for (const field of DEVICE_FIELDS) {
-    if (field.includes('.')) {
-      const [obj, key] = field.split('.');
-      if (local[obj]?.[key] !== undefined) {
-        if (!deviceValues[obj]) deviceValues[obj] = {};
-        deviceValues[obj][key] = local[obj][key];
-      }
-    } else {
-      if (local[field] !== undefined) deviceValues[field] = local[field];
-    }
+  for (const key of Object.keys(local)) {
+    if (!PORTABLE_SETTINGS_KEYS.includes(key)) deviceValues[key] = local[key];
   }
-  // env 非白名單 key（金鑰／token／裝置特定值）：to-local 須保留本機原值，避免被 repo 覆寫掉
+  // env 為可攜欄位，但其非白名單 key（金鑰／token／裝置特定值）須保留本機原值，避免被 repo 覆寫掉
   if (local.env && typeof local.env === 'object') {
     for (const [key, val] of Object.entries(local.env)) {
       if (PORTABLE_ENV_KEYS.includes(key)) continue;
@@ -1721,15 +1715,15 @@ function diffSettingsItem(item, direction) {
 
   // to-repo：本機 stripped → repo
   if (!fs.existsSync(localPath)) return { ...base, status: null, src: null };
-  const stripped = getStrippedSettings(localPath);
+  const stripped = loadStrippedSettings(localPath);
   if (stripped === null) return { ...base, status: null, src: null };
   const tmpSrc = path.join(os.tmpdir(), `ai-config-sync-settings-diff-${process.pid}.json`);
   registerTempFile(tmpSrc);
-  writeTmpDiffFile(tmpSrc, stripped);
+  writeTmpDiffFile(tmpSrc, stripped.serialized);
   const status = fs.existsSync(repoPath)
-    ? compareStrippedToRepo(stripped, repoPath, '讀取 repo 設定')
+    ? compareStrippedToRepo(stripped.serialized, repoPath, '讀取 repo 設定')
     : 'new';
-  return { ...base, status, src: tmpSrc };
+  return { ...base, status, src: tmpSrc, droppedKeys: stripped.dropped };
 }
 
 /**
@@ -2102,6 +2096,9 @@ function printDiffItem(item, opts) {
     printStatusLine(statusMap[item.status][0], item.label, statusMap[item.status][1]);
   }
   if (opts.verbose && item.verboseSrc) logVerbosePaths(item.verboseSrc, item.verboseDest || item.dest);
+  if (opts.verbose && item.droppedKeys && item.droppedKeys.length) {
+    console.log(col.dim(`      未同步（不在白名單）：${item.droppedKeys.join(', ')}`));
+  }
   return item.status !== null;
 }
 
@@ -2821,7 +2818,7 @@ if (require.main === module) {
     loadSkillsFromLock,
     extractDeviceValues,
     mergeDeviceValues,
-    DEVICE_FIELDS,
+    PORTABLE_SETTINGS_KEYS,
     PORTABLE_ENV_KEYS,
     CODEX_CONFIG_TOP_KEYS,
     CODEX_CONFIG_SECTION_KEYS,
