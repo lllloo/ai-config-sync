@@ -208,6 +208,23 @@ test('parseArgs：-- 分隔符後的引數皆收入 extraArgs', () => {
   assert.deepEqual(result.extraArgs, ['--some-flag', 'value']);
 });
 
+test('parseArgs：--yes / --force 設定 yes 旗標', () => {
+  assert.equal(withArgv(['to-local', '--yes'], () => parseArgs()).yes, true);
+  assert.equal(withArgv(['to-local', '--force'], () => parseArgs()).yes, true);
+  assert.equal(withArgv(['to-local'], () => parseArgs()).yes, false);
+});
+
+test('parseArgs：未知旗標（含 typo）拋 INVALID_ARGS 而非靜默忽略', () => {
+  // 安全關鍵：--dry-run 打錯字不得被當成 no-op 而略過預覽真寫入
+  for (const bad of ['--dryrun', '--dri-run', '--unknown', '-x']) {
+    assert.throws(
+      () => withArgv(['to-repo', bad], () => parseArgs()),
+      (e) => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
+      `應對 ${bad} 拋 INVALID_ARGS`,
+    );
+  }
+});
+
 // -----------------------------------------------------------------------------
 // toRelativePath
 // -----------------------------------------------------------------------------

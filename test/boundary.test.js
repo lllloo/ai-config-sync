@@ -18,10 +18,15 @@ const {
   maskHome,
   isEolOnlyDiff,
   isPathInside,
+  getFiles,
   mirrorDir,
+  copyFile,
+  applySyncItems,
   readFileSafe,
+  readJson,
   writeFileSafe,
   toSyncFsError,
+  askConfirm,
   runSkillsRemove,
   validateSkillName,
   SyncError,
@@ -42,6 +47,48 @@ const { withArgv, withTmpDir } = require('./helpers');
 // =============================================================================
 // 高優先：computeSimpleLineDiff（大檔案 fallback）
 // =============================================================================
+
+// =============================================================================
+// 安全：askConfirm 在非互動環境的行為（避免 to-local 卡死或靜默 no-op）
+// =============================================================================
+
+test('askConfirm：autoYes 為 true 直接同意，不觸碰 stdin', async () => {
+  assert.equal(await askConfirm('問？', true), true);
+});
+
+test('askConfirm：非 TTY 環境（無 autoYes）拋 INVALID_ARGS 而非卡住', async () => {
+  // 顯式覆寫 isTTY 模擬 CI / pipe，避免在互動式終端跑測試時建 readline 卡死
+  const original = process.stdin.isTTY;
+  process.stdin.isTTY = false;
+  try {
+    await assert.rejects(
+      askConfirm('問？', false),
+      (e) => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
+    );
+  } finally {
+    process.stdin.isTTY = original;
+  }
+});
+
+// =============================================================================
+// 安全：readJson 解析失敗不得把檔案內容片段（可能含密鑰）帶進錯誤
+// =============================================================================
+
+test('readJson：JSON 解析失敗的錯誤不洩漏內容片段（密鑰）', () => {
+  withTmpDir((dir) => {
+    const fp = path.join(dir, 'settings.json');
+    // 故意損壞（缺收尾），且在出錯位置附近埋一個假密鑰
+    fs.writeFileSync(fp, '{ "apiKey": "sk-ant-SECRET12345", "x": ');
+    let err;
+    try { readJson(fp); } catch (e) { err = e; }
+    assert.ok(err instanceof SyncError, '應拋 SyncError');
+    assert.equal(err.code, ERR.JSON_PARSE);
+    // message 與 context 任何字串化結果都不得出現密鑰
+    const blob = err.message + JSON.stringify(err.context || {});
+    assert.ok(!blob.includes('sk-ant-SECRET12345'), '錯誤不得含密鑰片段');
+    assert.ok(!('parseError' in (err.context || {})), 'context 不得保留 parseError');
+  });
+});
 
 test('computeSimpleLineDiff：刪除行標記為 -，新增行標記為 +', () => {
   const ops = computeSimpleLineDiff(['a', 'b', 'c'], ['a', 'c', 'd']);
@@ -546,4 +593,161 @@ test('formatError：非 SyncError 訊息的 HOME 路徑被遮罩（mutation-safe
     console.error = orig;
   }
   assert.ok(!cap.includes(home), '非 SyncError 輸出不應含完整 HOME 路徑');
+});
+
+// =============================================================================
+// 安全：getFiles 的 symlink 逃逸防護（整合，非僅 isPathInside 零件）
+// 阻止 symlink 把同步目錄外的敏感檔（~/.ssh 等）吸進 repo
+// =============================================================================
+
+const itUnix = process.platform === 'win32' ? test.skip : test;
+
+itUnix('getFiles：逃逸到目錄外的 symlink 不被列入', () => {
+  withTmpDir((dir) => {
+    // 目錄外的「敏感」檔
+    const outside = path.join(dir, 'outside-secret');
+    fs.writeFileSync(outside, 'SECRET');
+    // 同步根目錄與其內的正常檔
+    const root = path.join(dir, 'root');
+    fs.mkdirSync(root);
+    fs.writeFileSync(path.join(root, 'normal.txt'), 'ok');
+    // 根目錄內指向外部檔的 symlink
+    fs.symlinkSync(outside, path.join(root, 'escape.txt'));
+
+    const files = getFiles(root);
+    assert.deepEqual(files.sort(), ['normal.txt'], '逃逸 symlink 不得被列入，只留真實檔');
+  });
+});
+
+itUnix('getFiles：broken symlink 被靜默跳過（不拋錯）', () => {
+  withTmpDir((dir) => {
+    const root = path.join(dir, 'root');
+    fs.mkdirSync(root);
+    fs.writeFileSync(path.join(root, 'real.txt'), 'x');
+    fs.symlinkSync(path.join(dir, 'does-not-exist'), path.join(root, 'broken.txt'));
+
+    let files;
+    assert.doesNotThrow(() => { files = getFiles(root); });
+    assert.deepEqual(files.sort(), ['real.txt'], 'broken symlink 應被跳過');
+  });
+});
+
+itUnix('getFiles：指向根目錄內部的 symlink 檔會被納入', () => {
+  withTmpDir((dir) => {
+    const root = path.join(dir, 'root');
+    fs.mkdirSync(root);
+    fs.writeFileSync(path.join(root, 'real.txt'), 'x');
+    // 指向「根目錄內」的 symlink，未逃逸 → 應納入
+    fs.symlinkSync(path.join(root, 'real.txt'), path.join(root, 'alias.txt'));
+
+    const files = getFiles(root);
+    assert.deepEqual(files.sort(), ['alias.txt', 'real.txt']);
+  });
+});
+
+test('getFiles：目錄不存在回傳空集（不拋錯）', () => {
+  withTmpDir((dir) => {
+    assert.deepEqual(getFiles(path.join(dir, 'absent')), []);
+  });
+});
+
+// =============================================================================
+// 破壞性 apply 路徑：copyFile 各分支 + applySyncItems 型別派發/統計/dry-run
+// （此前僅靠人工 smoke test，無自動回歸防護）
+// =============================================================================
+
+test('copyFile：src 不存在回傳 false 且不建立 dest', () => {
+  withTmpDir((dir) => {
+    const dest = path.join(dir, 'dest.txt');
+    assert.equal(copyFile(path.join(dir, 'nope.txt'), dest), false);
+    assert.equal(fs.existsSync(dest), false);
+  });
+});
+
+test('copyFile：dry-run 不寫入但正確回報「將會寫入」', () => {
+  withTmpDir((dir) => {
+    const src = path.join(dir, 'src.txt');
+    const dest = path.join(dir, 'dest.txt');
+    fs.writeFileSync(src, 'A');
+
+    // dest 不存在 → 將新增
+    assert.equal(copyFile(src, dest, false, true), true);
+    assert.equal(fs.existsSync(dest), false, 'dry-run 不得寫入');
+
+    // dest 內容相同 → 無需寫入
+    fs.writeFileSync(dest, 'A');
+    assert.equal(copyFile(src, dest, false, true), false);
+    // dest 內容不同 → 將更新
+    fs.writeFileSync(dest, 'B');
+    assert.equal(copyFile(src, dest, false, true), true);
+  });
+});
+
+test('copyFile：非 dry-run 內容相同不重寫，內容不同才寫入', () => {
+  withTmpDir((dir) => {
+    const src = path.join(dir, 'src.txt');
+    const dest = path.join(dir, 'dest.txt');
+    fs.writeFileSync(src, 'A');
+    fs.writeFileSync(dest, 'A');
+    const mtime = fs.statSync(dest).mtimeMs;
+    assert.equal(copyFile(src, dest), false, '內容相同不應寫入');
+    assert.equal(fs.statSync(dest).mtimeMs, mtime, '不應重寫');
+
+    fs.writeFileSync(src, 'B');
+    assert.equal(copyFile(src, dest), true, '內容不同應寫入');
+    assert.equal(fs.readFileSync(dest, 'utf8'), 'B');
+  });
+});
+
+test('copyFile：force 即使內容相同也寫入', () => {
+  withTmpDir((dir) => {
+    const src = path.join(dir, 'src.txt');
+    const dest = path.join(dir, 'dest.txt');
+    fs.writeFileSync(src, 'A');
+    fs.writeFileSync(dest, 'A');
+    assert.equal(copyFile(src, dest, true, false), true, 'force 應強制寫入');
+  });
+});
+
+test('applySyncItems：file + dir 型別套用統計與破壞性刪除（非 dry-run）', () => {
+  withTmpDir((dir) => {
+    // file 項：src 存在、dest 不存在 → added
+    const fileSrc = path.join(dir, 'CLAUDE.md');
+    const fileDest = path.join(dir, 'out', 'CLAUDE.md');
+    fs.writeFileSync(fileSrc, 'hello');
+
+    // dir 項：src 有 a.txt（新增），dest 有殘留 stale.txt（應刪除）
+    const dSrc = path.join(dir, 'src-dir');
+    const dDest = path.join(dir, 'dest-dir');
+    fs.mkdirSync(dSrc); fs.mkdirSync(dDest);
+    fs.writeFileSync(path.join(dSrc, 'a.txt'), '1');
+    fs.writeFileSync(path.join(dDest, 'stale.txt'), 'old');
+
+    const items = [
+      { label: 'CLAUDE.md', src: fileSrc, dest: fileDest, type: 'file' },
+      { label: 'rules', src: dSrc, dest: dDest, type: 'dir' },
+    ];
+    const { stats, changeLog } = applySyncItems(items, 'to-local', { dryRun: false });
+
+    assert.equal(fs.readFileSync(fileDest, 'utf8'), 'hello', 'file 項應被寫入');
+    assert.equal(fs.existsSync(path.join(dDest, 'a.txt')), true, 'dir 新檔應被鏡射');
+    assert.equal(fs.existsSync(path.join(dDest, 'stale.txt')), false, 'dest 殘留檔應被刪除');
+    assert.equal(stats.added, 2, 'CLAUDE.md + a.txt 共 2 個 added');
+    assert.equal(stats.deleted, 1, 'stale.txt 為 1 個 deleted');
+    assert.ok(changeLog.some(l => l.includes('CLAUDE.md')), 'changeLog 應含 file 項');
+  });
+});
+
+test('applySyncItems：dry-run 計入統計但不實際寫入', () => {
+  withTmpDir((dir) => {
+    const fileSrc = path.join(dir, 'CLAUDE.md');
+    const fileDest = path.join(dir, 'out', 'CLAUDE.md');
+    fs.writeFileSync(fileSrc, 'hello');
+
+    const items = [{ label: 'CLAUDE.md', src: fileSrc, dest: fileDest, type: 'file' }];
+    const { stats } = applySyncItems(items, 'to-local', { dryRun: true });
+
+    assert.equal(stats.added, 1, 'dry-run 仍計入將新增的統計');
+    assert.equal(fs.existsSync(fileDest), false, 'dry-run 不得實際寫入');
+  });
 });

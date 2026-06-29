@@ -154,6 +154,7 @@ const VALID_COMMANDS = Object.keys(COMMANDS);
  * @typedef {Object} ParsedArgs
  * @property {string|null} command - 指令名稱
  * @property {boolean} dryRun - 是否為 dry-run 模式
+ * @property {boolean} yes - 是否略過互動確認（--yes/--force）
  * @property {boolean} verbose - 是否為 verbose 模式
  * @property {boolean} showVersion - 是否顯示版本
  * @property {boolean} showHelp - 是否顯示 help
@@ -437,11 +438,14 @@ function readJson(filePath) {
   }
   try {
     return JSON.parse(content);
-  } catch (e) {
+  } catch (_) {
+    // 刻意不帶入 e.message：Node 的 JSON.parse 錯誤會夾帶出錯位置前後的內容片段，
+    // 若 settings.json 在金鑰值附近損壞會把 API Key／token 片段印進 stderr，
+    // 違反「輸出/log/diff 不得出現敏感資訊」的核心不變式。改由 JSON_PARSE 的通用提示引導。
     throw new SyncError(
       `JSON 解析失敗：${toRelativePath(filePath)}`,
       ERR.JSON_PARSE,
-      { path: filePath, parseError: e.message },
+      { path: filePath },
     );
   }
 }
@@ -1196,7 +1200,18 @@ function getStrippedSettings(filePath) {
 function mergeSettingsJson(direction, dryRun = false) {
   const localPath = path.join(CLAUDE_HOME, 'settings.json');
   const repoPath = path.join(REPO_ROOT, 'claude', 'settings.json');
+  return mergeSettingsBetween(localPath, repoPath, direction, dryRun);
+}
 
+/**
+ * settings.json 合併核心（路徑可注入版，供測試直接驗白名單剝除不變式）
+ * @param {string} localPath - 本機 settings.json 路徑
+ * @param {string} repoPath - repo settings.json 路徑
+ * @param {'to-repo'|'to-local'} direction - 同步方向
+ * @param {boolean} [dryRun=false] - 是否為 dry-run 模式
+ * @returns {boolean} 是否有實際變更
+ */
+function mergeSettingsBetween(localPath, repoPath, direction, dryRun = false) {
   if (direction === 'to-repo') {
     const stripped = loadStrippedSettings(localPath);
     if (stripped === null) return false;
@@ -2202,11 +2217,12 @@ function printToLocalPreview(diffResults) {
 /**
  * 詢問使用者並實際套用變更（to-local）
  * @param {SyncItem[]} items
+ * @param {boolean} [autoYes=false] - 是否略過確認（--yes/--force）
  * @returns {Promise<number>} exit code
  */
-async function confirmAndApply(items) {
+async function confirmAndApply(items, autoYes = false) {
   console.log('');
-  const confirmed = await askConfirm(col.bold('  套用以上變更？(y/N) '));
+  const confirmed = await askConfirm(col.bold('  套用以上變更？(y/N) '), autoYes);
   if (!confirmed) {
     console.log('\n  已取消\n');
     return EXIT_OK;
@@ -2265,7 +2281,7 @@ async function runToLocal(opts) {
     return EXIT_OK;
   }
 
-  return confirmAndApply(items);
+  return confirmAndApply(items, opts.yes);
 }
 
 // =============================================================================
@@ -2546,7 +2562,7 @@ async function runInit(opts) {
     return EXIT_OK;
   }
 
-  const ok = await askConfirm(col.bold('  確定要繼續？(y/N) '));
+  const ok = await askConfirm(col.bold('  確定要繼續？(y/N) '), opts.yes);
   if (!ok) {
     console.log(col.dim('  已取消'));
     return EXIT_OK;
@@ -2610,6 +2626,7 @@ function runHelp() {
 
   console.log(col.bold('\n  旗標：'));
   console.log(`    ${col.cyan('--dry-run')}              預覽操作，不實際寫入`);
+  console.log(`    ${col.cyan('--yes')}                  略過互動確認（非互動環境必加，別名 --force）`);
   console.log(`    ${col.cyan('--verbose')}              顯示詳細路徑與檔案大小`);
   console.log(`    ${col.cyan('--version')}              顯示版本號`);
   console.log(`    ${col.cyan('--help')}                 顯示此說明`);
@@ -2635,6 +2652,7 @@ function parseArgs() {
   const result = {
     command: null,
     dryRun: false,
+    yes: false,
     verbose: false,
     showVersion: false,
     showHelp: false,
@@ -2652,13 +2670,19 @@ function parseArgs() {
       result.extraArgs.push(arg);
     } else if (arg === '--dry-run') {
       result.dryRun = true;
+    } else if (arg === '--yes' || arg === '--force') {
+      result.yes = true;
     } else if (arg === '--verbose') {
       result.verbose = true;
     } else if (arg === '--version') {
       result.showVersion = true;
     } else if (arg === '--help' || arg === '-h') {
       result.showHelp = true;
-    } else if (!arg.startsWith('--')) {
+    } else if (arg.startsWith('-')) {
+      // 不在白名單的旗標（含 typo 如 --dryrun、--dri-run）：拒絕而非靜默忽略。
+      // 否則 `--dry-run` 打錯字會略過預覽直接真寫入，使安全閘門失效。
+      throw new SyncError(`未知旗標：${arg}`, ERR.INVALID_ARGS);
+    } else {
       if (!commandFound) {
         // 第一個 positional arg 是指令
         const resolved = COMMAND_ALIASES[arg] || arg;
@@ -2699,17 +2723,31 @@ function readPackageJson() {
 // =============================================================================
 
 /**
- * 向使用者提問並等待確認
+ * 向使用者提問並等待確認。
+ * - autoYes 為 true（--yes/--force）時直接視為同意，不提問。
+ * - 非互動環境（stdin 非 TTY，如 CI／pipe／/dev/null）拋錯而非靜默等待：
+ *   否則 to-local 會永久 hang，或在 EOF 下 callback 不觸發、靜默 exit 0 什麼都沒做。
  * @param {string} question - 問題文字
+ * @param {boolean} [autoYes=false] - 是否略過提問直接同意
  * @returns {Promise<boolean>} 使用者是否確認
+ * @throws {SyncError} 非互動環境且未指定 autoYes
  */
-function askConfirm(question) {
+function askConfirm(question, autoYes = false) {
+  if (autoYes) return Promise.resolve(true);
+  if (!process.stdin.isTTY) {
+    return Promise.reject(new SyncError(
+      '非互動環境無法等待確認；請改用 --dry-run 預覽，或加 --yes 略過確認',
+      ERR.INVALID_ARGS,
+    ));
+  }
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise(resolve => {
     rl.question(question, answer => {
       rl.close();
-      resolve(answer.trim().toLowerCase() === 'y');
+      resolve(['y', 'yes'].includes(answer.trim().toLowerCase()));
     });
+    // Ctrl+D（EOF）等情況關閉 readline 時，視為未確認
+    rl.on('close', () => resolve(false));
   });
 }
 
@@ -2796,10 +2834,16 @@ if (require.main === module) {
     isEolOnlyDiff,
     matchExclude,
     isPathInside,
+    getFiles,
     mirrorDir,
+    copyFile,
+    applySyncItems,
+    mergeSettingsBetween,
     readFileSafe,
+    readJson,
     writeFileSafe,
     toSyncFsError,
+    askConfirm,
     runSkillsRemove,
     validateSkillName,
     statusToStatsKey,

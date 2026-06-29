@@ -18,6 +18,7 @@ const {
   getStrippedSettings,
   extractDeviceValues,
   mergeDeviceValues,
+  mergeSettingsBetween,
   PORTABLE_SETTINGS_KEYS,
 } = require('../sync.js');
 const { withTmpDir } = require('./helpers');
@@ -383,5 +384,104 @@ test('安全回歸：to-repo stripped 不含金鑰，to-local 保留本機金鑰
     assert.equal(merged.env.GITHUB_TOKEN, 'ghp_x', 'to-local 須保留本機 token');
     assert.equal(merged.env.EDITOR, 'code --wait', '白名單 env 採 repo 值');
     assert.equal(merged.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, '1', '白名單 env 從 repo 帶入');
+  });
+});
+
+// -----------------------------------------------------------------------------
+// mergeSettingsBetween：直接驗證同步心臟（不再以手刻模擬替代，避免實作漂移）
+// 涵蓋 to-repo 剝除金鑰、to-local 保留本機金鑰/裝置欄位、dry-run 不寫、無差異短路
+// -----------------------------------------------------------------------------
+test('mergeSettingsBetween(to-repo)：寫入 repo 為 stripped 內容且不含金鑰，回傳 true', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(localPath, {
+      env: { EDITOR: 'vim', ANTHROPIC_API_KEY: 'sk-secret', GITHUB_TOKEN: 'ghp_x' },
+      permissions: ['a'],
+      model: 'opus',          // 裝置欄位，須被剝除
+      apiKeyHelper: '/x.sh',  // 憑證 helper，須被剝除
+    });
+
+    const changed = mergeSettingsBetween(localPath, repoPath, 'to-repo');
+    assert.equal(changed, true);
+
+    const written = fs.readFileSync(repoPath, 'utf8');
+    assert.ok(!written.includes('sk-secret'), 'repo 不得含 API Key');
+    assert.ok(!written.includes('ghp_x'), 'repo 不得含 token');
+    assert.deepEqual(JSON.parse(written), { env: { EDITOR: 'vim' }, permissions: ['a'] },
+      'repo 只保留白名單 top-level 與白名單 env key');
+  });
+});
+
+test('mergeSettingsBetween(to-repo)：repo 已是 stripped 內容時回傳 false 且不重寫', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(localPath, { permissions: ['a'], model: 'opus' });
+    fs.writeFileSync(repoPath, serializeSettings({ permissions: ['a'] }));
+    const mtimeBefore = fs.statSync(repoPath).mtimeMs;
+
+    assert.equal(mergeSettingsBetween(localPath, repoPath, 'to-repo'), false);
+    assert.equal(fs.statSync(repoPath).mtimeMs, mtimeBefore, '無差異時不得重寫 repo');
+  });
+});
+
+test('mergeSettingsBetween(to-repo)：dry-run 回傳 true 但不寫檔', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(localPath, { permissions: ['a'], model: 'opus' });
+
+    assert.equal(mergeSettingsBetween(localPath, repoPath, 'to-repo', true), true);
+    assert.equal(fs.existsSync(repoPath), false, 'dry-run 不得寫入 repo');
+  });
+});
+
+test('mergeSettingsBetween(to-repo)：本機缺檔回傳 false', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'nope.json');
+    const repoPath = path.join(dir, 'repo.json');
+    assert.equal(mergeSettingsBetween(localPath, repoPath, 'to-repo'), false);
+    assert.equal(fs.existsSync(repoPath), false);
+  });
+});
+
+test('mergeSettingsBetween(to-local)：以 repo 合回本機，保留本機金鑰與裝置欄位', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(localPath, {
+      env: { EDITOR: 'vim', ANTHROPIC_API_KEY: 'sk-secret' },
+      permissions: ['old'],
+      model: 'opus',
+    });
+    writeJson(repoPath, {
+      env: { EDITOR: 'code --wait', CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1' },
+      permissions: ['new'],
+    });
+
+    assert.equal(mergeSettingsBetween(localPath, repoPath, 'to-local'), true);
+    const merged = JSON.parse(fs.readFileSync(localPath, 'utf8'));
+    assert.equal(merged.env.ANTHROPIC_API_KEY, 'sk-secret', 'to-local 須保留本機金鑰');
+    assert.equal(merged.env.EDITOR, 'code --wait', '白名單 env 採 repo 值');
+    assert.equal(merged.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, '1', '白名單 env 從 repo 帶入');
+    assert.equal(merged.model, 'opus', '裝置欄位須保留本機原值');
+    assert.deepEqual(merged.permissions, ['new'], '白名單欄位採 repo 值');
+  });
+});
+
+test('mergeSettingsBetween(to-local)：dry-run 不寫檔；repo 缺檔回傳 false', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(localPath, { permissions: ['old'] });
+    writeJson(repoPath, { permissions: ['new'] });
+
+    assert.equal(mergeSettingsBetween(localPath, repoPath, 'to-local', true), true);
+    assert.deepEqual(JSON.parse(fs.readFileSync(localPath, 'utf8')), { permissions: ['old'] },
+      'dry-run 不得改寫本機');
+
+    const repoMissing = path.join(dir, 'absent.json');
+    assert.equal(mergeSettingsBetween(localPath, repoMissing, 'to-local'), false);
   });
 });
