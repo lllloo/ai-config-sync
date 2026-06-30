@@ -1,8 +1,8 @@
 {
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "EDITOR": "code --wait",
-    "CLAUDE_CODE_DISABLE_MOUSE": "1"
+    "CLAUDE_CODE_DISABLE_MOUSE": "1",
+    "EDITOR": "code --wait"
   },
   "permissions": {
     "allow": [
@@ -31,7 +31,6 @@
   },
   "language": "繁體中文",
   "spinnerTipsEnabled": false,
-  "autoUpdatesChannel": "latest",
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark",
   "skipAutoPermissionPrompt": true
