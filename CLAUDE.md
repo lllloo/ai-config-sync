@@ -49,7 +49,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | repo 路徑 | 本機路徑 | 備註 |
 |-----------|----------|------|
 | `claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | 全文比對 |
-| `claude/settings.json` | `~/.claude/settings.json` | **top-level 採白名單（`PORTABLE_SETTINGS_KEYS`），只有列舉的可攜欄位進 repo；其餘（裝置偏好 `model`／`effortLevel`／`defaultShell`／`tui`／`autoUpdatesChannel`、平台綁定 `hooks`、憑證 helper 路徑 `apiKeyHelper`／`*AuthRefresh`、未知新欄位）一律不進 repo、不入 diff，to-local 保留本機值。`env` 另採巢狀白名單 `PORTABLE_ENV_KEYS`（`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`EDITOR`），其餘 env key（含 API Key／token、`CLAUDE_CODE_USE_POWERSHELL_TOOL`）一律剝除**。`--verbose` 下 diff 列出被剝除欄位 |
+| `claude/settings.json` | `~/.claude/settings.json` | **top-level 採白名單（`PORTABLE_SETTINGS_KEYS`），只有列舉的可攜欄位進 repo；其餘（裝置偏好 `model`／`effortLevel`／`defaultShell`／`tui`／`autoUpdatesChannel`、平台綁定 `hooks`、憑證 helper 路徑 `apiKeyHelper`／`*AuthRefresh`、未知新欄位）一律不進 repo、不入 diff，to-local 保留本機值。`env` 另採巢狀白名單 `PORTABLE_ENV_KEYS`（`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`CLAUDE_CODE_DISABLE_MOUSE`、`EDITOR`），其餘 env key（含 API Key／token、`CLAUDE_CODE_USE_POWERSHELL_TOOL`）一律剝除**。`--verbose` 下 diff 列出被剝除欄位 |
 | `claude/statusline.sh` | `~/.claude/statusline.sh` | 全文比對 |
 | `claude/agents/` | `~/.claude/agents/` | 以 package 子目錄組織（如 `everything-claude-code/`） |
 | `claude/commands/` | `~/.claude/commands/` | 目錄鏡射 |

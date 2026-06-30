@@ -51,7 +51,7 @@ const PORTABLE_SETTINGS_KEYS = [
  * 採白名單而非黑名單：任何未列舉的 env key（API Key、token、裝置特定值）一律不寫進 repo、
  * 不出現在 diff 輸出；to-local 時保留本機原值（避免覆寫掉本機金鑰）。新增可攜 env key 須在此明列。
  */
-const PORTABLE_ENV_KEYS = ['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', 'EDITOR'];
+const PORTABLE_ENV_KEYS = ['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', 'CLAUDE_CODE_DISABLE_MOUSE', 'EDITOR'];
 
 /** Codex config.toml 中允許跨裝置同步的 top-level key */
 const CODEX_CONFIG_TOP_KEYS = ['personality', 'web_search'];

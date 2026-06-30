@@ -148,7 +148,7 @@ npm run to-local
 ## 注意事項
 
 - `settings.json` 的 **top-level 採白名單**（`PORTABLE_SETTINGS_KEYS`）：僅列舉的可攜欄位（`env`、`permissions`、`statusLine`、`enabledPlugins`、`extraKnownMarketplaces`、`language`、`spinnerTipsEnabled`、`theme`、`skipDangerousModePermissionPrompt`、`skipAutoPermissionPrompt`）會 to-repo 寫入 repo；其餘 key（裝置偏好如 `model`／`effortLevel`／`defaultShell`／`tui`／`autoUpdatesChannel`、平台綁定 `hooks`、憑證 helper 路徑如 `apiKeyHelper`／`*AuthRefresh`、以及任何未知新欄位）一律不進 repo、不入 diff；to-local 時保留本機原值。`--verbose` 下 diff 會列出被剝除的欄位
-- `settings.json` 的 `env` 區塊另採**巢狀白名單**：僅 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`EDITOR` 跨裝置同步，其餘 env key（含 API Key／token、`CLAUDE_CODE_USE_POWERSHELL_TOOL` 等裝置特定值）一律不進 repo、不入 diff 輸出；to-local 時保留本機原值，避免覆寫本機金鑰
+- `settings.json` 的 `env` 區塊另採**巢狀白名單**：僅 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`CLAUDE_CODE_DISABLE_MOUSE`、`EDITOR` 跨裝置同步，其餘 env key（含 API Key／token、`CLAUDE_CODE_USE_POWERSHELL_TOOL` 等裝置特定值）一律不進 repo、不入 diff 輸出；to-local 時保留本機原值，避免覆寫本機金鑰
 - **`hooks` 不跨裝置同步**：hook command 多為平台綁定（PowerShell／終端跳脫序列），在 Windows 與 macOS 無法共用，故各裝置自行維護本機 `hooks`，repo 不攜帶。需在新裝置重建 hook 時手動設定
 - `codex/config.toml` 只同步可攜欄位：`personality`、`web_search`、`tui.status_line`、`features.memories`、`features.goals`、`memories.generate_memories`、`memories.use_memories`、`plugins.*.enabled`
 - `codex/config.toml` 會排除 `model`、`model_reasoning_effort`、`projects.*`、`marketplaces.*`、`windows`、`tui.model_availability_nux` 與未知欄位；to-local 時保留本機未受管理欄位
