@@ -20,6 +20,6 @@ paths: **/skills/**
 **跨工具可移植性（避免）**：
 
 - `.claude/agents/` 新增命名 agent（Claude Code 專屬，跨工具不可移植）
-- 依賴 Claude Code 專屬 frontmatter（如 `when_to_use`、`allowed-tools`、`disable-model-invocation`）做跨工具共用的觸發訊號——其他工具（Cursor / Codex / Gemini CLI）不認此欄位，觸發情境寫進 description 本文才 portable
+- 依賴 Claude Code 專屬 frontmatter（如 `when_to_use`、`allowed-tools`、`disable-model-invocation`）做跨工具共用的觸發訊號——其他工具（Cursor / Codex / Gemini CLI）不認此欄位，觸發情境寫進 description 本文才 portable。**例外**：刻意僅限 Claude Code、不要求跨工具觸發的 skill（如 `ob-*` 用 `disable-model-invocation` gate 人工觸發）不在此限
 - SKILL.md 與 references 重複定義（必漂移）
 - 規則只寫 frontmatter（fallback 路徑看不到）

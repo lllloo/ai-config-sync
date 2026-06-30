@@ -23,7 +23,7 @@
 
 ## 跨專案查詢與技術提問
 
-查 vault 一律用 `/ob-read`（global，任何專案可呼叫）。它偵測 cwd 不在 vault 即走跨專案模式：嚴格 obsidian CLI 定位 vault 並硬 gate 身分，通過後對 vault 絕對路徑跑唯讀三層搜尋；CLI 不可用或身分不符即回未命中並提示啟用 CLI，不降級亂搜。CLI 暫時不可用時才退而用檔案工具（Grep / Read）直接搜 `C:\code\obsidian-memory\` 下的 `.md`。
+查 vault 一律用 `/ob-read`（跨專案模式機制見上方總則）：嚴格定位 vault 並硬 gate 身分後跑唯讀三層搜尋；CLI 不可用或身分不符即回未命中並提示啟用 CLI，**不降級亂搜**。降級用檔案工具（Grep / Read）直接搜 vault 目錄僅限**在 repo 內的本地模式**（見文末 CLI 章節），跨專案嚴格模式不適用。
 
 技術／知識性提問（已記過主題、Claude Code、RAG、Agent、前端切版等）：可並行查 vault + WebSearch。純語法、即時系統狀態、閒聊不觸發。
 

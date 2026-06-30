@@ -120,8 +120,7 @@ const INIT_FILE_MAP = [
  * @type {string[]}
  */
 const INIT_RULES_TO_REMOVE = [
-  'claude/rules/bmad.md',
-  'claude/rules/nuxt4.md',
+  'claude/rules/llm-docs.md',
   'claude/rules/obsidian.md',
   'claude/rules/skill-writing.md',
 ];
