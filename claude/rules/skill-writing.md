@@ -17,7 +17,7 @@ paths: **/skills/**
 - 腳本 Windows 編碼：依 `python.md`（reconfigure stdout/stderr、subprocess 與 `open()` 顯式 `encoding`），此處不重述。
 - 真無法避的外部 CLI（如 obsidian CLI）：code fence 不標 `bash`，標明 shell 差異（PowerShell `obsidian` / Git Bash `Obsidian.com`）。
 
-**跨工具可移植性（避免）**：
+**跨工具可移植性（避免）**（呼應全域 `CLAUDE.md`「一律用 skill、不新增 command」政策，以下為實作守則）：
 
 - `.claude/agents/` 新增命名 agent（Claude Code 專屬，跨工具不可移植）
 - 依賴 Claude Code 專屬 frontmatter（如 `when_to_use`、`allowed-tools`、`disable-model-invocation`）做跨工具共用的觸發訊號——其他工具（Cursor / Codex / Gemini CLI）不認此欄位，觸發情境寫進 description 本文才 portable。**例外**：刻意僅限 Claude Code、不要求跨工具觸發的 skill（如 `ob-*` 用 `disable-model-invocation` gate 人工觸發）不在此限
