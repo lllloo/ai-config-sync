@@ -33,18 +33,34 @@ const SYNC_HISTORY_LOG = path.join(REPO_ROOT, '.sync-history.log');
 const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
 
 /**
- * settings.json top-level 採白名單：只有列舉的 key 才跨裝置同步（to-repo 寫入 repo）。
- * 與 `env`（PORTABLE_ENV_KEYS）、Codex config 一致——任何未列舉的 top-level key 一律不進 repo、
- * 不入 diff；to-local 時保留本機原值（避免覆寫本機設定）。此為結構性安全保證：未來 Claude Code
- * 新增的裝置偏好（如 tui／autoUpdatesChannel）、平台綁定欄位（hooks）、憑證 helper 路徑
- * （apiKeyHelper／awsCredentialExport／*AuthRefresh／otelHeadersHelper）預設**不外洩**，新增可攜
- * 欄位須在此明列。`env` 另有巢狀白名單（PORTABLE_ENV_KEYS），於 stripNonPortableEnv 兩層收斂。
+ * settings.json top-level 採黑名單混合制：預設同步，僅排除列於此黑名單或命中
+ * SENSITIVE_KEY_PATTERN 的 key；被排除者不進 repo、不入 diff 差異，to-local 保留本機原值。
+ * 跨工具過濾慣例：「結構性官方欄位（key 名為官方定義的有限集合）→ 黑名單；開放 key 空間
+ * （key 名使用者任意定義、可含機密）→ 白名單」——故 top-level 走黑名單，`env` 維持巢狀
+ * 白名單（PORTABLE_ENV_KEYS）不動。防線三層：本黑名單 → 敏感命名 pattern → 值層掃描
+ * （assertPortableSettingsSafe）。新增裝置／平台／憑證類欄位須在此明列。
  */
-const PORTABLE_SETTINGS_KEYS = [
-  'env', 'permissions', 'statusLine', 'enabledPlugins', 'extraKnownMarketplaces',
-  'language', 'spinnerTipsEnabled', 'theme',
-  'skipDangerousModePermissionPrompt', 'skipAutoPermissionPrompt',
+const DEVICE_SETTINGS_KEYS = [
+  // 裝置偏好：各機不同，同步會互踩
+  'model', 'effortLevel', 'defaultShell', 'tui', 'autoUpdatesChannel',
+  // 平台綁定：hooks command 為 shell 方言（PowerShell vs zsh），跨平台必壞
+  'hooks',
+  // 憑證 helper：指向本機憑證腳本的路徑（全數同時命中 pattern，明列為雙保險）
+  'apiKeyHelper', 'awsCredentialExport', 'awsAuthRefresh', 'otelHeadersHelper',
 ];
+
+/**
+ * 敏感命名護欄：top-level key 命中即排除同步；亦用於值層掃描的巢狀 key 檢查。
+ * 寧緊勿鬆——誤傷方向是「該同步的沒同步」（沉默且無害，dropped 清單可見），
+ * 誤放方向（機密進 repo、進 git history 即永久）才不可接受。
+ */
+const SENSITIVE_KEY_PATTERN = /(key|token|secret|credential|password|auth|cert|cookie|session|jwt|helper|refresh)/i;
+
+/** 機密樣式值偵測（已知 token 前綴），用於 assertPortableSettingsSafe 值層防線 */
+const SECRET_VALUE_PATTERN = /\b(sk-[\w-]{8,}|ghp_\w{20,}|github_pat_|glpat-|AKIA[0-9A-Z]{16}|xox[baprs]-|eyJ[\w-]{10,}\.)/;
+
+/** 絕對家目錄路徑偵測（C:\Users\、/Users/、/home/）——完整使用者路徑不得進 repo */
+const HOME_PATH_PATTERN = /[A-Za-z]:[\\/]Users[\\/]|\/(?:home|Users)\/\w/;
 
 /**
  * settings.json `env` 區塊唯一允許跨裝置同步的 key（白名單）。
@@ -215,6 +231,7 @@ const ERR = {
   PERMISSION:     'PERMISSION',
   INVALID_ARGS:   'INVALID_ARGS',
   IO_ERROR:       'IO_ERROR',
+  SENSITIVE_CONTENT: 'SENSITIVE_CONTENT',
 };
 
 /**
@@ -235,6 +252,7 @@ function formatError(err) {
     [ERR.PERMISSION]:     '請檢查檔案權限，或以適當權限重新執行',
     [ERR.INVALID_ARGS]:   '請參閱 node sync.js help 查看可用指令',
     [ERR.IO_ERROR]:       '請確認磁碟空間充足且檔案未被其他程式鎖定',
+    [ERR.SENSITIVE_CONTENT]: '值層防線攔截：改寫該欄位的值，或將其 top-level key 加入 DEVICE_SETTINGS_KEYS 排除同步',
   };
 
   console.error(col.red(`  [!] ${err.message}`));
@@ -1135,36 +1153,79 @@ function stripNonPortableEnv(data) {
 }
 
 /**
- * 將 settings.json 收斂為白名單後回傳 { clean, serialized, dropped }
- * top-level 只保留 PORTABLE_SETTINGS_KEYS（保持原順序）；env 另經 stripNonPortableEnv 巢狀收斂。
+ * 將 settings top-level 依可攜性分區（黑名單混合制）：列於 DEVICE_SETTINGS_KEYS 或命中
+ * SENSITIVE_KEY_PATTERN 者為 device，其餘為 portable（保持原順序）。strip（to-repo）、
+ * preserve（to-local）與 diff 的 dropped 清單皆消費同一次分區結果——top-level 互補由
+ * 同一次計算保證。注意：env 子鍵的互補是另一對獨立實作（stripNonPortableEnv ↔
+ * extractDeviceValues 的 env 迴圈），不受本函式保護。
+ * @param {Record<string, unknown>} data
+ * @returns {{ portable: Record<string, unknown>, device: Record<string, unknown> }}
+ */
+function partitionSettingsTopLevel(data) {
+  const portable = {};
+  const device = {};
+  for (const key of Object.keys(data)) {
+    if (DEVICE_SETTINGS_KEYS.includes(key) || SENSITIVE_KEY_PATTERN.test(key)) device[key] = data[key];
+    else portable[key] = data[key];
+  }
+  return { portable, device };
+}
+
+/**
+ * 值層防線（defense in depth）：黑名單只查 top-level key 名，巢狀內容整包放行，此函式在
+ * 收斂結果進入 repo／diff 前遞迴掃描——巢狀 key 名命中 SENSITIVE_KEY_PATTERN（env 子樹跳過
+ * key 掃描：其 key 已由 PORTABLE_ENV_KEYS 白名單放行），或字串值命中機密前綴／絕對家目錄
+ * 路徑時，拋 SyncError 中止而非靜默剝除——把「該加黑名單的欄位」逼到人眼前。
+ * 錯誤訊息只含欄位路徑，不含值本身（維持「輸出不得出現機密」不變式）。
+ * @param {Record<string, unknown>} clean - 已收斂的可攜 settings
+ */
+function assertPortableSettingsSafe(clean) {
+  const fail = (msg, trail) => {
+    throw new SyncError(
+      `${msg}：${trail}（值不顯示）。請改寫該值（如絕對路徑改用 ~/），或將其 top-level key 加入 DEVICE_SETTINGS_KEYS`,
+      ERR.SENSITIVE_CONTENT, { field: trail },
+    );
+  };
+  const walk = (node, trail, skipKeyScan) => {
+    if (typeof node === 'string') {
+      if (SECRET_VALUE_PATTERN.test(node)) fail('偵測到疑似機密樣式的值', trail);
+      if (HOME_PATH_PATTERN.test(node)) fail('偵測到絕對家目錄路徑', trail);
+      return;
+    }
+    if (node === null || typeof node !== 'object') return;
+    for (const [key, val] of Object.entries(node)) {
+      if (!skipKeyScan && SENSITIVE_KEY_PATTERN.test(key)) fail('巢狀欄位命中敏感命名護欄', `${trail}.${key}`);
+      walk(val, `${trail}.${key}`, false);
+    }
+  };
+  for (const [key, val] of Object.entries(clean)) walk(val, key, key === 'env');
+}
+
+/**
+ * 將 settings.json 收斂為可攜版後回傳 { clean, serialized, dropped }
+ * top-level 走黑名單混合制分區（partitionSettingsTopLevel）；env 另經 stripNonPortableEnv
+ * 巢狀白名單收斂；最後過 assertPortableSettingsSafe 值層防線（命中即拋錯，不寫入、不輸出）。
  * @param {string} filePath - settings.json 路徑
  * @returns {{ clean: Record<string, unknown>, serialized: string, dropped: string[] } | null} 檔案不存在時回傳 null
  */
 function loadStrippedSettings(filePath) {
   if (!fs.existsSync(filePath)) return null;
   const data = readJson(filePath);
-  const clean = {};
-  const dropped = [];
-  for (const key of Object.keys(data)) {
-    if (PORTABLE_SETTINGS_KEYS.includes(key)) clean[key] = data[key];
-    else dropped.push(key);
-  }
-  stripNonPortableEnv(clean);
-  return { clean, serialized: serializeSettings(clean), dropped };
+  const { portable, device } = partitionSettingsTopLevel(data);
+  stripNonPortableEnv(portable);
+  assertPortableSettingsSafe(portable);
+  return { clean: portable, serialized: serializeSettings(portable), dropped: Object.keys(device) };
 }
 
 /**
  * 從 local settings 萃取本機保留欄位（供 to-local 套用時保留，不被 repo 覆寫）
- * 白名單的反面：所有不在 PORTABLE_SETTINGS_KEYS 的 top-level key（裝置偏好、平台綁定、憑證 helper
- * 路徑等）整批保留本機原值；env 為可攜欄位但其非白名單 key（金鑰／token）亦保留本機值。
+ * 分區的 device 桶：黑名單與敏感 pattern 命中的 top-level key（裝置偏好、平台綁定、憑證
+ * helper 路徑等）整批保留本機原值；env 為可攜欄位但其非白名單 key（金鑰／token）亦保留本機值。
  * @param {Record<string, unknown>} local
  * @returns {{ deviceValues: Record<string, unknown> }}
  */
 function extractDeviceValues(local) {
-  const deviceValues = {};
-  for (const key of Object.keys(local)) {
-    if (!PORTABLE_SETTINGS_KEYS.includes(key)) deviceValues[key] = local[key];
-  }
+  const { device: deviceValues } = partitionSettingsTopLevel(local);
   // env 為可攜欄位，但其非白名單 key（金鑰／token／裝置特定值）須保留本機原值，避免被 repo 覆寫掉
   if (local.env && typeof local.env === 'object') {
     for (const [key, val] of Object.entries(local.env)) {
@@ -1220,7 +1281,7 @@ function mergeSettingsJson(direction, dryRun = false) {
 }
 
 /**
- * settings.json 合併核心（路徑可注入版，供測試直接驗白名單剝除不變式）
+ * settings.json 合併核心（路徑可注入版，供測試直接驗黑名單混合制剝除不變式）
  * @param {string} localPath - 本機 settings.json 路徑
  * @param {string} repoPath - repo settings.json 路徑
  * @param {'to-repo'|'to-local'} direction - 同步方向
@@ -2173,8 +2234,9 @@ function printDiffItem(item, opts) {
     printStatusLine(statusMap[item.status][0], item.label, statusMap[item.status][1]);
   }
   if (opts.verbose && item.verboseSrc) logVerbosePaths(item.verboseSrc, item.verboseDest || item.dest);
-  if (opts.verbose && item.droppedKeys && item.droppedKeys.length) {
-    console.log(col.dim(`      未同步（不在白名單）：${item.droppedKeys.join(', ')}`));
+  // 黑名單制的日常防守訊號：預設可見（非 --verbose 限定），只列 key 名、不印值
+  if (item.droppedKeys && item.droppedKeys.length) {
+    console.log(col.dim(`      未同步（黑名單／敏感護欄排除）：${item.droppedKeys.join(', ')}`));
   }
   return item.status !== null;
 }
@@ -2948,6 +3010,8 @@ if (require.main === module) {
     serializeSettings,
     loadStrippedSettings,
     getStrippedSettings,
+    partitionSettingsTopLevel,
+    assertPortableSettingsSafe,
     parsePortableCodexConfig,
     serializePortableCodexConfig,
     mergePortableCodexConfig,
@@ -2956,7 +3020,10 @@ if (require.main === module) {
     loadSkillsFromLock,
     extractDeviceValues,
     mergeDeviceValues,
-    PORTABLE_SETTINGS_KEYS,
+    DEVICE_SETTINGS_KEYS,
+    SENSITIVE_KEY_PATTERN,
+    SECRET_VALUE_PATTERN,
+    HOME_PATH_PATTERN,
     PORTABLE_ENV_KEYS,
     CODEX_CONFIG_TOP_KEYS,
     CODEX_CONFIG_SECTION_KEYS,

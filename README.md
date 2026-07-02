@@ -147,8 +147,9 @@ npm run to-local
 
 ## 注意事項
 
-- `settings.json` 的 **top-level 採白名單**（`PORTABLE_SETTINGS_KEYS`）：僅列舉的可攜欄位（`env`、`permissions`、`statusLine`、`enabledPlugins`、`extraKnownMarketplaces`、`language`、`spinnerTipsEnabled`、`theme`、`skipDangerousModePermissionPrompt`、`skipAutoPermissionPrompt`）會 to-repo 寫入 repo；其餘 key（裝置偏好如 `model`／`effortLevel`／`defaultShell`／`tui`／`autoUpdatesChannel`、平台綁定 `hooks`、憑證 helper 路徑如 `apiKeyHelper`／`*AuthRefresh`、以及任何未知新欄位）一律不進 repo、不入 diff；to-local 時保留本機原值。`--verbose` 下 diff 會列出被剝除的欄位
-- `settings.json` 的 `env` 區塊另採**巢狀白名單**：僅 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`CLAUDE_CODE_DISABLE_MOUSE`、`EDITOR` 跨裝置同步，其餘 env key（含 API Key／token、`CLAUDE_CODE_USE_POWERSHELL_TOOL` 等裝置特定值）一律不進 repo、不入 diff 輸出；to-local 時保留本機原值，避免覆寫本機金鑰
+- `settings.json` 的 **top-level 採黑名單混合制**：預設同步官方 top-level 欄位，僅排除兩類——`DEVICE_SETTINGS_KEYS` 黑名單（裝置偏好 `model`／`effortLevel`／`defaultShell`／`tui`／`autoUpdatesChannel`、平台綁定 `hooks`、憑證 helper `apiKeyHelper`／`awsCredentialExport`／`awsAuthRefresh`／`otelHeadersHelper`）與命中敏感命名 pattern（key／token／secret／credential／password／auth／cert／cookie／session／jwt／helper／refresh，不分大小寫）的 key。被排除者不進 repo、不入 diff；to-local 時保留本機原值。**風險承擔（明文）**：未知的裝置型新欄位會預設同步、可能跨裝置互踩，需人工加入黑名單——發現互踩靠一般 diff 的內容差異，發現 pattern 誤傷靠 diff **預設**列出的「未同步（黑名單／敏感護欄排除）」key 清單（只列 key 名、不印值）
+- `settings.json` 的 `env` 區塊維持**巢狀白名單**（安全底線，不隨 top-level 翻轉）：僅 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`CLAUDE_CODE_DISABLE_MOUSE`、`EDITOR` 跨裝置同步，其餘 env key（含 API Key／token、`CLAUDE_CODE_USE_POWERSHELL_TOOL` 等裝置特定值）一律不進 repo、不入 diff 輸出；to-local 時保留本機原值，避免覆寫本機金鑰
+- **值層防線**：同步／diff 前會遞迴掃描收斂結果，巢狀欄位名含敏感字、值命中已知機密前綴（`sk-`／`ghp_`／`AKIA`／JWT 等）或絕對家目錄路徑（`C:\Users\…`、`/home/…`、`/Users/…`）時**中止並報錯**（訊息只含欄位路徑、不含值）；請改寫該值（如絕對路徑改用 `~/`）或將該欄位加入 `DEVICE_SETTINGS_KEYS`
 - **`hooks` 不跨裝置同步**：hook command 多為平台綁定（PowerShell／終端跳脫序列），在 Windows 與 macOS 無法共用，故各裝置自行維護本機 `hooks`，repo 不攜帶。需在新裝置重建 hook 時手動設定
 - `codex/config.toml` 只同步可攜欄位：`personality`、`web_search`、`tui.status_line`、`features.memories`、`features.goals`、`memories.generate_memories`、`memories.use_memories`、`plugins.*.enabled`
 - `codex/config.toml` 會排除 `model`、`model_reasoning_effort`、`projects.*`、`marketplaces.*`、`windows`、`tui.model_availability_nux` 與未知欄位；to-local 時保留本機未受管理欄位

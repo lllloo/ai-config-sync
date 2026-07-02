@@ -342,10 +342,10 @@ test('COMMAND_ALIASES 值皆指向 COMMANDS 中存在的 key', () => {
   }
 });
 
-test('PORTABLE_SETTINGS_KEYS 不含裝置欄位 model／effortLevel（白名單反面保證）', () => {
-  const { PORTABLE_SETTINGS_KEYS } = require('../sync.js');
-  assert.ok(!PORTABLE_SETTINGS_KEYS.includes('model'));
-  assert.ok(!PORTABLE_SETTINGS_KEYS.includes('effortLevel'));
+test('DEVICE_SETTINGS_KEYS 含裝置欄位 model／effortLevel（黑名單正面保證）', () => {
+  const { DEVICE_SETTINGS_KEYS } = require('../sync.js');
+  assert.ok(DEVICE_SETTINGS_KEYS.includes('model'));
+  assert.ok(DEVICE_SETTINGS_KEYS.includes('effortLevel'));
 });
 
 // =============================================================================
