@@ -12,12 +12,13 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { noColorEnv } = require('./helpers.js');
 
 const SYNC_JS = path.join(__dirname, '..', 'sync.js');
 
 function runDiffWithFakeHome(tmpHome) {
   return spawnSync(process.execPath, [SYNC_JS, 'diff'], {
-    env: { ...process.env, USERPROFILE: tmpHome, HOME: tmpHome },
+    env: noColorEnv({ USERPROFILE: tmpHome, HOME: tmpHome }),
     encoding: 'utf8',
   });
 }

@@ -17,6 +17,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { noColorEnv } = require('./helpers.js');
 
 const SYNC_JS = path.join(__dirname, '..', 'sync.js');
 
@@ -39,7 +40,7 @@ function setupSandbox() {
 function run(repo, home, args) {
   return spawnSync(process.execPath, [path.join(repo, 'sync.js'), ...args], {
     cwd: repo,
-    env: { ...process.env, HOME: home, USERPROFILE: home },
+    env: noColorEnv({ HOME: home, USERPROFILE: home }),
     encoding: 'utf8',
   });
 }
@@ -207,6 +208,171 @@ test('skills:diff：本機有、repo 未記錄 → exit 1 並列出加入/移除
     assert.match(r.stdout, /本機有、repo 未記錄/);
     assert.match(r.stdout, /npm run skills:add -- bar org\/bar/);
     assert.match(r.stdout, /npx skills remove bar/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 值層防線 direction-aware：to-repo fail-loud；diff 標記 blocked 續行；to-local 不受阻
+// （回歸：本機 permissions.additionalDirectories 含絕對家目錄路徑曾讓 diff/to-local 整個罷工）
+// -----------------------------------------------------------------------------
+test('to-repo：本機 settings 可攜欄位含家目錄路徑 → exit 2、repo 未寫入、錯誤不含值', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeJson(path.join(home, '.claude', 'settings.json'),
+      { permissions: { additionalDirectories: ['/home/leaky/proj'] } });
+
+    const r = run(repo, home, ['to-repo']);
+    assert.equal(r.status, 2, `to-repo 應 fail-loud exit 2\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stderr, /絕對家目錄路徑/, '應說明攔截原因');
+    assert.match(r.stderr, /permissions\.additionalDirectories\.0/, '應含欄位路徑');
+    assert.ok(!r.stderr.includes('leaky') && !r.stdout.includes('leaky'), '輸出不得含值本身');
+    assert.equal(fs.existsSync(path.join(repo, 'claude', 'settings.json')), false,
+      '中止時不得寫入 repo');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('diff：本機 settings 含家目錄路徑 → exit 1 標記值層防線，不中止、其他項目續列', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeJson(path.join(home, '.claude', 'settings.json'),
+      { permissions: { additionalDirectories: ['/home/leaky/proj'] } });
+    writeText(path.join(home, '.claude', 'CLAUDE.md'), 'SAME');
+    writeText(path.join(repo, 'claude', 'CLAUDE.md'), 'SAME');
+
+    const r = run(repo, home, ['diff']);
+    assert.equal(r.status, 1, `diff 應回 EXIT_DIFF=1 而非中止 exit 2\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /值層防線命中/, '應標記 settings.json 為 blocked');
+    assert.match(r.stdout, /permissions\.additionalDirectories\.0/, '應含欄位路徑');
+    assert.ok(!r.stdout.includes('leaky'), '輸出不得含值本身');
+    assert.match(r.stdout, /claude\/CLAUDE\.md/, '其他項目仍應照常列出');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('to-local --dry-run：本機 settings 含家目錄路徑 → 不中止、正常預覽', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeJson(path.join(repo, 'claude', 'settings.json'), { permissions: { allow: ['x'] } });
+    writeJson(path.join(home, '.claude', 'settings.json'),
+      { permissions: { additionalDirectories: ['/home/leaky/proj'] } });
+
+    const r = run(repo, home, ['to-local', '--dry-run']);
+    assert.equal(r.status, 0, `to-local dry-run 不涉及寫回 repo，不應中止\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /settings\.json.*將更新/, '應照常預覽 settings 更新');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// exit code 對照組：diff 完全一致 → EXIT_OK=0（僅 EXIT_DIFF=1 有測不足以鎖住語義）
+// -----------------------------------------------------------------------------
+test('diff：本機與 repo 完全一致 → exit 0', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(home, '.claude', 'CLAUDE.md'), 'SAME');
+    writeText(path.join(repo, 'claude', 'CLAUDE.md'), 'SAME');
+
+    const r = run(repo, home, ['diff']);
+    assert.equal(r.status, 0, `無差異應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /本機與 repo 完全一致/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// Codex 項目端到端：direction-aware swap + config.toml 白名單過濾（此前僅有純函式測試）
+// -----------------------------------------------------------------------------
+test('to-repo：codex/AGENTS.md 寫入 repo，config.toml 僅可攜欄位進 repo', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(home, '.codex', 'AGENTS.md'), 'CODEX-AGENTS');
+    writeText(path.join(home, '.codex', 'config.toml'),
+      'personality = "friendly"\nmodel = "o3"\n\n[tui]\nstatus_line = "on"\n');
+
+    const r = run(repo, home, ['to-repo']);
+    assert.equal(r.status, 0, `to-repo 應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.equal(fs.readFileSync(path.join(repo, 'codex', 'AGENTS.md'), 'utf8'),
+      'CODEX-AGENTS', 'codex/AGENTS.md 應寫入 repo');
+    const toml = fs.readFileSync(path.join(repo, 'codex', 'config.toml'), 'utf8');
+    assert.match(toml, /personality = "friendly"/, '可攜 top-level 欄位應進 repo');
+    assert.match(toml, /status_line = "on"/, '可攜 section 欄位應進 repo');
+    assert.ok(!toml.includes('model'), '非白名單欄位（裝置特定）不得進 repo');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('to-local --yes：codex 內容套用到本機，config.toml 保留本機未受管理欄位', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'codex', 'AGENTS.md'), 'CODEX-B');
+    writeText(path.join(repo, 'codex', 'config.toml'), 'personality = "bold"\n');
+    writeText(path.join(home, '.codex', 'config.toml'), 'model = "o3"\n');
+
+    const r = run(repo, home, ['to-local', '--yes']);
+    assert.equal(r.status, 0, `to-local 應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.equal(fs.readFileSync(path.join(home, '.codex', 'AGENTS.md'), 'utf8'),
+      'CODEX-B', 'codex/AGENTS.md 應套用到本機');
+    const toml = fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8');
+    assert.match(toml, /personality = "bold"/, '可攜欄位應從 repo 帶入');
+    assert.match(toml, /model = "o3"/, '本機未受管理欄位（model）須保留');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 部分失敗可見度：apply 中途拋錯時，已寫入變更須列出並記入 .sync-history.log
+// （與 handleSignal 的訊號中斷警告互補；此前例外中斷路徑零可見度、audit trail 全失）
+// -----------------------------------------------------------------------------
+test('to-repo 中途失敗：已寫入項目照常列出、警告部分中斷、audit log 留有紀錄', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(home, '.claude', 'CLAUDE.md'), 'GOOD-CONTENT');
+    // 讓 agents 目錄同步失敗：repo 端同名路徑是目錄，寫檔／比對必拋錯
+    writeText(path.join(home, '.claude', 'agents', 'pkg', 'zzz.md'), 'Z');
+    fs.mkdirSync(path.join(repo, 'claude', 'agents', 'pkg', 'zzz.md'), { recursive: true });
+
+    const r = run(repo, home, ['to-repo']);
+    assert.equal(r.status, 2, `中途失敗應 exit 2\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /claude\/CLAUDE\.md/, '失敗前已寫入的項目仍應列出');
+    assert.equal(fs.readFileSync(path.join(repo, 'claude', 'CLAUDE.md'), 'utf8'),
+      'GOOD-CONTENT', 'CLAUDE.md 確實已寫入');
+    assert.match(r.stderr, /同步因錯誤中斷：已寫入 \d+ 筆變更/, '應警告部分中斷與已寫入筆數');
+    const logPath = path.join(repo, '.sync-history.log');
+    assert.ok(fs.existsSync(logPath), '.sync-history.log 應留有部分結果紀錄');
+    const log = fs.readFileSync(logPath, 'utf8');
+    assert.match(log, /claude\/CLAUDE\.md \(added\)/, 'log 應含已寫入變更');
+    assert.match(log, /因錯誤中斷/, 'log 應標記中斷');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 路徑遮罩：二進位檔 diff（外部 diff 的「Binary files X and Y differ」）不得洩漏絕對路徑
+// -----------------------------------------------------------------------------
+test('diff：二進位檔差異輸出不得含沙箱絕對路徑', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    const localBin = path.join(home, '.claude', 'CLAUDE.md');
+    const repoBin = path.join(repo, 'claude', 'CLAUDE.md');
+    fs.mkdirSync(path.dirname(localBin), { recursive: true });
+    fs.mkdirSync(path.dirname(repoBin), { recursive: true });
+    fs.writeFileSync(localBin, Buffer.from([0x42, 0x49, 0x4e, 0x31, 0x00, 0x01]));
+    fs.writeFileSync(repoBin, Buffer.from([0x42, 0x49, 0x4e, 0x32, 0x00, 0x02]));
+
+    const r = run(repo, home, ['diff']);
+    assert.equal(r.status, 1, `有差異應 exit 1\n${r.stdout}\n${r.stderr}`);
+    const output = r.stdout + r.stderr;
+    assert.ok(!output.includes(root), `輸出不得含沙箱絕對路徑（外部 diff 的 Binary files 訊息須遮罩）\n${output}`);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -78,19 +78,30 @@
 - **WHEN** 執行 `npm run diff`（無論是否帶 `--verbose`）
 - **THEN** 被排除 key 的值 SHALL NOT 出現在任何輸出中
 
-### Requirement: to-repo 值層防線攔截巢狀敏感內容
+### Requirement: 值層防線攔截巢狀敏感內容（direction-aware）
 
-系統 SHALL 在 settings.json 收斂結果進入 repo 內容或 diff 輸出前，遞迴掃描其巢狀內容：巢狀 key 名命中 `SENSITIVE_KEY_PATTERN`（`env` 子樹的 key 掃描除外，其值掃描仍適用）、或字串值命中已知機密樣式（如 `sk-`、`ghp_`、`AKIA`、JWT 前綴）或絕對家目錄路徑時，SHALL 以錯誤中止操作而非靜默剝除；錯誤訊息 SHALL 指出命中欄位的路徑且 SHALL NOT 顯示該值。
+系統 SHALL 在 settings.json 收斂結果進入 repo 內容或 diff 輸出前，遞迴掃描其巢狀內容：巢狀 key 名命中 `SENSITIVE_KEY_PATTERN`（`env` 子樹的 key 掃描除外，其值掃描仍適用）、或字串值命中已知機密樣式（`SECRET_VALUE_PATTERN`，如 `sk-`、`sk_live_`、`ghp_`、`AKIA`、`AIza`、JWT 前綴）或絕對家目錄路徑時觸發。觸發行為依方向而異：to-repo 實際寫入前 SHALL 以錯誤中止操作而非靜默剝除；diff SHALL 將 settings 項目標記為暫不同步並繼續其餘項目的比對（不中止整個指令）；to-local SHALL NOT 因本機內容命中而受阻（該方向不將本機內容寫回 repo）。任何情況下錯誤訊息與 diff 標記 SHALL 指出命中欄位的路徑且 SHALL NOT 顯示該值。
 
-#### Scenario: 巢狀敏感 key 名中止同步
-- **WHEN** 執行 `npm run to-repo` 或 `npm run diff`
+#### Scenario: 巢狀敏感 key 名中止 to-repo
+- **WHEN** 執行 `npm run to-repo`
 - **AND** 某可攜 top-level 物件欄位的巢狀 key 命中 `SENSITIVE_KEY_PATTERN`（如假想的 `integrations.apiToken`）
 - **THEN** 操作 SHALL 中止並回報命中欄位路徑，repo 檔案 SHALL NOT 被寫入
 
-#### Scenario: 機密樣式值中止同步
-- **WHEN** 執行 `npm run to-repo` 或 `npm run diff`
+#### Scenario: 機密樣式值中止 to-repo
+- **WHEN** 執行 `npm run to-repo`
 - **AND** 收斂結果中某字串值命中已知機密前綴或絕對家目錄路徑
 - **THEN** 操作 SHALL 中止並回報命中欄位路徑，該值 SHALL NOT 出現在任何輸出
+
+#### Scenario: diff 命中時標記跳過並續行
+- **WHEN** 執行 `npm run diff`
+- **AND** 本機收斂結果命中值層防線（如 `permissions.additionalDirectories` 含絕對家目錄路徑）
+- **THEN** settings 項目 SHALL 標記為值層防線命中（含欄位路徑、不含值、不輸出 settings 內容）
+- **AND** 其餘同步項目 SHALL 照常比對並列出，指令以 diff 語義的 exit code 結束（有差異為 1）而非錯誤 2
+
+#### Scenario: to-local 不因本機內容命中而中止
+- **WHEN** 執行 `npm run to-local`（含 `--dry-run`）
+- **AND** 本機 settings.json 的可攜欄位含絕對家目錄路徑或機密樣式值
+- **THEN** 指令 SHALL 照常預覽與套用（repo 內容覆寫本機可攜欄位、本機保留欄位不動），SHALL NOT 中止
 
 ### Requirement: settings.json 同步不得洩漏敏感值
 

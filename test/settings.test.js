@@ -594,6 +594,59 @@ test('mergeSettingsBetween(to-repo)：值層防線命中時中止且不寫入 re
   });
 });
 
+test('值層防線：擴充機密前綴（Stripe／Google／SendGrid／npm／Slack app）', () => {
+  const cases = [
+    { a: 'sk_live_' + 'a1b2c3d4e5' },
+    { a: 'sk_test_' + 'a1b2c3d4e5' },
+    { a: 'AIza' + 'SyD1234567890abcdef' },
+    { a: 'SG.' + 'abcdefghijklmnop.qrst' },
+    { a: 'npm_' + 'a'.repeat(24) },
+    { a: 'token: xapp-1-A123' },
+  ];
+  for (const clean of cases) {
+    assert.throws(() => assertPortableSettingsSafe(clean),
+      (e) => e instanceof SyncError && e.code === ERR.SENSITIVE_CONTENT,
+      `應攔截：${clean.a}`);
+  }
+  // 一般值不得誤攔（sk_ 僅限 live/test 具名前綴）
+  assert.doesNotThrow(() => assertPortableSettingsSafe({ a: 'task_list sk_custom npmXYZ' }));
+});
+
+test('loadStrippedSettings（onSensitive: skip）：命中時不拋錯，回傳 sensitiveField 欄位路徑', () => {
+  withTmpDir((dir) => {
+    const fp = path.join(dir, 'settings.json');
+    writeJson(fp, {
+      permissions: { additionalDirectories: ['/home/joe/proj'] },
+    });
+
+    // 預設（throw）維持 fail-loud 不變
+    assert.throws(() => loadStrippedSettings(fp),
+      (e) => e instanceof SyncError && e.code === ERR.SENSITIVE_CONTENT);
+
+    // skip 模式：不中止，加註命中欄位（供 diff／to-local 標記跳過）
+    const result = loadStrippedSettings(fp, { onSensitive: 'skip' });
+    assert.ok(result, 'skip 模式應回傳結果');
+    assert.equal(result.sensitiveField, 'permissions.additionalDirectories.0');
+    assert.ok(!result.sensitiveField.includes('joe'), 'sensitiveField 只含欄位路徑不含值');
+  });
+});
+
+test('mergeSettingsBetween(to-local)：本機可攜欄位含家目錄路徑時不中止（僅比對、不寫回 repo）', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(localPath, {
+      permissions: { additionalDirectories: ['/home/joe/proj'] },
+    });
+    writeJson(repoPath, { permissions: { allow: ['x'] } });
+
+    // 修正前：loadStrippedSettings 在 to-local 分支拋 SENSITIVE_CONTENT，整個指令陣亡
+    let changed = null;
+    assert.doesNotThrow(() => { changed = mergeSettingsBetween(localPath, repoPath, 'to-local', true); });
+    assert.equal(changed, true, '本機與 repo 相異，應回報有變更');
+  });
+});
+
 test('mergeSettingsBetween(to-local)：dry-run 不寫檔；repo 缺檔回傳 false', () => {
   withTmpDir((dir) => {
     const localPath = path.join(dir, 'local.json');

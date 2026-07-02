@@ -149,7 +149,8 @@ npm run to-local
 
 - `settings.json` 的 **top-level 採黑名單混合制**：預設同步官方 top-level 欄位，僅排除兩類——`DEVICE_SETTINGS_KEYS` 黑名單（裝置偏好 `model`／`effortLevel`／`defaultShell`／`tui`／`autoUpdatesChannel`、平台綁定 `hooks`、憑證 helper `apiKeyHelper`／`awsCredentialExport`／`awsAuthRefresh`／`otelHeadersHelper`）與命中敏感命名 pattern（key／token／secret／credential／password／auth／cert／cookie／session／jwt／helper／refresh，不分大小寫）的 key。被排除者不進 repo、不入 diff；to-local 時保留本機原值。**風險承擔（明文）**：未知的裝置型新欄位會預設同步、可能跨裝置互踩，需人工加入黑名單——發現互踩靠一般 diff 的內容差異，發現 pattern 誤傷靠 diff **預設**列出的「未同步（黑名單／敏感護欄排除）」key 清單（只列 key 名、不印值）
 - `settings.json` 的 `env` 區塊維持**巢狀白名單**（安全底線，不隨 top-level 翻轉）：僅 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`CLAUDE_CODE_DISABLE_MOUSE`、`EDITOR` 跨裝置同步，其餘 env key（含 API Key／token、`CLAUDE_CODE_USE_POWERSHELL_TOOL` 等裝置特定值）一律不進 repo、不入 diff 輸出；to-local 時保留本機原值，避免覆寫本機金鑰
-- **值層防線**：同步／diff 前會遞迴掃描收斂結果，巢狀欄位名含敏感字、值命中已知機密前綴（`sk-`／`ghp_`／`AKIA`／JWT 等）或絕對家目錄路徑（`C:\Users\…`、`/home/…`、`/Users/…`）時**中止並報錯**（訊息只含欄位路徑、不含值）；請改寫該值（如絕對路徑改用 `~/`）或將該欄位加入 `DEVICE_SETTINGS_KEYS`
+- **值層防線**：收斂結果會被遞迴掃描——巢狀欄位名含敏感字、值命中已知機密前綴（`sk-`／Stripe `sk_live_`／`ghp_`／`AKIA`／Google `AIza`／SendGrid `SG.`／`npm_`／Slack `xox*`／JWT 等）或絕對家目錄路徑（`C:\Users\…`、`/home/…`、`/Users/…`）時觸發。行為依方向而異：**to-repo 實際寫入前中止並報錯**（訊息只含欄位路徑、不含值）；**diff 標記 `[!]` 暫不同步並續列其他項目**；**to-local 不受阻**（僅比對、不寫回 repo）。命中時請改寫該值（如絕對路徑改用 `~/`）或將該欄位加入 `DEVICE_SETTINGS_KEYS`
+- **機密掃描僅涵蓋 `settings.json` 與 `codex/config.toml`**：CLAUDE.md、rules、skills、statusline.sh 等純文字檔為原樣鏡射、不經任何掃描，勿在其中存放金鑰／token
 - **`hooks` 不跨裝置同步**：hook command 多為平台綁定（PowerShell／終端跳脫序列），在 Windows 與 macOS 無法共用，故各裝置自行維護本機 `hooks`，repo 不攜帶。需在新裝置重建 hook 時手動設定
 - `codex/config.toml` 只同步可攜欄位：`personality`、`web_search`、`tui.status_line`、`features.memories`、`features.goals`、`memories.generate_memories`、`memories.use_memories`、`plugins.*.enabled`
 - `codex/config.toml` 會排除 `model`、`model_reasoning_effort`、`projects.*`、`marketplaces.*`、`windows`、`tui.model_availability_nux` 與未知欄位；to-local 時保留本機未受管理欄位
@@ -157,4 +158,4 @@ npm run to-local
 - Claude agents 儲存於 `claude/agents/`，以 package 子目錄分組（目前為 `everything-claude-code/`）；Codex agents 儲存於 `codex/agents/`，同樣以 package 子目錄分組（目前無 agent），Codex CLI 會遞迴掃描子目錄
 - Skills 不在自動同步範圍內，用 `npm run skills:diff` 查看差異；本機多裝者會列出 `npm run skills:add`（加入 repo）與 `npx skills remove`（從本機移除）兩種建議
 - 所有檔案寫入（JSON、文字、目錄鏡射）皆透過底層 `writeFileSafe` 使用 atomic write（先寫同目錄暫存檔再 rename），避免中途斷電／中斷導致檔案損壞
-- 每次 to-repo / to-local 操作會記錄到 `.sync-history.log`（已加入 .gitignore）
+- 每次 to-repo / to-local 操作會記錄到 `.sync-history.log`（已加入 .gitignore）；同步中途因錯誤中斷時，已寫入的變更仍會列出並記入 log（標記「因錯誤中斷」），不會無聲消失

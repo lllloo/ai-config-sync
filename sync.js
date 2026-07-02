@@ -56,8 +56,13 @@ const DEVICE_SETTINGS_KEYS = [
  */
 const SENSITIVE_KEY_PATTERN = /(key|token|secret|credential|password|auth|cert|cookie|session|jwt|helper|refresh)/i;
 
-/** 機密樣式值偵測（已知 token 前綴），用於 assertPortableSettingsSafe 值層防線 */
-const SECRET_VALUE_PATTERN = /\b(sk-[\w-]{8,}|ghp_\w{20,}|github_pat_|glpat-|AKIA[0-9A-Z]{16}|xox[baprs]-|eyJ[\w-]{10,}\.)/;
+/**
+ * 機密樣式值偵測（已知 token 前綴），用於 assertPortableSettingsSafe 值層防線。
+ * 前綴清單天生無法窮舉（自訂 token 必漏），只作補漏；key-name 黑白名單才是主防線。
+ * 涵蓋：Anthropic/OpenAI sk-、Stripe sk_live_/sk_test_、GitHub ghp_/github_pat_、
+ * GitLab glpat-、AWS AKIA、Google AIza、SendGrid SG.、npm npm_、Slack xox?-／xapp-、JWT eyJ
+ */
+const SECRET_VALUE_PATTERN = /\b(sk-[\w-]{8,}|sk_(?:live|test)_\w{8,}|ghp_\w{20,}|github_pat_|glpat-|AKIA[0-9A-Z]{16}|AIza[\w-]{16,}|SG\.[\w-]{16,}|npm_\w{20,}|xox[baprs]-|xapp-|eyJ[\w-]{10,}\.)/;
 
 /** 絕對家目錄路徑偵測（C:\Users\、/Users/、/home/）——完整使用者路徑不得進 repo */
 const HOME_PATH_PATTERN = /[A-Za-z]:[\\/]Users[\\/]|\/(?:home|Users)\/\w/;
@@ -101,6 +106,7 @@ const STATUS_ICONS = {
   eol:     { icon: '\u2248', color: 'dim'    },  // 僅檔尾換行差異
   up:      { icon: '\u2191', color: 'cyan'   },  // 本機有、repo 沒有
   down:    { icon: '\u2193', color: 'yellow' },  // repo 有、本機沒有
+  blocked: { icon: '!', color: 'yellow' },  // 值層防線命中，暫不同步
 };
 
 /**
@@ -721,38 +727,45 @@ function mirrorDir(src, dest, excludePatterns = [], force = false, dryRun = fals
     getFiles(src).filter(rel => !excludePatterns.some(p => matchExclude(rel, p)))
   );
 
-  for (const rel of srcFiles) {
-    const srcFile = path.join(src, rel);
-    const destFile = path.join(dest, rel);
-    const srcContent = readFileSafe(srcFile, '讀取來源檔案');
-    const destExists = fs.existsSync(destFile);
+  try {
+    for (const rel of srcFiles) {
+      const srcFile = path.join(src, rel);
+      const destFile = path.join(dest, rel);
+      const srcContent = readFileSafe(srcFile, '讀取來源檔案');
+      const destExists = fs.existsSync(destFile);
 
-    // dry-run 時一律比對內容，不受 force 影響
-    const needsWrite = dryRun
-      ? (!destExists || !srcContent.equals(readFileSafe(destFile, '讀取目的檔案')))
-      : (force || !destExists || !srcContent.equals(readFileSafe(destFile, '讀取目的檔案')));
+      // dry-run 時一律比對內容，不受 force 影響
+      const needsWrite = dryRun
+        ? (!destExists || !srcContent.equals(readFileSafe(destFile, '讀取目的檔案')))
+        : (force || !destExists || !srcContent.equals(readFileSafe(destFile, '讀取目的檔案')));
 
-    if (needsWrite) {
-      if (!dryRun) writeFileSafe(destFile, srcContent, '寫入檔案');
-      changed.push({ rel, action: destExists ? 'updated' : 'added' });
-    }
-  }
-
-  if (fs.existsSync(dest)) {
-    for (const rel of getFiles(dest)) {
-      if (!srcFiles.has(rel) && !excludePatterns.some(p => matchExclude(rel, p))) {
-        const delPath = path.join(dest, rel);
-        if (!dryRun) {
-          try {
-            fs.rmSync(delPath);
-          } catch (e) {
-            throw toSyncFsError(e, delPath, '刪除檔案');
-          }
-        }
-        changed.push({ rel, action: 'deleted' });
+      if (needsWrite) {
+        if (!dryRun) writeFileSafe(destFile, srcContent, '寫入檔案');
+        changed.push({ rel, action: destExists ? 'updated' : 'added' });
       }
     }
-    if (!dryRun) cleanEmptyDirs(dest);
+
+    if (fs.existsSync(dest)) {
+      for (const rel of getFiles(dest)) {
+        if (!srcFiles.has(rel) && !excludePatterns.some(p => matchExclude(rel, p))) {
+          const delPath = path.join(dest, rel);
+          if (!dryRun) {
+            try {
+              fs.rmSync(delPath);
+            } catch (e) {
+              throw toSyncFsError(e, delPath, '刪除檔案');
+            }
+          }
+          changed.push({ rel, action: 'deleted' });
+        }
+      }
+      if (!dryRun) cleanEmptyDirs(dest);
+    }
+  } catch (e) {
+    // 中途失敗：已完成的變更附掛給呼叫端（applySyncItems 補印並記入 audit log），
+    // 避免「部分檔案已寫入磁碟但零可見度、.sync-history.log 無紀錄」
+    if (e instanceof SyncError && changed.length) e.context.partialChanges = changed;
+    throw e;
   }
 
   return changed;
@@ -1005,6 +1018,11 @@ function printFileDiff(srcPath, destPath, label) {
         let line = rawLine;
         if (line.startsWith('--- ')) line = `--- ${relDest}`;
         else if (line.startsWith('+++ ')) line = `+++ ${relSrc}`;
+        // 非內容行（如「Binary files X and Y differ」）內嵌 diff 引數的絕對路徑，
+        // 不走 ---/+++ 覆寫也必須遮罩，否則洩漏完整使用者路徑
+        else if (line && !/^[-+@ ]/.test(line)) {
+          line = maskHome(line.split(destPath).join(relDest).split(srcPath).join(relSrc));
+        }
         if (line.startsWith('---') || line.startsWith('+++')) {
           console.log(col.dim('  ' + line));
         } else if (line.startsWith('-')) {
@@ -1204,17 +1222,28 @@ function assertPortableSettingsSafe(clean) {
 /**
  * 將 settings.json 收斂為可攜版後回傳 { clean, serialized, dropped }
  * top-level 走黑名單混合制分區（partitionSettingsTopLevel）；env 另經 stripNonPortableEnv
- * 巢狀白名單收斂；最後過 assertPortableSettingsSafe 值層防線（命中即拋錯，不寫入、不輸出）。
+ * 巢狀白名單收斂；最後過 assertPortableSettingsSafe 值層防線。
+ * onSensitive 控制值層防線命中時的行為（direction-aware）：
+ * - 'throw'（預設）：拋 SENSITIVE_CONTENT 中止——to-repo 實際寫入前的 fail-loud 閘門
+ * - 'skip'：回傳結果加註 sensitiveField（命中欄位路徑，不含值）——diff／to-local 等
+ *   僅比對情境用，呼叫端須標記跳過而非中止整個指令，且不得輸出 serialized 內容
  * @param {string} filePath - settings.json 路徑
- * @returns {{ clean: Record<string, unknown>, serialized: string, dropped: string[] } | null} 檔案不存在時回傳 null
+ * @param {{onSensitive?: 'throw'|'skip'}} [opts]
+ * @returns {{ clean: Record<string, unknown>, serialized: string, dropped: string[], sensitiveField?: string } | null} 檔案不存在時回傳 null
  */
-function loadStrippedSettings(filePath) {
+function loadStrippedSettings(filePath, { onSensitive = 'throw' } = {}) {
   if (!fs.existsSync(filePath)) return null;
   const data = readJson(filePath);
   const { portable, device } = partitionSettingsTopLevel(data);
   stripNonPortableEnv(portable);
-  assertPortableSettingsSafe(portable);
-  return { clean: portable, serialized: serializeSettings(portable), dropped: Object.keys(device) };
+  const result = { clean: portable, serialized: serializeSettings(portable), dropped: Object.keys(device) };
+  try {
+    assertPortableSettingsSafe(portable);
+  } catch (e) {
+    if (onSensitive !== 'skip' || !(e instanceof SyncError) || e.code !== ERR.SENSITIVE_CONTENT) throw e;
+    result.sensitiveField = String(e.context.field);
+  }
+  return result;
 }
 
 /**
@@ -1306,8 +1335,10 @@ function mergeSettingsBetween(localPath, repoPath, direction, dryRun = false) {
     const repo = readJson(repoPath);
     const repoStr = serializeSettings(repo);
 
-    // 比對 repo 與 stripped local（兩邊皆使用 serializeSettings 確保結尾換行對稱）
-    const stripped = loadStrippedSettings(localPath);
+    // 比對 repo 與 stripped local（兩邊皆使用 serializeSettings 確保結尾換行對稱）。
+    // 此處僅供「是否已一致」判斷、不寫回 repo，故值層防線命中不中止（onSensitive: 'skip'）——
+    // 本機可攜欄位含機密樣式值時，repo 必與其相異（repo 永遠為收斂版），自然進入套用流程
+    const stripped = loadStrippedSettings(localPath, { onSensitive: 'skip' });
     if (stripped && repoStr === stripped.serialized) return false;
 
     if (dryRun) return true;
@@ -1799,18 +1830,23 @@ function diffSettingsItem(item, direction) {
   };
 
   if (direction === 'to-local') {
-    // repo → 本機：repo 缺檔則無可同步；本機缺檔則將新增（與 mergeSettingsJson('to-local') 對齊）
+    // repo → 本機：repo 缺檔則無可同步；本機缺檔則將新增（與 mergeSettingsJson('to-local') 對齊）。
+    // 本機 stripped 僅供比對，值層防線命中不中止（含機密樣式值時必與 repo 相異 → 'changed'）
     if (!fs.existsSync(repoPath)) return { ...base, status: null, src: null };
     if (!fs.existsSync(localPath)) return { ...base, status: 'new', src: null };
-    const stripped = getStrippedSettings(localPath);
+    const stripped = loadStrippedSettings(localPath, { onSensitive: 'skip' });
     if (stripped === null) return { ...base, status: null, src: null };
-    return { ...base, status: compareStrippedToRepo(stripped, repoPath, '讀取 repo 設定'), src: null };
+    return { ...base, status: compareStrippedToRepo(stripped.serialized, repoPath, '讀取 repo 設定'), src: null };
   }
 
-  // to-repo：本機 stripped → repo
+  // to-repo：本機 stripped → repo。值層防線命中時標記 blocked——只列欄位路徑、
+  // 不建暫存 diff 檔、不輸出內容（to-repo 實際執行仍會 fail-loud 中止）
   if (!fs.existsSync(localPath)) return { ...base, status: null, src: null };
-  const stripped = loadStrippedSettings(localPath);
+  const stripped = loadStrippedSettings(localPath, { onSensitive: 'skip' });
   if (stripped === null) return { ...base, status: null, src: null };
+  if (stripped.sensitiveField) {
+    return { ...base, status: 'blocked', src: null, droppedKeys: stripped.dropped, blockedField: stripped.sensitiveField };
+  }
   const tmpSrc = createTmpDiffFile('json', stripped.serialized);
   const status = fs.existsSync(repoPath)
     ? compareStrippedToRepo(stripped.serialized, repoPath, '讀取 repo 設定')
@@ -1996,16 +2032,50 @@ function applySyncItems(items, direction, opts) {
   const { dryRun } = opts;
   const stats = { added: 0, updated: 0, deleted: 0 };
   const changeLog = [];
+  const record = (c) => {
+    stats[c.action]++;
+    changeLog.push(`${c.label} (${c.action})`);
+    printStatusLine(actionToIcon(c.action), c.label);
+  };
 
   for (const item of items) {
-    for (const c of SYNC_TYPE_HANDLERS[item.type].apply(item, direction, dryRun)) {
-      stats[c.action]++;
-      changeLog.push(`${c.label} (${c.action})`);
-      printStatusLine(actionToIcon(c.action), c.label);
+    let changes;
+    try {
+      changes = SYNC_TYPE_HANDLERS[item.type].apply(item, direction, dryRun);
+    } catch (e) {
+      // 單項中途失敗：先把該項已完成的變更（mirrorDir 附掛的 partialChanges）補進
+      // 統計與輸出，再把整體已套用清單附掛給呼叫端（logPartialApply 記 audit log）——
+      // 與 handleSignal 的訊號中斷警告互補，讓「例外中斷」路徑的部分寫入同樣可見
+      if (e instanceof SyncError) {
+        const prefix = `${item.prefix || 'claude/'}${item.label}/`;
+        for (const c of e.context.partialChanges || []) record({ action: c.action, label: `${prefix}${c.rel}` });
+        delete e.context.partialChanges;
+        e.context.applied = { stats, changeLog };
+      }
+      throw e;
     }
+    for (const c of changes) record(c);
   }
 
   return { stats, changeLog };
+}
+
+/**
+ * apply 中途拋錯時交代部分結果：印出已寫入筆數警告，並將已套用變更記入
+ * .sync-history.log（audit trail 不因中斷而全失）。dry-run 無實際寫入，不記 log。
+ * 一律清除 err.context.applied，避免 formatError 印出物件 dump。
+ * @param {'to-repo'|'to-local'} direction
+ * @param {unknown} err - applySyncItems 拋出的錯誤
+ * @param {boolean} dryRun
+ * @returns {void}
+ */
+function logPartialApply(direction, err, dryRun) {
+  if (!(err instanceof SyncError) || !err.context.applied) return;
+  const { changeLog } = err.context.applied;
+  delete err.context.applied;
+  if (dryRun) return;
+  console.error(col.yellow(`\n  [warn] 同步因錯誤中斷：已寫入 ${changeLog.length} 筆變更（如上所列），其餘項目未執行`));
+  if (changeLog.length > 0) appendSyncLog(direction, [...changeLog, '(因錯誤中斷，後續項目未執行)']);
 }
 
 /**
@@ -2227,11 +2297,16 @@ function printDiffItem(item, opts) {
     changed: ['changed', '有差異'],
     eol: ['eol', '僅檔尾換行差異'],
     deleted: ['deleted', 'repo 有、本機沒有'],
+    blocked: ['blocked', '值層防線命中，暫不同步'],
   };
   if (item.status === null) {
     printStatusLine('ok', item.label);
   } else if (statusMap[item.status]) {
     printStatusLine(statusMap[item.status][0], item.label, statusMap[item.status][1]);
+  }
+  // 值層防線命中：只列欄位路徑不含值；diff 不中止，但 to-repo 實際執行會 fail-loud
+  if (item.status === 'blocked' && item.blockedField) {
+    console.log(col.dim(`      欄位：${item.blockedField}（值不顯示）；to-repo 將中止——請改寫該值（如絕對路徑改用 ~/），或將其 top-level key 加入 DEVICE_SETTINGS_KEYS`));
   }
   if (opts.verbose && item.verboseSrc) logVerbosePaths(item.verboseSrc, item.verboseDest || item.dest);
   // 黑名單制的日常防守訊號：預設可見（非 --verbose 限定），只列 key 名、不印值
@@ -2310,6 +2385,9 @@ function runToRepo(opts) {
     console.log('');
     showGitStatus();
     console.log('');
+  } catch (e) {
+    logPartialApply('to-repo', e, dryRun);
+    throw e;
   } finally {
     isWriting = false;
   }
@@ -2365,6 +2443,9 @@ async function confirmAndApply(items, autoYes = false) {
       for (const ch of changeLog) console.log(`    ${ch}`);
       appendSyncLog('to-local', changeLog);
     }
+  } catch (e) {
+    logPartialApply('to-local', e, false);
+    throw e;
   } finally {
     isWriting = false;
   }
@@ -2667,10 +2748,6 @@ function printVersion() {
   console.log(pkg ? pkg.version : 'unknown');
 }
 
-/**
- * help 指令：顯示所有可用指令與說明
- * @returns {void}
- */
 // =============================================================================
 // Section: Init -- 重置為空骨架（給 fork 後使用者執行一次）
 // =============================================================================
@@ -2752,6 +2829,10 @@ function applyInitChanges() {
   }
 }
 
+/**
+ * help 指令：顯示所有可用指令與說明
+ * @returns {void}
+ */
 function runHelp() {
   const pkg = readPackageJson();
   const version = pkg ? pkg.version : 'unknown';

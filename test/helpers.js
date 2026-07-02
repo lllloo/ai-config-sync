@@ -49,4 +49,17 @@ function withTmpFile(contentOrSkip, fn) {
   });
 }
 
-module.exports = { withArgv, withTmpDir, withTmpFile };
+/**
+ * 產生 spawn 子行程用的無色彩環境：設 NO_COLOR 並剔除外層繼承的 FORCE_COLOR，
+ * 讓整合測試的純文字斷言不受終端環境影響（外層設 FORCE_COLOR 時，子行程雖為
+ * pipe 非 TTY 仍會輸出 ANSI 色碼，插在圖示與檔名之間破壞 regex 鄰接性）。
+ * @param {Record<string, string>} [overrides] - 額外覆寫的環境變數（如 HOME）
+ * @returns {NodeJS.ProcessEnv}
+ */
+function noColorEnv(overrides = {}) {
+  const env = { ...process.env, NO_COLOR: '1', ...overrides };
+  delete env.FORCE_COLOR;
+  return env;
+}
+
+module.exports = { withArgv, withTmpDir, withTmpFile, noColorEnv };
