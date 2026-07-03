@@ -57,6 +57,23 @@ test('askConfirm：autoYes 為 true 直接同意，不觸碰 stdin', async () =>
   assert.equal(await askConfirm('問？', true), true);
 });
 
+// 回歸：互動 TTY 下輸入 y 必須回 true（rl.close() 同步觸發 close 事件的競態，
+// 曾使 resolve(false) 搶在答案前生效，導致確認後仍顯示「已取消」）
+test('askConfirm：互動 TTY 輸入 y 回 true，close 事件不搶先', async () => {
+  const { PassThrough } = require('stream');
+  const fakeIn = new PassThrough();
+  fakeIn.isTTY = true;
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'stdin');
+  Object.defineProperty(process, 'stdin', { value: fakeIn, configurable: true });
+  try {
+    const p = askConfirm('問？', false);
+    fakeIn.write('y\n');
+    assert.equal(await p, true);
+  } finally {
+    Object.defineProperty(process, 'stdin', descriptor);
+  }
+});
+
 test('askConfirm：非 TTY 環境（無 autoYes）拋 INVALID_ARGS 而非卡住', async () => {
   // 顯式覆寫 isTTY 模擬 CI / pipe，避免在互動式終端跑測試時建 readline 卡死
   const original = process.stdin.isTTY;

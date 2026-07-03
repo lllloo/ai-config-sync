@@ -2970,12 +2970,15 @@ function askConfirm(question, autoYes = false) {
   }
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise(resolve => {
+    // rl.close() 會同步觸發 'close' 事件，若無守衛會讓 resolve(false) 搶在答案前生效
+    let answered = false;
     rl.question(question, answer => {
+      answered = true;
       rl.close();
       resolve(['y', 'yes'].includes(answer.trim().toLowerCase()));
     });
-    // Ctrl+D（EOF）等情況關閉 readline 時，視為未確認
-    rl.on('close', () => resolve(false));
+    // Ctrl+D（EOF）等未作答就關閉 readline 時，才視為未確認
+    rl.on('close', () => { if (!answered) resolve(false); });
   });
 }
 
