@@ -16,6 +16,8 @@ const {
   buildFullDiffList,
   diffFile,
   diffDir,
+  diffDirItems,
+  printToLocalPreview,
   matchExclude,
   statusToStatsKey,
   parseSkillSource,
@@ -473,6 +475,50 @@ test('diffDir：src 與 dest 都不存在 → 空陣列', () => {
       []
     );
   });
+});
+
+// -----------------------------------------------------------------------------
+// diffDirItems / printToLocalPreview：dry-run 預覽須與 mirrorDir 實際刪除行為對齊
+// mirrorDir 在「src 目錄整個不存在」時提早返回、不刪本機檔（保守安全設計），
+// 故此情境的 deleted 應標記 preserved，讓 to-local 預覽不誤報「將刪除」。
+// 對稱地，「src 目錄存在但缺該檔」時 mirrorDir 會刪，deleted 不得標 preserved。
+// -----------------------------------------------------------------------------
+test('diffDirItems：repo 源目錄不存在 → deleted 標 preserved（mirrorDir 不會刪）', () => {
+  withTmpDir((dir) => {
+    const src = path.join(dir, 'repo-missing');
+    const dest = path.join(dir, 'local');
+    fs.mkdirSync(dest);
+    fs.writeFileSync(path.join(dest, 'a.toml'), 'a');
+    const entries = diffDirItems({ src, dest, label: 'agents', prefix: 'codex/' });
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].status, 'deleted');
+    assert.equal(entries[0].preserved, true, 'repo 無此目錄時 mirrorDir 不刪，應標 preserved');
+  });
+});
+
+test('diffDirItems：源目錄存在但缺該檔 → deleted 不標 preserved（mirrorDir 會刪）', () => {
+  withTmpDir((dir) => {
+    const src = path.join(dir, 'repo');
+    const dest = path.join(dir, 'local');
+    fs.mkdirSync(src);
+    fs.writeFileSync(path.join(src, 'keep.toml'), 'k');
+    fs.mkdirSync(dest);
+    fs.writeFileSync(path.join(dest, 'keep.toml'), 'k');
+    fs.writeFileSync(path.join(dest, 'extra.toml'), 'x');
+    const entries = diffDirItems({ src, dest, label: 'agents', prefix: 'codex/' });
+    const del = entries.find(e => e.status === 'deleted');
+    assert.ok(del, '應有一筆 deleted');
+    assert.notEqual(del.preserved, true, '源目錄存在時該檔會被刪，不得標 preserved');
+  });
+});
+
+test('printToLocalPreview：preserved 的 deleted 不計入 previewStats.deleted', () => {
+  const stats = printToLocalPreview([
+    { status: 'deleted', label: 'codex/agents/a.toml', preserved: true },
+    { status: 'deleted', label: 'claude/rules/b.md' },
+    { status: 'new', label: 'claude/rules/c.md' },
+  ]);
+  assert.deepEqual(stats, { added: 1, updated: 0, deleted: 1 });
 });
 
 // --- collectSkillDiffSummary -----------------------------------------------

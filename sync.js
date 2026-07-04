@@ -1924,13 +1924,18 @@ function diffFileItem(item) {
  * @returns {object[]}
  */
 function diffDirItems(item) {
+  // repo 源目錄整個不存在時 mirrorDir 起頭守衛提早返回、不刪本機檔（保守安全設計）；
+  // 標記 preserved 讓 to-local 預覽不把這類 deleted 誤報為「將刪除」。
+  const srcMissing = !fs.existsSync(item.src);
   return diffDir(item.src, item.dest, item.excludePatterns || []).map(d => {
     const src = path.join(item.src, d.rel);
     const dest = path.join(item.dest, d.rel);
-    return {
+    const entry = {
       label: `${item.prefix || 'claude/'}${item.label}/${d.rel}`,
       status: d.status, src, dest, verboseSrc: src, verboseDest: dest, itemType: 'dir',
     };
+    if (d.status === 'deleted' && srcMissing) entry.preserved = true;
+    return entry;
   });
 }
 
@@ -2405,11 +2410,13 @@ function printToLocalPreview(diffResults) {
     if (d.status === 'new') printStatusLine('added', d.label, '將新增');
     else if (d.status === 'changed') printStatusLine('changed', d.label, '將更新');
     else if (d.status === 'eol') printStatusLine('eol', d.label, '將更新（僅檔尾換行）');
+    else if (d.status === 'deleted' && d.preserved) printStatusLine('up', d.label, '本機保留（repo 無此目錄，不會刪除）');
     else if (d.status === 'deleted') printStatusLine('deleted', d.label, '將刪除');
   }
 
   const previewStats = { added: 0, updated: 0, deleted: 0 };
   for (const d of diffResults) {
+    if (d.status === 'deleted' && d.preserved) continue; // mirrorDir 不會刪，不計入
     const key = statusToStatsKey(d.status);
     if (key) previewStats[key]++;
   }
@@ -3072,6 +3079,8 @@ if (require.main === module) {
     createTmpDiffFile,
     applySyncItems,
     diffSyncItems,
+    diffDirItems,
+    printToLocalPreview,
     buildSyncItems,
     buildSwapItem,
     SYNC_TYPE_HANDLERS,
