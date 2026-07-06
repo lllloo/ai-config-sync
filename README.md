@@ -148,7 +148,7 @@ npm run to-local
 ## 注意事項
 
 - `settings.json` 的 **top-level 採黑名單混合制**：預設同步官方 top-level 欄位，僅排除兩類——`DEVICE_SETTINGS_KEYS` 黑名單（裝置偏好 `model`／`effortLevel`／`defaultShell`／`tui`／`autoUpdatesChannel`、平台綁定 `hooks`、憑證 helper `apiKeyHelper`／`awsCredentialExport`／`awsAuthRefresh`／`otelHeadersHelper`）與命中敏感命名 pattern（key／token／secret／credential／password／auth／cert／cookie／session／jwt／helper／refresh，不分大小寫）的 key。被排除者不進 repo、不入 diff；to-local 時保留本機原值。**風險承擔（明文）**：未知的裝置型新欄位會預設同步、可能跨裝置互踩，需人工加入黑名單——發現互踩靠一般 diff 的內容差異，發現 pattern 誤傷靠 diff **預設**列出的「未同步（黑名單／敏感護欄排除）」key 清單（只列 key 名、不印值）
-- `settings.json` 的 `env` 區塊維持**巢狀白名單**（安全底線，不隨 top-level 翻轉）：僅 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`CLAUDE_CODE_DISABLE_MOUSE`、`EDITOR` 跨裝置同步，其餘 env key（含 API Key／token、`CLAUDE_CODE_USE_POWERSHELL_TOOL` 等裝置特定值）一律不進 repo、不入 diff 輸出；to-local 時保留本機原值，避免覆寫本機金鑰
+- `settings.json` 的 `env` 區塊維持**巢狀白名單**（安全底線，不隨 top-level 翻轉）：僅 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`CLAUDE_CODE_DISABLE_MOUSE`、`CLAUDE_CODE_DISABLE_MOUSE_CLICKS`、`EDITOR` 跨裝置同步，其餘 env key（含 API Key／token、`CLAUDE_CODE_USE_POWERSHELL_TOOL` 等裝置特定值）一律不進 repo、不入 diff 輸出；to-local 時保留本機原值，避免覆寫本機金鑰
 - **值層防線**：收斂結果會被遞迴掃描——巢狀欄位名含敏感字、值命中已知機密前綴（`sk-`／Stripe `sk_live_`／`ghp_`／`AKIA`／Google `AIza`／SendGrid `SG.`／`npm_`／Slack `xox*`／JWT 等）或絕對家目錄路徑（`C:\Users\…`、`/home/…`、`/Users/…`）時觸發。行為依方向而異：**to-repo 實際寫入前中止並報錯**（訊息只含欄位路徑、不含值）；**diff 標記 `[!]` 暫不同步並續列其他項目**；**to-local 不受阻**（僅比對、不寫回 repo）。命中時請改寫該值（如絕對路徑改用 `~/`）或將該欄位加入 `DEVICE_SETTINGS_KEYS`
 - **機密掃描僅涵蓋 `settings.json` 與 `codex/config.toml`**：CLAUDE.md、rules、skills、statusline.sh 等純文字檔為原樣鏡射、不經任何掃描，勿在其中存放金鑰／token
 - **`hooks` 不跨裝置同步**：hook command 多為平台綁定（PowerShell／終端跳脫序列），在 Windows 與 macOS 無法共用，故各裝置自行維護本機 `hooks`，repo 不攜帶。需在新裝置重建 hook 時手動設定
