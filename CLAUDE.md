@@ -62,7 +62,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### 刻意不同步（勿加入 `buildSyncItems`）
 
 - **`~/.claude.json`** — 含 MCP server 設定與憑證、專案級狀態，屬高風險敏感檔，**永遠不同步**。
-- **`~/.claude/keybindings.json`** — 雖屬可攜偏好，目前刻意不納入同步（避免擴大同步面）；日後若要收錄需確認鍵位設定不含裝置特定路徑，並改 `buildSyncItems` + README + 對應測試。
 
 ## 架構重點
 
@@ -88,7 +87,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **settings.json top-level 採黑名單混合制**（`DEVICE_SETTINGS_KEYS` + `SENSITIVE_KEY_PATTERN`）：預設同步官方 top-level 欄位，僅排除黑名單列舉（裝置偏好、平台綁定 `hooks`、憑證 helper）與敏感命名 pattern 命中的 key。過濾方向的判準（跨工具過濾慣例）：**該區塊的 key 名集合是誰定義的**——結構性官方欄位（官方定義的有限集合）→ 黑名單；開放 key 空間（使用者任意定義、可含機密，如 `env`、provider 金鑰區塊）→ 白名單。strip／preserve 由單一分區函式 `partitionSettingsTopLevel` 同源保證互補（top-level 限定；env 子鍵是另一對獨立互補）。增減黑名單欄位須改 `DEVICE_SETTINGS_KEYS` 常數與 README。**風險承擔（明文）**：未知裝置型新欄位會先同步互踩、再人工加黑名單；兩種訊號分工——互踩靠一般 value-diff 發現、pattern 誤傷靠 diff 預設輸出的 dropped 清單發現（`loadStrippedSettings` 回傳 `dropped`，diff 預設列出 key 名）。此不變式依賴「repo settings.json 永遠為黑名單＋pattern 收斂版」，repo 來源檔不得保留被排除欄位。
 - **settings.json `env` 區塊維持巢狀白名單**（`PORTABLE_ENV_KEYS`，**不可退讓的安全底線**）：`env` 為開放 key 空間（黑名單無法枚舉機密名稱），其內部 key 經 `stripNonPortableEnv` 收斂——只有列舉的 key 才跨裝置同步，其餘 env key（API Key、token、`CLAUDE_CODE_USE_POWERSHELL_TOOL` 等）一律 strip、不進 repo、不入 diff 輸出；to-local 時保留本機原值（避免覆寫掉本機金鑰）。增減可攜 env key 須改 `PORTABLE_ENV_KEYS` 常數與 README，**新增前務必確認非敏感**。
 - **值層防線 `assertPortableSettingsSafe`（defense in depth）**：黑名單只查 top-level key 名，巢狀內容由此層把關——收斂結果進入 repo／diff 前遞迴掃描，巢狀 key 名命中 `SENSITIVE_KEY_PATTERN`（env 子樹豁免 key 掃描）、字串值命中機密前綴（`SECRET_VALUE_PATTERN`：`sk-`／Stripe `sk_live_`／`ghp_`／`AKIA`／`AIza`／JWT 等，前綴清單天生不可窮舉、只作補漏）或絕對家目錄路徑時觸發。**觸發行為 direction-aware**（`loadStrippedSettings` 的 `onSensitive` 參數）：to-repo 實際寫入前拋 `SyncError`（`SENSITIVE_CONTENT`）**fail-loud 中止而非靜默剝除**；diff／to-local 僅比對不寫回 repo，命中時標記 `[!]` 跳過該項並續行其餘比對（否則本機 `permissions.additionalDirectories` 這類合法含絕對路徑的官方欄位會讓整個指令罷工）。錯誤訊息與 diff 標記只含欄位路徑不含值。與 env 白名單共同構成「輸出／log／diff 不得出現 API Key、token」不變式的防線。
-- **OpenSpec capability 佈局**：一工具一 capability（`claude-settings-sync`／`codex-config-sync`／`opencode-config-sync`／`pi-config-sync`），跨工具引擎級不變式（不洩漏敏感值、atomic write、exit code）日後 spec 化時歸 `sync-engine`，不塞進任一工具的 spec。新工具接入時按上述過濾慣例判準歸類各設定區塊。codex `config.toml` 現行仍為白名單（已知偏離慣例，翻轉與否為 open question，見 `openspec/changes/flip-settings-sync-to-blocklist/design.md`）。
 - **構建規則**（來自全域 CLAUDE.md）：禁擅自執行 `npm run build`。
 - **嚴禁洩漏敏感資訊**：輸出、log、diff 內容中不得出現 API Key、token 或完整使用者路徑。**涵蓋範圍（明文）**：結構化過濾（黑白名單＋值層防線）只作用於 `settings.json` 與 `codex/config.toml`；`file`／`dir` 型項目（CLAUDE.md、rules、skills、statusline.sh 等純文字檔）走 `copyFile`／`mirrorDir` 原樣同步、**不經任何機密掃描**——勿在這些檔案內存放金鑰／token（例如 statusline 腳本呼叫外部服務時，token 應改由環境變數或本機憑證檔提供）。
 - **部分失敗可見度**：apply 中途拋例外時，`mirrorDir` 把已完成變更附掛到 `SyncError.context.partialChanges`，`applySyncItems` 補印並經 `logPartialApply` 記入 `.sync-history.log`（標記「因錯誤中斷」）——與 `handleSignal` 的訊號中斷警告互補，已寫入的檔案不得零可見度。
