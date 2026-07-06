@@ -36,9 +36,10 @@ const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
  * settings.json top-level 採黑名單混合制：預設同步，僅排除列於此黑名單或命中
  * SENSITIVE_KEY_PATTERN 的 key；被排除者不進 repo、不入 diff 差異，to-local 保留本機原值。
  * 跨工具過濾慣例：「結構性官方欄位（key 名為官方定義的有限集合）→ 黑名單；開放 key 空間
- * （key 名使用者任意定義、可含機密）→ 白名單」——故 top-level 走黑名單，`env` 維持巢狀
- * 白名單（PORTABLE_ENV_KEYS）不動。防線三層：本黑名單 → 敏感命名 pattern → 值層掃描
- * （assertPortableSettingsSafe）。新增裝置／平台／憑證類欄位須在此明列。
+ * （key 名使用者任意定義、可含機密）→ 白名單」。top-level 走黑名單；`env` 原走白名單，
+ * 現依使用者決策亦翻為黑名單混合制（DEVICE_ENV_KEYS，見該常數），以零摩擦自動同步合法 key，
+ * 代價是已承擔的安全邊界弱化（見 DEVICE_ENV_KEYS docstring）。防線三層：本黑名單 →
+ * 敏感命名 pattern → 值層掃描（assertPortableSettingsSafe）。新增裝置／平台／憑證類欄位須在此明列。
  */
 const DEVICE_SETTINGS_KEYS = [
   // 裝置偏好：各機不同，同步會互踩
@@ -68,11 +69,31 @@ const SECRET_VALUE_PATTERN = /\b(sk-[\w-]{8,}|sk_(?:live|test)_\w{8,}|ghp_\w{20,
 const HOME_PATH_PATTERN = /[A-Za-z]:[\\/]Users[\\/]|\/(?:home|Users)\/\w/;
 
 /**
- * settings.json `env` 區塊唯一允許跨裝置同步的 key（白名單）。
- * 採白名單而非黑名單：任何未列舉的 env key（API Key、token、裝置特定值）一律不寫進 repo、
- * 不出現在 diff 輸出；to-local 時保留本機原值（避免覆寫掉本機金鑰）。新增可攜 env key 須在此明列。
+ * settings.json `env` 區塊的裝置／憑證黑名單（黑名單混合制，取代舊白名單 PORTABLE_ENV_KEYS）。
+ * env key 預設同步進 repo，僅排除：列於本清單者，或命中 SENSITIVE_KEY_PATTERN 者。
+ *
+ * **已承擔的安全邊界弱化（明文）**：黑名單無法枚舉機密 key 名。key 名未命中
+ * SENSITIVE_KEY_PATTERN、值未命中 SECRET_VALUE_PATTERN、且未列入本清單的機密
+ * （如 `DB_PASS=hunter2`、`postgres://u:pw@h`）仍會經 to-repo 寫入 repo／git history（永久）。
+ * 此為使用者在完整說明後接受的代價；緩解：機密改由 apiKeyHelper／本機憑證檔提供、to-repo 後檢視。
+ * 明細 diff 對 env 值遮罩（見 maskEnvValuesForDisplay）擋 stdout 外洩，但擋不了 to-repo 寫入。
+ *
+ * 本清單收錄「名字乾淨（pattern 抓不到）但屬裝置綁定或值即憑證」的 env：
+ * - CLAUDE_CODE_USE_POWERSHELL_TOOL：平台綁定
+ * - ANTHROPIC_CUSTOM_HEADERS：值常為 `Authorization: Bearer …`
+ * - HTTP_PROXY／HTTPS_PROXY／ALL_PROXY：值常內嵌 `user:pass@host` 憑證
+ * 比對採大小寫不敏感（proxy 慣例大小寫皆有），見 isDeviceEnvKey。
  */
-const PORTABLE_ENV_KEYS = ['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', 'CLAUDE_CODE_DISABLE_MOUSE', 'CLAUDE_CODE_DISABLE_MOUSE_CLICKS', 'EDITOR'];
+const DEVICE_ENV_KEYS = [
+  'CLAUDE_CODE_USE_POWERSHELL_TOOL',
+  'ANTHROPIC_CUSTOM_HEADERS',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY',
+];
+
+/** env key 是否命中裝置黑名單（大小寫不敏感——proxy 慣例 http_proxy／HTTP_PROXY 皆有） */
+function isDeviceEnvKey(key) {
+  return DEVICE_ENV_KEYS.some((k) => k.toLowerCase() === key.toLowerCase());
+}
 
 /** Codex config.toml 中允許跨裝置同步的 top-level key */
 const CODEX_CONFIG_TOP_KEYS = ['personality', 'web_search'];
@@ -1158,14 +1179,16 @@ function serializeSettings(obj) {
 }
 
 /**
- * 將 settings 物件的 env 區塊收斂為白名單：只保留 PORTABLE_ENV_KEYS，其餘（含金鑰／token）移除。
+ * 將 settings 物件的 env 區塊依黑名單混合制收斂：刪除命中 DEVICE_ENV_KEYS 或
+ * SENSITIVE_KEY_PATTERN 的 key（裝置綁定／憑證），其餘 env key 預設保留同步。
  * env 收斂後為空物件時刪除 env 鍵，保持 repo 設定乾淨。原地修改 data。
+ * 與 extractDeviceValues 的 env 迴圈為對稱兩處判斷，保證 strip↔preserve 互補。
  * @param {Record<string, unknown>} data
  */
-function stripNonPortableEnv(data) {
+function stripDeviceEnv(data) {
   if (!data.env || typeof data.env !== 'object') return;
   for (const key of Object.keys(data.env)) {
-    if (!PORTABLE_ENV_KEYS.includes(key)) delete data.env[key];
+    if (isDeviceEnvKey(key) || SENSITIVE_KEY_PATTERN.test(key)) delete data.env[key];
   }
   if (Object.keys(data.env).length === 0) delete data.env;
 }
@@ -1174,7 +1197,7 @@ function stripNonPortableEnv(data) {
  * 將 settings top-level 依可攜性分區（黑名單混合制）：列於 DEVICE_SETTINGS_KEYS 或命中
  * SENSITIVE_KEY_PATTERN 者為 device，其餘為 portable（保持原順序）。strip（to-repo）、
  * preserve（to-local）與 diff 的 dropped 清單皆消費同一次分區結果——top-level 互補由
- * 同一次計算保證。注意：env 子鍵的互補是另一對獨立實作（stripNonPortableEnv ↔
+ * 同一次計算保證。注意：env 子鍵的互補是另一對獨立實作（stripDeviceEnv ↔
  * extractDeviceValues 的 env 迴圈），不受本函式保護。
  * @param {Record<string, unknown>} data
  * @returns {{ portable: Record<string, unknown>, device: Record<string, unknown> }}
@@ -1192,8 +1215,8 @@ function partitionSettingsTopLevel(data) {
 /**
  * 值層防線（defense in depth）：黑名單只查 top-level key 名，巢狀內容整包放行，此函式在
  * 收斂結果進入 repo／diff 前遞迴掃描——巢狀 key 名命中 SENSITIVE_KEY_PATTERN（env 子樹跳過
- * key 掃描：其 key 已由 PORTABLE_ENV_KEYS 白名單放行），或字串值命中機密前綴／絕對家目錄
- * 路徑時，拋 SyncError 中止而非靜默剝除——把「該加黑名單的欄位」逼到人眼前。
+ * key 掃描：其 key 名已由 stripDeviceEnv 用同一 pattern 處理過，再掃是死碼；env 值掃描恆常適用），
+ * 或字串值命中機密前綴／絕對家目錄路徑時，拋 SyncError 中止而非靜默剝除——把「該加黑名單的欄位」逼到人眼前。
  * 錯誤訊息只含欄位路徑，不含值本身（維持「輸出不得出現機密」不變式）。
  * @param {Record<string, unknown>} clean - 已收斂的可攜 settings
  */
@@ -1221,8 +1244,8 @@ function assertPortableSettingsSafe(clean) {
 
 /**
  * 將 settings.json 收斂為可攜版後回傳 { clean, serialized, dropped }
- * top-level 走黑名單混合制分區（partitionSettingsTopLevel）；env 另經 stripNonPortableEnv
- * 巢狀白名單收斂；最後過 assertPortableSettingsSafe 值層防線。
+ * top-level 走黑名單混合制分區（partitionSettingsTopLevel）；env 另經 stripDeviceEnv
+ * 巢狀黑名單混合制收斂；最後過 assertPortableSettingsSafe 值層防線。
  * onSensitive 控制值層防線命中時的行為（direction-aware）：
  * - 'throw'（預設）：拋 SENSITIVE_CONTENT 中止——to-repo 實際寫入前的 fail-loud 閘門
  * - 'skip'：回傳結果加註 sensitiveField（命中欄位路徑，不含值）——diff／to-local 等
@@ -1235,7 +1258,7 @@ function loadStrippedSettings(filePath, { onSensitive = 'throw' } = {}) {
   if (!fs.existsSync(filePath)) return null;
   const data = readJson(filePath);
   const { portable, device } = partitionSettingsTopLevel(data);
-  stripNonPortableEnv(portable);
+  stripDeviceEnv(portable);
   const result = { clean: portable, serialized: serializeSettings(portable), dropped: Object.keys(device) };
   try {
     assertPortableSettingsSafe(portable);
@@ -1249,16 +1272,17 @@ function loadStrippedSettings(filePath, { onSensitive = 'throw' } = {}) {
 /**
  * 從 local settings 萃取本機保留欄位（供 to-local 套用時保留，不被 repo 覆寫）
  * 分區的 device 桶：黑名單與敏感 pattern 命中的 top-level key（裝置偏好、平台綁定、憑證
- * helper 路徑等）整批保留本機原值；env 為可攜欄位但其非白名單 key（金鑰／token）亦保留本機值。
+ * helper 路徑等）整批保留本機原值；env 命中黑名單（DEVICE_ENV_KEYS 或敏感 pattern）的 key
+ * 亦保留本機值，避免被 repo 覆寫掉。與 stripDeviceEnv 為對稱兩處判斷，保證 strip↔preserve 互補。
  * @param {Record<string, unknown>} local
  * @returns {{ deviceValues: Record<string, unknown> }}
  */
 function extractDeviceValues(local) {
   const { device: deviceValues } = partitionSettingsTopLevel(local);
-  // env 為可攜欄位，但其非白名單 key（金鑰／token／裝置特定值）須保留本機原值，避免被 repo 覆寫掉
+  // env 命中黑名單（DEVICE_ENV_KEYS／敏感 pattern）的 key 須保留本機原值；其餘為可攜、由 repo 值勝出
   if (local.env && typeof local.env === 'object') {
     for (const [key, val] of Object.entries(local.env)) {
-      if (PORTABLE_ENV_KEYS.includes(key)) continue;
+      if (!isDeviceEnvKey(key) && !SENSITIVE_KEY_PATTERN.test(key)) continue;
       if (!deviceValues.env) deviceValues.env = {};
       deviceValues.env[key] = val;
     }
@@ -1815,6 +1839,20 @@ function compareStrippedToRepo(strippedContent, repoPath, op) {
 }
 
 /**
+ * 回傳 settings 的顯示用淺副本：env 每個值遮罩為 '***'（僅顯示層，不影響差異判定）。
+ * env 改採黑名單後同步進 repo 的 env key 可能含未過濾機密值——明細 diff 不得顯示其值。
+ * 純值變更（key 不變）遮罩後兩側同為 '***'、於明細 diff 不再現，但摘要仍以未遮罩內容判為 changed。
+ * @param {Record<string, unknown>} obj
+ * @returns {Record<string, unknown>}
+ */
+function maskEnvValuesForDisplay(obj) {
+  if (!obj || typeof obj.env !== 'object' || obj.env === null) return obj;
+  const env = {};
+  for (const key of Object.keys(obj.env)) env[key] = '***';
+  return { ...obj, env };
+}
+
+/**
  * 為 settings 項目產生 diff result entry（direction-aware，與實際 apply 判斷對齊）
  * to-repo：本機 stripped → repo；to-local：repo → 本機（本機缺檔時回 'new'，避免 preview 漏列）
  * @param {SyncItem} item
@@ -1847,11 +1885,17 @@ function diffSettingsItem(item, direction) {
   if (stripped.sensitiveField) {
     return { ...base, status: 'blocked', src: null, droppedKeys: stripped.dropped, blockedField: stripped.sensitiveField };
   }
-  const tmpSrc = createTmpDiffFile('json', stripped.serialized);
-  const status = fs.existsSync(repoPath)
+  // 狀態以未遮罩內容判定；顯示層另建 env 值遮罩過的暫存檔（src 與 repo 側 dest 皆遮罩，
+  // 否則 repo 內漏網的 env 機密值仍會經明細 diff 印到 stdout）
+  const tmpSrc = createTmpDiffFile('json', serializeSettings(maskEnvValuesForDisplay(stripped.clean)));
+  const repoExists = fs.existsSync(repoPath);
+  const status = repoExists
     ? compareStrippedToRepo(stripped.serialized, repoPath, '讀取 repo 設定')
     : 'new';
-  return { ...base, status, src: tmpSrc, droppedKeys: stripped.dropped };
+  const dest = repoExists
+    ? createTmpDiffFile('json', serializeSettings(maskEnvValuesForDisplay(readJson(repoPath))))
+    : repoPath;
+  return { ...base, status, src: tmpSrc, dest, droppedKeys: stripped.dropped };
 }
 
 /**
@@ -2314,9 +2358,12 @@ function printDiffItem(item, opts) {
     console.log(col.dim(`      欄位：${item.blockedField}（值不顯示）；to-repo 將中止——請改寫該值（如絕對路徑改用 ~/），或將其 top-level key 加入 DEVICE_SETTINGS_KEYS`));
   }
   if (opts.verbose && item.verboseSrc) logVerbosePaths(item.verboseSrc, item.verboseDest || item.dest);
-  // 黑名單制的日常防守訊號：預設可見（非 --verbose 限定），只列 key 名、不印值
-  if (item.droppedKeys && item.droppedKeys.length) {
-    console.log(col.dim(`      未同步（黑名單／敏感護欄排除）：${item.droppedKeys.join(', ')}`));
+  // 黑名單制的日常防守訊號：預設可見（非 --verbose 限定），只列 key 名、不印值。
+  // 只印「意料之外」的排除——明列於 DEVICE_SETTINGS_KEYS 的預期裝置鍵是永久噪音，
+  // 過濾掉後只剩 pattern 誤傷官方欄位的救命訊號；空則整行不印。
+  const surprising = (item.droppedKeys || []).filter((k) => !DEVICE_SETTINGS_KEYS.includes(k));
+  if (surprising.length) {
+    console.log(col.dim(`      未同步（敏感護欄排除）：${surprising.join(', ')}`));
   }
   return item.status !== null;
 }
@@ -3117,7 +3164,8 @@ if (require.main === module) {
     SENSITIVE_KEY_PATTERN,
     SECRET_VALUE_PATTERN,
     HOME_PATH_PATTERN,
-    PORTABLE_ENV_KEYS,
+    DEVICE_ENV_KEYS,
+    isDeviceEnvKey,
     CODEX_CONFIG_TOP_KEYS,
     CODEX_CONFIG_SECTION_KEYS,
     INIT_FILE_MAP,

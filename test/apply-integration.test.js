@@ -131,8 +131,8 @@ test('to-repo：把本機內容寫進 repo，且 settings 金鑰被剝除', () =
     const parsed = JSON.parse(repoSettings);
     assert.equal(parsed.model, undefined, '裝置欄位 model 應被剝除');
     assert.equal(parsed.env.ANTHROPIC_API_KEY, undefined, '金鑰不得進 repo');
-    assert.equal(parsed.env.EDITOR, 'vim', '白名單 env 應保留');
-    assert.deepEqual(parsed.permissions, ['p'], '白名單欄位應保留');
+    assert.equal(parsed.env.EDITOR, 'vim', '可攜 env（乾淨名）應保留');
+    assert.deepEqual(parsed.permissions, ['p'], '可攜欄位應保留');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

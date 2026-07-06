@@ -49,3 +49,61 @@ test('runDiff (to-repo)：本機 HOME 為空 → codex/AGENTS.md 也應被回報
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 });
+
+// =============================================================================
+// quiet-expected-drops：settings.json 的「未同步」行只印意料之外的排除
+// 明列於 DEVICE_SETTINGS_KEYS 的裝置鍵是永久噪音、不印；pattern 誤傷官方欄位才印
+// =============================================================================
+
+const REPO_SETTINGS = require(path.join(__dirname, '..', 'claude', 'settings.json'));
+
+// 以 repo 可攜設定為底、疊上額外 top-level key，讓 settings 明細差異只落在被排除的 key
+function makeHomeWithSettings(extra) {
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-diff-home-'));
+  const claudeDir = path.join(tmpHome, '.claude');
+  fs.mkdirSync(claudeDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(claudeDir, 'settings.json'),
+    JSON.stringify({ ...REPO_SETTINGS, ...extra }, null, 2)
+  );
+  return tmpHome;
+}
+
+test('runDiff：僅 DEVICE_SETTINGS_KEYS 明列鍵被排除時，不印「未同步」行', () => {
+  const tmpHome = makeHomeWithSettings({ model: 'opus', autoUpdatesChannel: 'stable' });
+  try {
+    const result = runDiffWithFakeHome(tmpHome);
+    assert.doesNotMatch(result.stdout, /未同步/, '預期裝置鍵不應觸發「未同步」行');
+    assert.doesNotMatch(result.stdout, /\bmodel\b/, '不應列出 model');
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test('runDiff：命中 SENSITIVE_KEY_PATTERN 但不在明列的 key 仍印出（且不含其值）', () => {
+  const secretValue = 'super-secret-value-xyz-987';
+  const tmpHome = makeHomeWithSettings({ sessionToken: secretValue });
+  try {
+    const result = runDiffWithFakeHome(tmpHome);
+    assert.match(result.stdout, /未同步（敏感護欄排除）：[^\n]*sessionToken/, '意料之外的排除應列出 key 名');
+    assert.doesNotMatch(result.stdout, new RegExp(secretValue), '被排除 key 的值不得出現在輸出');
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+// env-blacklist Decision 2：settings.json 明細 diff 對 env 值遮罩
+test('runDiff：settings 明細 diff 遮罩 env 值（值不出現、key 差異可見）', () => {
+  const leakMarker = 'hunter2-leak-marker-xyz';
+  // DB_PASS 乾淨名+乾淨值 → 黑名單制下會同步進 repo（漏網），使 settings 明細 diff 觸發；
+  // 明細 diff 須遮罩 env 值——key 名 DB_PASS 可見，但值 leakMarker 不得印出
+  const tmpHome = makeHomeWithSettings({ env: { ...REPO_SETTINGS.env, DB_PASS: leakMarker } });
+  try {
+    const result = runDiffWithFakeHome(tmpHome);
+    assert.match(result.stdout, /claude\/settings\.json/, 'settings.json 應被列為有差異');
+    assert.doesNotMatch(result.stdout, new RegExp(leakMarker), '明細 diff 不得顯示 env 值');
+    assert.match(result.stdout, /DB_PASS/, '明細 diff 應以 key 名指出差異（值遮罩為 ***）');
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
