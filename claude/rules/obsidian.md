@@ -4,8 +4,8 @@
 
 兩個 skill：
 
-- **`ob-write`（global，任何專案可呼叫）**：寫進 vault。skill 內部判 cwd——在 repo（cwd = vault root）走本地、不限工具；在其他專案走跨專案、嚴格 CLI（自動用 obsidian CLI 定位 vault 並建檔，CLI 不可用即中止、不降級寫檔）。
-- **`ob-read`（global，任何專案可呼叫）**：vault 查詢。skill 內部判 cwd——在 repo 走本地直接搜；在其他專案走跨專案、嚴格 CLI 定位 vault 後唯讀三層搜尋（CLI 不可用或身分不符即回未命中、不降級亂搜）。
+- **`ob-write`（global，任何專案可呼叫）**：寫進 vault。skill 內部判 cwd——在 repo（cwd = vault root）本地直寫、不限工具；在其他專案走跨專案定位鏈：找到本機 clone 就檔案工具直寫（不 commit、不 push），無 clone 一律中止提示先 clone，不降級寫到別處。
+- **`ob-read`（global，任何專案可呼叫）**：vault 查詢。skill 內部判 cwd——在 repo 本地直接搜；在其他專案走定位鏈找 clone 跑唯讀三層搜尋，無 clone 改讀 GitHub main 快照（結果標註快照範圍），皆不可行才回未命中，不降級亂搜。
 
 本檔是**跨專案全域協議**：人在其他專案如何與 vault 互動。在 repo 內工作時，操作規格交給該 repo 的 `CLAUDE.md`，本檔不重述。
 
@@ -13,9 +13,19 @@
 
 兩個 skill 都設 `disable-model-invocation: true`（Claude Code 專屬欄位，其他工具不認）：**Claude 不依 description 自動觸發、也不主動代呼**，只有使用者親自輸入 `/ob-write`、`/ob-read` 才會跑。下文「用 `/ob-write`／`/ob-read`」一律解讀為「提示使用者輸入該 slash command」，而非 Claude 自行呼叫。判斷到該寫／該查時，Claude 提議並請使用者輸入指令。
 
+## 定位鏈（跨專案共用協議）
+
+兩個 skill 的跨專案模式共用同一條定位鏈：依序 `Read` 下列候選路徑的 `vault-map.md`，讀到且含錨點 `title: Vault Map` 即驗明身分。候選清單是**封閉白名單**，不在候選之外猜路徑；此清單與 ob-read `references/query.md`、ob-write `references/write.md` 同步維護，改一處要三處同改：
+
+- `C:\code\obsidian-memory\vault-map.md`（Windows）
+- `/mnt/c/code/obsidian-memory/vault-map.md`（WSL）
+- `~/code/obsidian-memory/vault-map.md`（mac / Linux；`~` 先展開為 home 絕對路徑）
+
+全部落空時：`ob-write` **中止**並提示 clone 到候選路徑（Windows `git clone https://github.com/lllloo/obsidian-memory C:\code\obsidian-memory`；mac/Linux clone 到 `~/code/obsidian-memory`），跨專案寫入沒有任何遠端寫入路徑；`ob-read` 改讀 GitHub main 快照，連快照也讀不到才回未命中。
+
 ## 跨專案寫入 → `/ob-write`
 
-使用者在其他專案說「記到 ob」「存進 vault」「記一下這段」「筆記關於…」時，用 `/ob-write`（跨專案模式機制見上方總則：嚴格 CLI 定位 vault 並建檔，身分不符或 CLI 不可用即中止）。
+使用者在其他專案說「記到 ob」「存進 vault」「記一下這段」「筆記關於…」時，用 `/ob-write`（跨專案機制見上方定位鏈：找 clone 直寫，無 clone 中止）。
 
 **跨專案輕量原則**（寫入時遵守）：只收束這次真正值得留下的重點 + 必要回查線索（原專案、檔案、指令、關鍵字）；不要把整段對話、完整 log、一次性過程或未整理的外部資料搬進來。整理成 Card / 升 Topic，回 vault session 再做。
 
@@ -23,7 +33,7 @@
 
 ## 跨專案查詢與技術提問
 
-查 vault 一律用 `/ob-read`（跨專案模式機制見上方總則）：嚴格定位 vault 並硬 gate 身分後跑唯讀三層搜尋；CLI 不可用或身分不符即回未命中並提示啟用 CLI，**不降級亂搜**。降級用檔案工具（Grep / Read）直接搜 vault 目錄僅限**在 repo 內的本地模式**（見文末 CLI 章節），跨專案嚴格模式不適用。
+查 vault 一律用 `/ob-read`（跨專案機制見上方定位鏈）：找到 clone 跑唯讀三層搜尋；無 clone 讀 GitHub main 快照並標註「未 push 內容不在範圍內」；皆不可行回未命中，**不降級亂搜**。跳過 skill 直接用檔案工具（Grep / Read）搜 vault 目錄僅限**在 repo 內的本地模式**，跨專案不適用。
 
 技術／知識性提問（已記過主題、Claude Code、RAG、Agent、前端切版等）：可並行查 vault + WebSearch。純語法、即時系統狀態、閒聊不觸發。
 
@@ -42,11 +52,8 @@
 - Web：[<頁面>](<URL>)
 ```
 
-## Windows obsidian CLI 呼叫
+## obsidian CLI（已非相依，僅選用輔助）
 
-CLI = `C:\Program Files\Obsidian\Obsidian.com`（terminal redirector，1.12.7+ 隨桌面 app 內建，需在 Obsidian → 設定 → General 啟用「Command line interface」並重開 terminal），呼叫方式因 shell 而異：
+兩個 skill 的定位鏈全程用 harness-native 工具（Read / Grep），**不相依 obsidian CLI**。CLI（`C:\Program Files\Obsidian\Obsidian.com`，1.12.7+ 隨桌面 app 內建，需在設定 → General 啟用）唯一剩餘用途：`ob-write` 本地模式寫完後，可選用 `obsidian open file="Cards/<標題>.md"` 叫 app 立刻開該檔——PowerShell 直接 `obsidian`；Git Bash 不認 `.com`，用顯式 `Obsidian.com`。CLI 不可用不影響任何流程。
 
-- **PowerShell**：認 `.com` 經 `PATHEXT`，`obsidian <cmd>` 可直接用 → **Windows 預設用此**
-- **Git Bash**：不認 `.com`，`obsidian` 會 not found。改用顯式 `Obsidian.com <cmd>` 或 `powershell.exe -Command "obsidian ..."`
-- **Claude Code session**：啟動時 snapshot PATH；新裝 CLI 後**這個 session 看不到**，要重開才生效
-- CLI 偵測失敗時：`/ob-write` 跨專案模式會**中止、不降級寫檔**（嚴格 CLI），需先啟用 CLI 並重開 terminal；在 repo 內（本地模式）才會降級用檔案工具寫並提醒 `Ctrl+P → Reload app without saving`。
+寫完檔 Obsidian file watcher 通常自動抓到；沒更新就提醒 `Ctrl+P → Reload app without saving`。
