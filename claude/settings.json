@@ -2,12 +2,11 @@
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "EDITOR": "code --wait",
-    "CLAUDE_CODE_DISABLE_MOUSE": "1"
+    "CLAUDE_CODE_DISABLE_MOUSE": "1",
+    "CLAUDE_CODE_DISABLE_MOUSE_CLICKS": "1"
   },
   "permissions": {
-    "allow": [
-      "mcp__pencil"
-    ],
+    "allow": [],
     "deny": [],
     "ask": [
       "Bash(git push:*)"
@@ -30,8 +29,5 @@
     }
   },
   "language": "繁體中文",
-  "spinnerTipsEnabled": false,
-  "skipDangerousModePermissionPrompt": true,
-  "theme": "dark",
-  "skipAutoPermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true
 }
