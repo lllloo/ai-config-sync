@@ -4,9 +4,9 @@
 
 ## vercel-labs/skills — 從 lock 檔跨裝置還原 global skills
 
-**現況（2026-06-04 重新確認）**：CLI 已到 **1.5.10**（2026-06-03 釋出），但**仍無 global scope 的一鍵還原**。1.5.8～1.5.10 僅零碎修補（git source update、subpath、list 歸屬），`experimental_install` 僅 project、不裝 agent 目錄的核心痛點未動。本 repo `skills-lock.json` 作各裝置 source of truth 的設計依舊有效，`npm run skills:diff` 仍只能提示指令、不自動執行。
+**現況（2026-07-06 重新確認）**：CLI 已到 **1.5.14**（2026-06-29 釋出），已發布版本**仍無 global scope 的一鍵還原**。但上游已出現直接解決本 repo 痛點的實作 PR **[#743](https://github.com/vercel-labs/skills/pull/743)（feat: add global restore/relink from .skill-lock.json，Fixes #683，Open 非 draft）**：新增 `experimental_install -g` 讀 `~/.agents/.skill-lock.json`、還原 canonical global skills 並重建 global agent links，並修掉「global restore 誤用 project-scoped agent」的 target-selection bug、附 clean-machine restore 回歸測試——正是本 repo 一直等的能力，**只差 merge**。在 #743 併入前，本 repo `skills-lock.json` 作各裝置 source of truth 的設計依舊有效，`npm run skills:diff` 仍只能提示指令、不自動執行。
 
-**能力盤點（1.5.7 起，下表仍適用於 1.5.10）：**
+**能力盤點（1.5.7 起，下表仍適用於 1.5.14 已發布版）：**
 
 | 指令 | 範圍 | 用途 | 對本 repo 的意義 |
 |---|---|---|---|
@@ -21,7 +21,8 @@
 
 | Issue / PR | 狀態 | 最後更新 | 備註 |
 |---|---|---|---|
-| [#683 global restore/relink from `~/.agents/.skill-lock.json`](https://github.com/vercel-labs/skills/issues/683) | **Open（最對題）** | 2026-05-04 | 明文點出本 repo 痛點：「沒有 first-class workflow 還原 global canonical skills 與 agent 連結」 |
+| [#743 feat: add global restore/relink from `.skill-lock.json`](https://github.com/vercel-labs/skills/pull/743) | **Open PR（最對題，已實作）** | 2026-06-20 | **Fixes #683**，非 draft。加 `experimental_install -g` 讀 `~/.agents/.skill-lock.json`、還原 canonical skills + 重建 global agent links，修 target-selection bug、附 clean-machine 回歸測試。只差 merge |
+| [#683 global restore/relink from `~/.agents/.skill-lock.json`](https://github.com/vercel-labs/skills/issues/683) | **Open（最對題，已有 PR #743 在審）** | 2026-05-04 | 明文點出本 repo 痛點：「沒有 first-class workflow 還原 global canonical skills 與 agent 連結」 |
 | [#549 `npx skills install`（npm ci 等價）](https://github.com/vercel-labs/skills/issues/549) | Open | 2026-05-18 | `experimental_install` 僅 project；Claude Code symlink 議題已被 #683 接續 |
 | [#283 `skills install` / `skills sync` from lock](https://github.com/vercel-labs/skills/issues/283) | Open | 2026-05-27 | 社群 workaround：`npx skills update -p`（慢但能跑） |
 | [#155 project 安裝未被 lock 追蹤](https://github.com/vercel-labs/skills/issues/155) | Open | 2026-05-08 | 與本 repo 全域同步設計無直接衝突，僅參考 |
@@ -48,7 +49,7 @@ npx skills add -g <source>
 - **中期**：若上游仍停滯，可在 `sync.js` 加 `skills:install` 指令，逐項呼叫 `npx skills add -g <source>`，繞開 #683 / #549 / symlink 與 subpath/https bug（評估方案 A，small 工作量）
 - **長期**：`#683` 合併後，可簡化成單一 CLI 呼叫並更新 README
 
-**觸發條件**：#683 合併（最對題），或 #549 連帶解決 global scope。
+**觸發條件**：**PR #743 merge**（最對題，已實作 `experimental_install -g`，屆時 #683 連帶關閉）——併入後即可依上方「中期／長期策略」在 `sync.js` 加 `skills:install` 逐項橋接，或直接簡化為單一 `npx skills experimental_install -g` 呼叫並更新 README；或 #549 連帶解決 global scope。
 
 ---
 
