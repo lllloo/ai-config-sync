@@ -37,8 +37,6 @@ const {
   EXIT_ERROR,
   COMMANDS,
   COMMAND_ALIASES,
-  VALID_COMMANDS,
-  attachCommandHandlers,
   formatError,
 } = require('../sync.js');
 const fs = require('node:fs');
@@ -46,7 +44,7 @@ const path = require('node:path');
 const { withArgv, withTmpDir } = require('./helpers');
 
 // =============================================================================
-// 高優先：computeSimpleLineDiff（大檔案 fallback）
+// 高優先：computeSimpleLineDiff（簡化逐行比對）
 // =============================================================================
 
 // =============================================================================
@@ -122,24 +120,9 @@ test('computeSimpleLineDiff：相同內容無 +/- 行', () => {
   assert.equal(changed.length, 0);
 });
 
-test('computeSimpleLineDiff：結果帶 isApproximate 標記', () => {
-  const ops = computeSimpleLineDiff(['a'], ['b']);
-  assert.ok(ops.length > 0);
-  assert.equal(ops[0].isApproximate, true);
-});
-
 test('computeSimpleLineDiff：空陣列對空陣列回傳空', () => {
   const ops = computeSimpleLineDiff([], []);
   assert.equal(ops.length, 0);
-});
-
-test('computeLineDiff：超過 LCS_MAX_LINES 時 fallback 到 simple diff', () => {
-  // 製造 > 2000 行的 diff 觸發 fallback
-  const big = Array.from({ length: 1500 }, (_, i) => `line-${i}`);
-  const big2 = Array.from({ length: 1500 }, (_, i) => `line-${i}-v2`);
-  const ops = computeLineDiff(big.join('\n'), big2.join('\n'));
-  // fallback 結果的第一個元素應帶 isApproximate
-  assert.equal(ops[0].isApproximate, true);
 });
 
 // =============================================================================
@@ -204,18 +187,6 @@ test('formatError：SyncError 不拋錯，輸出到 stderr', () => {
 test('formatError：非 SyncError 走 fallback 不拋錯', () => {
   const err = new TypeError('unexpected');
   assert.doesNotThrow(() => formatError(err));
-});
-
-// =============================================================================
-// 高優先：attachCommandHandlers 後所有 handler 非 null
-// =============================================================================
-
-test('attachCommandHandlers：呼叫後所有 COMMANDS handler 應為函式', () => {
-  attachCommandHandlers();
-  for (const [cmd, entry] of Object.entries(COMMANDS)) {
-    assert.equal(typeof entry.handler, 'function',
-      `COMMANDS['${cmd}'].handler 應為函式`);
-  }
 });
 
 // =============================================================================
@@ -340,16 +311,6 @@ test('ERR 常數涵蓋所有必要錯誤代碼', () => {
     assert.ok(ERR[code], `ERR 應包含 ${code}`);
     assert.equal(ERR[code], code, `ERR.${code} 值應為 '${code}'`);
   }
-});
-
-// =============================================================================
-// COMMANDS / ALIASES 一致性（更嚴格的驗證）
-// =============================================================================
-
-test('VALID_COMMANDS 與 COMMANDS keys 完全一致', () => {
-  const commandKeys = Object.keys(COMMANDS).sort();
-  const validSorted = [...VALID_COMMANDS].sort();
-  assert.deepEqual(commandKeys, validSorted);
 });
 
 test('COMMAND_ALIASES 值皆指向 COMMANDS 中存在的 key', () => {

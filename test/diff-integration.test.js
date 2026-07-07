@@ -92,17 +92,15 @@ test('runDiff：命中 SENSITIVE_KEY_PATTERN 但不在明列的 key 仍印出（
   }
 });
 
-// env-blacklist Decision 2：settings.json 明細 diff 對 env 值遮罩
-test('runDiff：settings 明細 diff 遮罩 env 值（值不出現、key 差異可見）', () => {
+// env-blacklist Decision 2：settings.json 差異不外洩 env 值
+test('runDiff：settings 差異不外洩 env 值', () => {
   const leakMarker = 'hunter2-leak-marker-xyz';
-  // DB_PASS 乾淨名+乾淨值 → 黑名單制下會同步進 repo（漏網），使 settings 明細 diff 觸發；
-  // 明細 diff 須遮罩 env 值——key 名 DB_PASS 可見，但值 leakMarker 不得印出
+  // DB_PASS 乾淨名+乾淨值 → 仍應能觸發 settings 差異，但輸出不得包含值本身
   const tmpHome = makeHomeWithSettings({ env: { ...REPO_SETTINGS.env, DB_PASS: leakMarker } });
   try {
     const result = runDiffWithFakeHome(tmpHome);
     assert.match(result.stdout, /claude\/settings\.json/, 'settings.json 應被列為有差異');
-    assert.doesNotMatch(result.stdout, new RegExp(leakMarker), '明細 diff 不得顯示 env 值');
-    assert.match(result.stdout, /DB_PASS/, '明細 diff 應以 key 名指出差異（值遮罩為 ***）');
+    assert.doesNotMatch(result.stdout, new RegExp(leakMarker), '輸出不得顯示 env 值');
   } finally {
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }

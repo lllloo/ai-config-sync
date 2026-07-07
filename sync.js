@@ -76,7 +76,7 @@ const HOME_PATH_PATTERN = /[A-Za-z]:[\\/]Users[\\/]|\/(?:home|Users)\/\w/;
  * SENSITIVE_KEY_PATTERN、值未命中 SECRET_VALUE_PATTERN、且未列入本清單的機密
  * （如 `DB_PASS=hunter2`、`postgres://u:pw@h`）仍會經 to-repo 寫入 repo／git history（永久）。
  * 此為使用者在完整說明後接受的代價；緩解：機密改由 apiKeyHelper／本機憑證檔提供、to-repo 後檢視。
- * 明細 diff 對 env 值遮罩（見 maskEnvValuesForDisplay）擋 stdout 外洩，但擋不了 to-repo 寫入。
+ * diff 預覽對 env 值遮罩（見 maskEnvValuesForDisplay）擋顯示外洩，但擋不了 to-repo 寫入。
  *
  * 本清單收錄「名字乾淨（pattern 抓不到）但屬裝置綁定或值即憑證」的 env：
  * - CLAUDE_CODE_USE_POWERSHELL_TOOL：平台綁定
@@ -108,12 +108,6 @@ const CODEX_CONFIG_SECTION_KEYS = {
 /** 永遠排除的檔案名稱 */
 const GLOBAL_EXCLUDE = ['.DS_Store'];
 
-/**
- * LCS DP 行數上限：超過此行數改用近似 diff 以避免 O(mn) 記憶體爆炸
- * （m + n 為兩檔案總行數，2000 大致對應 ~4MB DP 表）
- */
-const LCS_MAX_LINES = 2000;
-
 /** help 指令排版用欄寬 */
 const CMD_COL_WIDTH = 14;
 const ALIAS_COL_WIDTH = 8;
@@ -131,20 +125,20 @@ const STATUS_ICONS = {
 };
 
 /**
- * 指令定義：統一管理指令名稱、別名、說明與 handler
- * handler 於模組稍後的 attachCommandHandlers() 階段注入（避免 TDZ）
- * @type {Record<string, {alias: string|null, desc: string, handler: ((opts: ParsedArgs) => number|Promise<number>)|null}>}
+ * 指令定義：統一管理指令名稱、別名與說明
+ * 執行分派改走 runCommand() 的 switch，避免多一層 handler 注入抽象。
+ * @type {Record<string, {alias: string|null, desc: string}>}
  */
 const COMMANDS = {
-  'diff':        { alias: 'd',  desc: '比對本機與 repo 差異',          handler: null },
-  'status':      { alias: 's',  desc: '同時比對設定與 skills 差異',     handler: null },
-  'to-repo':     { alias: 'tr', desc: '本機設定 -> repo',              handler: null },
-  'to-local':    { alias: 'tl', desc: 'repo 設定 -> 本機',              handler: null },
-  'skills:diff':   { alias: 'sd', desc: '比對 skills 差異',                handler: null },
-  'skills:add':    { alias: 'sa', desc: '新增 skill 到 skills-lock.json',  handler: null },
-  'skills:remove': { alias: 'sr', desc: '從 skills-lock.json 移除 skill',  handler: null },
-  'init':        { alias: null, desc: '重置為空骨架（fork 後執行一次）',  handler: null },
-  'help':        { alias: null, desc: '顯示此說明',                    handler: null },
+  'diff':        { alias: 'd',  desc: '比對本機與 repo 差異' },
+  'status':      { alias: 's',  desc: '同時比對設定與 skills 差異' },
+  'to-repo':     { alias: 'tr', desc: '本機設定 -> repo' },
+  'to-local':    { alias: 'tl', desc: 'repo 設定 -> 本機' },
+  'skills:diff': { alias: 'sd', desc: '比對 skills 差異' },
+  'skills:add':  { alias: 'sa', desc: '新增 skill 到 skills-lock.json' },
+  'skills:remove': { alias: 'sr', desc: '從 skills-lock.json 移除 skill' },
+  'init':        { alias: null, desc: '重置為空骨架（fork 後執行一次）' },
+  'help':        { alias: null, desc: '顯示此說明' },
 };
 
 /**
@@ -174,9 +168,6 @@ const COMMAND_ALIASES = Object.fromEntries(
     .filter(([_, v]) => v.alias)
     .map(([cmd, v]) => [v.alias, cmd])
 );
-
-/** 所有可用指令（由 COMMANDS 自動產生） */
-const VALID_COMMANDS = Object.keys(COMMANDS);
 
 // -----------------------------------------------------------------------------
 // Type definitions（集中管理，方便查閱）
@@ -412,26 +403,6 @@ function handleSignal(signal) {
 
 process.on('SIGINT', handleSignal);
 process.on('SIGTERM', handleSignal);
-
-// =============================================================================
-// Section: External Tool Detection -- 外部工具可用性快取
-// 在模組頂層偵測一次外部 diff 是否可用，避免每次都嘗試 spawn
-// =============================================================================
-
-/** @type {boolean|undefined} 快取外部 diff 是否可用 */
-let _diffAvailable;
-
-/**
- * 檢查外部 diff 指令是否可用（結果會快取）
- * @returns {boolean}
- */
-function isDiffAvailable() {
-  if (_diffAvailable === undefined) {
-    const result = spawnSync('diff', ['--version'], { encoding: 'utf8' });
-    _diffAvailable = result.status === 0;
-  }
-  return _diffAvailable;
-}
 
 // =============================================================================
 // Section: FS Utilities -- 檔案系統工具函式
@@ -940,60 +911,22 @@ function diffDir(src, dest, excludePatterns = []) {
 
 /**
  * 純 JS 實作的 line diff（不依賴外部 diff 指令）
- * 逐行比較兩個字串，輸出新增/刪除的行
+ * 直接走簡化的逐行集合比對，保留可讀輸出但不追求最小編輯序列。
  * @param {string} oldText - 舊版文字
  * @param {string} newText - 新版文字
  * @returns {Array<{type: '+'|'-'|' ', line: string}>}
  */
 function computeLineDiff(oldText, newText) {
-  const oldLines = oldText.split('\n');
-  const newLines = newText.split('\n');
-
-  // LCS-based diff for better quality
-  const m = oldLines.length;
-  const n = newLines.length;
-
-  // 對於小檔案用完整 LCS，大檔案用簡易逐行比對
-  if (m + n > LCS_MAX_LINES) {
-    return computeSimpleLineDiff(oldLines, newLines);
-  }
-
-  // 標準 LCS DP
-  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      dp[i][j] = oldLines[i - 1] === newLines[j - 1]
-        ? dp[i - 1][j - 1] + 1
-        : Math.max(dp[i - 1][j], dp[i][j - 1]);
-    }
-  }
-
-  // 回溯產生 diff
-  let i = m, j = n;
-  const ops = [];
-  while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
-      ops.push({ type: ' ', line: oldLines[i - 1] });
-      i--; j--;
-    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-      ops.push({ type: '+', line: newLines[j - 1] });
-      j--;
-    } else {
-      ops.push({ type: '-', line: oldLines[i - 1] });
-      i--;
-    }
-  }
-  ops.reverse();
-  return ops;
+  return computeSimpleLineDiff(oldText.split('\n'), newText.split('\n'));
 }
 
 /**
- * 簡易逐行比對（大檔案用，結果為近似值）
+ * 簡易逐行比對（保留易讀輸出，不追求最小編輯序列）
  * 注意：使用 Set 比對，重複行只計一次——若舊文字有 3 行 "foo" 而新文字只有 1 行，
- * 此函式不會顯示任何刪除行。呼叫端應以 isApproximate 欄位提示使用者
+ * 此函式不會顯示任何刪除行。
  * @param {string[]} oldLines
  * @param {string[]} newLines
- * @returns {Array<{type: '+'|'-'|' ', line: string, isApproximate?: boolean}>}
+ * @returns {Array<{type: '+'|'-'|' ', line: string}>}
  */
 function computeSimpleLineDiff(oldLines, newLines) {
   const result = [];
@@ -1011,118 +944,7 @@ function computeSimpleLineDiff(oldLines, newLines) {
       result.push({ type: '+', line });
     }
   }
-  // 標記為近似結果
-  if (result.length > 0) result[0].isApproximate = true;
   return result;
-}
-
-/**
- * 顯示兩個檔案的 diff（優先使用外部 diff，fallback 為純 JS 實作）
- * @param {string} srcPath - 新版檔案路徑
- * @param {string} destPath - 舊版檔案路徑
- * @param {string} label - 顯示用標籤
- * @returns {void}
- */
-function printFileDiff(srcPath, destPath, label) {
-  // 使用快取的可用性檢查，避免每次都 spawn
-  if (isDiffAvailable()) {
-    const result = spawnSync('diff', ['-u', destPath, srcPath], { encoding: 'utf8' });
-    if (!result.error && result.stdout.trim()) {
-      console.log(col.bold(`\n  -- ${label}`));
-      // relative 路徑用於 header 遮罩，避免洩漏使用者目錄
-      const relDest = toRelativePath(destPath);
-      const relSrc = toRelativePath(srcPath);
-      for (const rawLine of result.stdout.split('\n')) {
-        // 跳過 `\ No newline at end of file` 雜訊
-        if (rawLine.startsWith('\\ No newline')) continue;
-        // 覆寫 header 路徑為 relative 版本
-        let line = rawLine;
-        if (line.startsWith('--- ')) line = `--- ${relDest}`;
-        else if (line.startsWith('+++ ')) line = `+++ ${relSrc}`;
-        // 非內容行（如「Binary files X and Y differ」）內嵌 diff 引數的絕對路徑，
-        // 不走 ---/+++ 覆寫也必須遮罩，否則洩漏完整使用者路徑
-        else if (line && !/^[-+@ ]/.test(line)) {
-          line = maskHome(line.split(destPath).join(relDest).split(srcPath).join(relSrc));
-        }
-        if (line.startsWith('---') || line.startsWith('+++')) {
-          console.log(col.dim('  ' + line));
-        } else if (line.startsWith('-')) {
-          console.log(col.red('  ' + line));
-        } else if (line.startsWith('+')) {
-          console.log(col.green('  ' + line));
-        } else if (line.startsWith('@@')) {
-          console.log(col.cyan('  ' + line));
-        } else {
-          console.log('  ' + line);
-        }
-      }
-      return;
-    }
-  }
-
-  // 外部 diff 不可用或無差異，使用純 JS fallback
-  printJsDiff(srcPath, destPath, label);
-}
-
-/**
- * 純 JS diff 顯示（當外部 diff 指令不可用時的 fallback）
- * @param {string} srcPath - 新版檔案路徑
- * @param {string} destPath - 舊版檔案路徑
- * @param {string} label - 顯示用標籤
- * @returns {void}
- */
-function printJsDiff(srcPath, destPath, label) {
-  const readOrEmpty = (p) => {
-    try { return fs.readFileSync(p, 'utf8'); }
-    catch (e) {
-      if (e.code === 'ENOENT') return '';
-      throw toSyncFsError(e, p, '讀取差異');
-    }
-  };
-  const oldText = readOrEmpty(destPath);
-  const newText = readOrEmpty(srcPath);
-
-  const ops = computeLineDiff(oldText, newText);
-  const changedOps = ops.filter(op => op.type !== ' ');
-  if (changedOps.length === 0) return;
-
-  console.log(col.bold(`\n  -- ${label}`));
-
-  // 大檔案 fallback 時提示使用者結果為近似值
-  if (ops.length > 0 && ops[0].isApproximate) {
-    console.log(col.dim('  （大檔案模式：以下為近似差異，重複行的位置可能不精確）'));
-  }
-
-  // 只顯示有差異的行與前後各 2 行 context
-  let lastPrinted = -1;
-  for (let idx = 0; idx < ops.length; idx++) {
-    if (ops[idx].type === ' ') continue;
-
-    const ctxStart = Math.max(0, idx - 2);
-    if (ctxStart > lastPrinted + 1 && lastPrinted >= 0) {
-      console.log(col.dim('  ...'));
-    }
-    for (let c = Math.max(ctxStart, lastPrinted + 1); c < idx; c++) {
-      if (ops[c].type === ' ') console.log('  ' + ops[c].line);
-    }
-
-    if (ops[idx].type === '+') {
-      console.log(col.green('  +' + ops[idx].line));
-    } else {
-      console.log(col.red('  -' + ops[idx].line));
-    }
-    lastPrinted = idx;
-
-    const ctxEnd = Math.min(ops.length - 1, idx + 2);
-    for (let c = idx + 1; c <= ctxEnd; c++) {
-      if (ops[c].type === ' ') {
-        console.log('  ' + ops[c].line);
-        lastPrinted = c;
-      } else {
-        break;
-      }
-    }
-  }
 }
 
 // =============================================================================
@@ -1840,8 +1662,8 @@ function compareStrippedToRepo(strippedContent, repoPath, op) {
 
 /**
  * 回傳 settings 的顯示用淺副本：env 每個值遮罩為 '***'（僅顯示層，不影響差異判定）。
- * env 改採黑名單後同步進 repo 的 env key 可能含未過濾機密值——明細 diff 不得顯示其值。
- * 純值變更（key 不變）遮罩後兩側同為 '***'、於明細 diff 不再現，但摘要仍以未遮罩內容判為 changed。
+ * env 改採黑名單後同步進 repo 的 env key 可能含未過濾機密值——diff 預覽不得顯示其值。
+ * 純值變更（key 不變）遮罩後兩側同為 '***'、於預覽中只會看到狀態改變，不再顯示值本身，但摘要仍以未遮罩內容判為 changed。
  * @param {Record<string, unknown>} obj
  * @returns {Record<string, unknown>}
  */
@@ -1885,8 +1707,7 @@ function diffSettingsItem(item, direction) {
   if (stripped.sensitiveField) {
     return { ...base, status: 'blocked', src: null, droppedKeys: stripped.dropped, blockedField: stripped.sensitiveField };
   }
-  // 狀態以未遮罩內容判定；顯示層另建 env 值遮罩過的暫存檔（src 與 repo 側 dest 皆遮罩，
-  // 否則 repo 內漏網的 env 機密值仍會經明細 diff 印到 stdout）
+  // 狀態以未遮罩內容判定；顯示層另建 env 值遮罩過的暫存檔，避免後續檢視時直接看到原值。
   const tmpSrc = createTmpDiffFile('json', serializeSettings(maskEnvValuesForDisplay(stripped.clean)));
   const repoExists = fs.existsSync(repoPath);
   const status = repoExists
@@ -2017,37 +1838,6 @@ function applyDirItem(item, dryRun) {
 }
 
 /**
- * SyncItem 型別行為分派表（data-driven，呼應 COMMANDS 設計）。
- * 新增同步類型只需在此加一筆，diff/apply/buildFullDiffList 三個消費端不必各改 if/else。
- * - diff(item, direction)：回傳 diff 結果 entry 陣列
- * - apply(item, direction, dryRun)：回傳變更記錄 {action, label} 陣列
- * - isDir：buildFullDiffList 補無差異 placeholder 時的分組依據
- * @type {Record<string, {diff: Function, apply: Function, isDir: boolean}>}
- */
-const SYNC_TYPE_HANDLERS = {
-  settings: {
-    diff: (item, direction) => [diffSettingsItem(item, direction)],
-    apply: (item, direction, dryRun) => applyMergeItem(() => mergeSettingsJson(direction, dryRun), 'settings.json'),
-    isDir: false,
-  },
-  'codex-config': {
-    diff: (item, direction) => [diffCodexConfigItem(item, direction)],
-    apply: (item, direction, dryRun) => applyMergeItem(() => mergeCodexConfigToml(direction, dryRun), 'codex/config.toml'),
-    isDir: false,
-  },
-  file: {
-    diff: (item) => [diffFileItem(item)],
-    apply: (item, direction, dryRun) => applyFileItem(item, dryRun),
-    isDir: false,
-  },
-  dir: {
-    diff: (item) => diffDirItems(item),
-    apply: (item, direction, dryRun) => applyDirItem(item, dryRun),
-    isDir: true,
-  },
-};
-
-/**
  * 將變更 action 對應到狀態圖示 key
  * @param {string} action - 'added' | 'updated' | 'deleted'
  * @returns {string}
@@ -2057,7 +1847,40 @@ function actionToIcon(action) {
 }
 
 /**
- * 對同步項目執行 diff，回傳差異清單（透過 SYNC_TYPE_HANDLERS 查表分派）
+ * 直接依 SyncItem.type 分派 diff，避免額外的 handler 表。
+ * @param {SyncItem} item
+ * @param {'to-repo'|'to-local'} direction
+ * @returns {Array<{label: string, status: string|null, src: string|null, dest: string, verboseSrc: string, verboseDest: string, itemType: string}>}
+ */
+function diffSyncItem(item, direction) {
+  switch (item.type) {
+    case 'settings': return [diffSettingsItem(item, direction)];
+    case 'codex-config': return [diffCodexConfigItem(item, direction)];
+    case 'file': return [diffFileItem(item)];
+    case 'dir': return diffDirItems(item);
+    default: return [];
+  }
+}
+
+/**
+ * 直接依 SyncItem.type 分派 apply，避免額外的 handler 表。
+ * @param {SyncItem} item
+ * @param {'to-repo'|'to-local'} direction
+ * @param {boolean} dryRun
+ * @returns {Array<{action: string, label: string}>}
+ */
+function applySyncItem(item, direction, dryRun) {
+  switch (item.type) {
+    case 'settings': return applyMergeItem(() => mergeSettingsJson(direction, dryRun), 'settings.json');
+    case 'codex-config': return applyMergeItem(() => mergeCodexConfigToml(direction, dryRun), 'codex/config.toml');
+    case 'file': return applyFileItem(item, dryRun);
+    case 'dir': return applyDirItem(item, dryRun);
+    default: return [];
+  }
+}
+
+/**
+ * 對同步項目執行 diff，回傳差異清單
  * @param {SyncItem[]} items - 同步項目清單
  * @param {'to-repo'|'to-local'} direction - 同步方向
  * @returns {Array<{label: string, status: string|null, src: string|null, dest: string, verboseSrc: string, verboseDest: string, itemType: string}>}
@@ -2065,13 +1888,13 @@ function actionToIcon(action) {
 function diffSyncItems(items, direction) {
   const result = [];
   for (const item of items) {
-    result.push(...SYNC_TYPE_HANDLERS[item.type].diff(item, direction));
+    result.push(...diffSyncItem(item, direction));
   }
   return result;
 }
 
 /**
- * 執行同步（apply），回傳統計與變更日誌（透過 SYNC_TYPE_HANDLERS 查表分派）
+ * 執行同步（apply），回傳統計與變更日誌
  * @param {SyncItem[]} items - 同步項目清單
  * @param {'to-repo'|'to-local'} direction - 同步方向
  * @param {{dryRun: boolean}} opts
@@ -2090,7 +1913,7 @@ function applySyncItems(items, direction, opts) {
   for (const item of items) {
     let changes;
     try {
-      changes = SYNC_TYPE_HANDLERS[item.type].apply(item, direction, dryRun);
+      changes = applySyncItem(item, direction, dryRun);
     } catch (e) {
       // 單項中途失敗：先把該項已完成的變更（mirrorDir 附掛的 partialChanges）補進
       // 統計與輸出，再把整體已套用清單附掛給呼叫端（logPartialApply 記 audit log）——
@@ -2199,7 +2022,7 @@ function buildFullDiffList(items, diffItems) {
 
   // 補上無差異的 file 與 settings 項目（ok 狀態）
   for (const item of items) {
-    if (SYNC_TYPE_HANDLERS[item.type].isDir) continue;
+    if (item.type === 'dir') continue;
     const label = `${item.prefix || 'claude/'}${item.label}`;
     if (!result.some(d => d.label === label)) {
       result.push({
@@ -2216,7 +2039,7 @@ function buildFullDiffList(items, diffItems) {
 
   // 補上無差異的 dir 項目（以摘要行呈現，證明已被檢查）
   for (const item of items) {
-    if (!SYNC_TYPE_HANDLERS[item.type].isDir) continue;
+    if (item.type !== 'dir') continue;
     const prefix = `${item.prefix || 'claude/'}${item.label}/`;
     const hasAny = result.some(d => d.label.startsWith(prefix));
     if (!hasAny) {
@@ -2241,34 +2064,6 @@ function buildFullDiffList(items, diffItems) {
   });
 
   return result;
-}
-
-/**
- * 輸出詳細的 diff 內容（變更與新增的檔案）
- * @param {Array<{label: string, status: string|null, src: string|null, dest: string}>} diffItems
- * @returns {void}
- */
-function printDetailedDiff(diffItems) {
-  const substantive = diffItems.filter(
-    it => !it.label.startsWith('claude/skills/') &&
-          (it.status === 'changed' || it.status === 'new')
-  );
-  if (substantive.length === 0) return;
-
-  printSectionDivider();
-  console.log(col.bold('  詳細差異'));
-  printSectionDivider();
-
-  for (const item of substantive) {
-    if (item.status === 'changed' && item.src && item.dest) {
-      printFileDiff(item.src, item.dest, item.label);
-    } else if (item.status === 'new' && item.src && fs.existsSync(item.src)) {
-      console.log(col.bold(`\n  -- ${item.label}  ${col.green('（新增）')}`));
-      const lines = readFileSafe(item.src, '讀取', 'utf8').split('\n');
-      for (const line of lines.slice(0, 30)) console.log(col.green('  +' + line));
-      if (lines.length > 30) console.log(col.dim(`  ... 共 ${lines.length} 行`));
-    }
-  }
 }
 
 /**
@@ -2308,8 +2103,6 @@ function runDiff(opts) {
     console.log(col.green('\n  本機與 repo 完全一致\n'));
     return EXIT_OK;
   }
-
-  printDetailedDiff(allDiffItems);
 
   console.log(col.bold('\n  下一步：'));
   console.log(`   npm run to-repo   ${col.dim('# 將本機內容寫入 repo，再用 git diff 確認')}`);
@@ -2939,7 +2732,6 @@ function parseArgs() {
     extraArgs: [],
   };
 
-  let commandFound = false;
   let pastSeparator = false;
 
   for (const arg of args) {
@@ -2965,15 +2757,9 @@ function parseArgs() {
       // 否則 `--dry-run` 打錯字會略過預覽直接真寫入，使安全閘門失效。
       throw new SyncError(`未知旗標：${arg}`, ERR.INVALID_ARGS);
     } else {
-      if (!commandFound) {
-        // 第一個 positional arg 是指令
-        const resolved = COMMAND_ALIASES[arg] || arg;
-        if (VALID_COMMANDS.includes(resolved)) {
-          result.command = resolved;
-        } else {
-          result.command = arg; // 保留原值，由 main() 處理錯誤
-        }
-        commandFound = true;
+      if (result.command === null) {
+        // 第一個 positional arg 是指令；未知指令保留原值，由 main() 處理錯誤
+        result.command = COMMAND_ALIASES[arg] || arg;
       } else {
         // 指令之後的 positional args
         result.extraArgs.push(arg);
@@ -3046,9 +2832,6 @@ function askConfirm(question, autoYes = false) {
  * @returns {Promise<number>}
  */
 async function main() {
-  // 注入各指令 handler（延遲到 main 執行階段，避免宣告順序 TDZ 問題）
-  attachCommandHandlers();
-
   const opts = parseArgs();
   if (opts.noColor) disableColor();
 
@@ -3071,29 +2854,32 @@ async function main() {
   }
 
   // 無效指令
-  const entry = COMMANDS[opts.command];
-  if (!entry || !entry.handler) {
+  if (!COMMANDS[opts.command]) {
     throw new SyncError(`未知指令：${opts.command}`, ERR.INVALID_ARGS);
   }
 
-  // Data-driven dispatch：sync/async 皆以 await 統一處理
-  return await entry.handler(opts);
+  return await runCommand(opts.command, opts);
 }
 
 /**
- * 將各指令 handler 注入 COMMANDS 表（data-driven dispatch）
- * @returns {void}
+ * 直接以 switch 分派指令，避免 handler 注入層。
+ * @param {string} command
+ * @param {ParsedArgs} opts
+ * @returns {number|Promise<number>}
  */
-function attachCommandHandlers() {
-  COMMANDS['diff'].handler        = (opts) => runDiff(opts);
-  COMMANDS['status'].handler      = (opts) => runStatus(opts);
-  COMMANDS['to-repo'].handler     = (opts) => runToRepo(opts);
-  COMMANDS['to-local'].handler    = (opts) => runToLocal(opts);
-  COMMANDS['skills:diff'].handler = ()     => runSkillsDiff();
-  COMMANDS['skills:add'].handler    = (opts) => runSkillsAdd(opts);
-  COMMANDS['skills:remove'].handler = (opts) => runSkillsRemove(opts);
-  COMMANDS['init'].handler        = (opts) => runInit(opts);
-  COMMANDS['help'].handler        = ()     => { runHelp(); return EXIT_OK; };
+async function runCommand(command, opts) {
+  switch (command) {
+    case 'diff': return runDiff(opts);
+    case 'status': return runStatus(opts);
+    case 'to-repo': return runToRepo(opts);
+    case 'to-local': return runToLocal(opts);
+    case 'skills:diff': return runSkillsDiff();
+    case 'skills:add': return runSkillsAdd(opts);
+    case 'skills:remove': return runSkillsRemove(opts);
+    case 'init': return runInit(opts);
+    case 'help': runHelp(); return EXIT_OK;
+    default: throw new SyncError(`未知指令：${command}`, ERR.INVALID_ARGS);
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -3130,7 +2916,6 @@ if (require.main === module) {
     printToLocalPreview,
     buildSyncItems,
     buildSwapItem,
-    SYNC_TYPE_HANDLERS,
     actionToIcon,
     mergeSettingsBetween,
     readFileSafe,
@@ -3177,8 +2962,6 @@ if (require.main === module) {
     EXIT_ERROR,
     COMMANDS,
     COMMAND_ALIASES,
-    VALID_COMMANDS,
-    attachCommandHandlers,
     formatError,
   };
 }

@@ -28,12 +28,10 @@ const {
   sanitizeForTerminal,
   buildSwapItem,
   actionToIcon,
-  SYNC_TYPE_HANDLERS,
   SyncError,
   ERR,
   COMMANDS,
   COMMAND_ALIASES,
-  VALID_COMMANDS,
   INIT_FILE_MAP,
   INIT_RULES_TO_REMOVE,
 } = require('../sync.js');
@@ -241,22 +239,6 @@ test('parseArgs：-v 為 --version 別名', () => {
   assert.equal(withArgv(['-v'], () => parseArgs()).showVersion, true);
 });
 
-// -----------------------------------------------------------------------------
-// SYNC_TYPE_HANDLERS：型別行為查表（data-driven 不變式）
-// -----------------------------------------------------------------------------
-test('SYNC_TYPE_HANDLERS：涵蓋所有 SyncItem type，且每筆有 diff/apply/isDir', () => {
-  const types = ['file', 'settings', 'codex-config', 'dir'];
-  for (const t of types) {
-    const h = SYNC_TYPE_HANDLERS[t];
-    assert.ok(h, `應有 ${t} handler`);
-    assert.equal(typeof h.diff, 'function', `${t}.diff 應為函式`);
-    assert.equal(typeof h.apply, 'function', `${t}.apply 應為函式`);
-    assert.equal(typeof h.isDir, 'boolean', `${t}.isDir 應為布林`);
-  }
-  assert.equal(SYNC_TYPE_HANDLERS.dir.isDir, true);
-  assert.equal(SYNC_TYPE_HANDLERS.file.isDir, false);
-});
-
 test('actionToIcon：added/deleted 直映，其餘（updated）→ changed', () => {
   assert.equal(actionToIcon('added'), 'added');
   assert.equal(actionToIcon('deleted'), 'deleted');
@@ -335,15 +317,6 @@ test('toRelativePath：輸出不得洩漏使用者目錄名（安全回歸）', 
   const reserved = new Set(['home', 'Users', 'root', 'usr']);
   if (userBase.length >= 3 && !reserved.has(userBase)) {
     assert.ok(!rel.includes(userBase), `輸出不應洩漏使用者名 ${userBase}，得到：${rel}`);
-  }
-});
-
-// -----------------------------------------------------------------------------
-// COMMANDS / 對應表完整性
-// -----------------------------------------------------------------------------
-test('COMMANDS：所有指令名稱皆列於 VALID_COMMANDS', () => {
-  for (const cmd of Object.keys(COMMANDS)) {
-    assert.ok(VALID_COMMANDS.includes(cmd), `${cmd} 應在 VALID_COMMANDS`);
   }
 });
 
