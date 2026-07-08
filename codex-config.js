@@ -23,7 +23,6 @@
 // =============================================================================
 
 const fs = require('fs');
-const path = require('path');
 
 /**
  * top-level 維持窄允許清單 carve-out（見 design D3）：Codex top-level 尚有 model／
@@ -383,19 +382,17 @@ function appendRemainingCodexConfigSection(output, remaining, section) {
  * @param {{
  *   readFileSafe: (filePath: string, op?: string, encoding?: string) => string|Buffer,
  *   writeTextSafe: (filePath: string, content: string) => void,
- *   REPO_ROOT: string,
- *   CODEX_HOME: string,
  * }} deps
  * @returns {{
  *   loadPortableCodexConfig: (filePath: string) => ({ data: Map, serialized: string }|null),
  *   getPortableCodexConfig: (filePath: string) => (string|null),
- *   mergeCodexConfigToml: (direction: 'to-repo'|'to-local', dryRun?: boolean) => boolean,
+ *   mergeCodexConfigToml: (localPath: string, repoPath: string, direction: 'to-repo'|'to-local', dryRun?: boolean) => boolean,
  *   mergeCodexConfigToRepo: (localPath: string, repoPath: string, dryRun: boolean) => boolean,
  *   mergeCodexConfigToLocal: (localPath: string, repoPath: string, dryRun: boolean) => boolean,
  * }}
  */
 function createCodexConfigHandler(deps) {
-  const { readFileSafe, writeTextSafe, REPO_ROOT, CODEX_HOME } = deps;
+  const { readFileSafe, writeTextSafe } = deps;
 
   /**
    * 載入並萃取可攜 Codex config
@@ -419,14 +416,15 @@ function createCodexConfigHandler(deps) {
   }
 
   /**
-   * 合併 Codex config.toml（section 黑名單混合制過濾同步）
+   * 合併 Codex config.toml（section 黑名單混合制過濾同步）。
+   * 路徑由 caller（sync.js，來自 SYNC_AREAS）注入，模組不再自算路徑。
+   * @param {string} localPath - 本機 config.toml 路徑
+   * @param {string} repoPath - repo config.toml 路徑
    * @param {'to-repo'|'to-local'} direction - 同步方向
    * @param {boolean} [dryRun=false] - 是否為 dry-run 模式
    * @returns {boolean} 是否有實際變更
    */
-  function mergeCodexConfigToml(direction, dryRun = false) {
-    const localPath = path.join(CODEX_HOME, 'config.toml');
-    const repoPath = path.join(REPO_ROOT, 'codex', 'config.toml');
+  function mergeCodexConfigToml(localPath, repoPath, direction, dryRun = false) {
     if (direction === 'to-repo') return mergeCodexConfigToRepo(localPath, repoPath, dryRun);
     return mergeCodexConfigToLocal(localPath, repoPath, dryRun);
   }

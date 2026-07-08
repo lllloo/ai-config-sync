@@ -1023,19 +1023,6 @@ function getStrippedSettings(filePath) {
 }
 
 /**
- * 合併 settings.json（排除裝置特定欄位）
- * dry-run 模式下會比對 stripped JSON 是否真的有差異
- * @param {'to-repo'|'to-local'} direction - 同步方向
- * @param {boolean} [dryRun=false] - 是否為 dry-run 模式
- * @returns {boolean} 是否有實際變更
- */
-function mergeSettingsJson(direction, dryRun = false) {
-  const localPath = path.join(CLAUDE_HOME, 'settings.json');
-  const repoPath = path.join(REPO_ROOT, 'claude', 'settings.json');
-  return mergeSettingsBetween(localPath, repoPath, direction, dryRun);
-}
-
-/**
  * settings.json 合併核心（路徑可注入版，供測試直接驗黑名單混合制剝除不變式）
  * @param {string} localPath - 本機 settings.json 路徑
  * @param {string} repoPath - repo settings.json 路徑
@@ -1080,12 +1067,12 @@ function mergeSettingsBetween(localPath, repoPath, direction, dryRun = false) {
 // 共用工具並轉接 load／get／apply。diff 渲染留在 Sync Core（見下方 diff 引擎）。
 // =============================================================================
 
-/** lazy singleton：延後到執行期建立，避開對 const 相依（REPO_ROOT 等）的 TDZ。 */
+/** lazy singleton：延後到執行期建立（handler 僅需 IO 工具，路徑由 caller 注入）。 */
 let _codexConfigHandler = null;
 function codexConfigHandler() {
   if (!_codexConfigHandler) {
     _codexConfigHandler = codexConfigModule.createCodexConfigHandler({
-      readFileSafe, writeTextSafe, REPO_ROOT, CODEX_HOME,
+      readFileSafe, writeTextSafe,
     });
   }
   return _codexConfigHandler;
@@ -1111,12 +1098,14 @@ function getPortableCodexConfig(filePath) {
 
 /**
  * 合併 Codex config.toml（section 黑名單混合制過濾；轉接模組 handler）
+ * @param {string} localPath - 本機 config.toml 路徑（來自 SYNC_AREAS）
+ * @param {string} repoPath - repo config.toml 路徑（來自 SYNC_AREAS）
  * @param {'to-repo'|'to-local'} direction - 同步方向
  * @param {boolean} [dryRun=false] - 是否為 dry-run 模式
  * @returns {boolean} 是否有實際變更
  */
-function mergeCodexConfigToml(direction, dryRun = false) {
-  return codexConfigHandler().mergeCodexConfigToml(direction, dryRun);
+function mergeCodexConfigToml(localPath, repoPath, direction, dryRun = false) {
+  return codexConfigHandler().mergeCodexConfigToml(localPath, repoPath, direction, dryRun);
 }
 
 // =============================================================================
@@ -1169,7 +1158,7 @@ const SYNC_AREAS = {
  *   - area：對應 SYNC_AREAS 的 key（'claude' → ~/.claude ↔ repo claude/；'codex' → ~/.codex ↔ repo codex/）
  *   - type：'file'|'settings'|'codex-config'|'dir'（型別行為由 diffSyncItem／applySyncItem 分派）
  *   - fixedFlow：true 代表 src 恆為本機端、dest 恆為 repo 端，不隨 direction 交換
- *     （settings.json／config.toml 由 mergeSettingsJson／mergeCodexConfigToml 內部依 direction 決定流向）
+ *     （settings.json／config.toml 由 mergeSettingsBetween／mergeCodexConfigToml 依 direction 決定流向）
  * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, type: SyncItem['type'], fixedFlow?: boolean}>}
  */
 const SYNC_MANIFEST = [
@@ -1282,15 +1271,16 @@ function itemLabel(item, rel) {
  * @returns {{label: string, status: string|null, src: string|null, dest: string, verboseSrc: string, verboseDest: string, itemType: string}}
  */
 function diffSettingsItem(item, direction) {
-  const localPath = path.join(CLAUDE_HOME, 'settings.json');
-  const repoPath = path.join(REPO_ROOT, 'claude', 'settings.json');
+  // fixedFlow 項目：src 恆為本機端、dest 恆為 repo 端（來自 SYNC_AREAS，單一路徑來源）
+  const localPath = item.src;
+  const repoPath = item.dest;
   const base = {
     label: itemLabel(item),
     dest: repoPath, verboseSrc: localPath, verboseDest: repoPath, itemType: 'settings',
   };
 
   if (direction === 'to-local') {
-    // repo → 本機：repo 缺檔則無可同步；本機缺檔則將新增（與 mergeSettingsJson('to-local') 對齊）。
+    // repo → 本機：repo 缺檔則無可同步；本機缺檔則將新增（與 mergeSettingsBetween('to-local') 對齊）。
     // 本機 stripped 僅供比對；安全審核由 safety:check 處理。
     if (!fs.existsSync(repoPath)) return { ...base, status: null, src: null };
     if (!fs.existsSync(localPath)) return { ...base, status: 'new', src: null };
@@ -1340,8 +1330,9 @@ function diffCodexConfigToLocal(base, localPath, repoPath) {
  * @returns {{label: string, status: string|null, src: string|null, dest: string, verboseSrc: string, verboseDest: string, itemType: string}}
  */
 function diffCodexConfigItem(item, direction) {
-  const localPath = path.join(CODEX_HOME, 'config.toml');
-  const repoPath = path.join(REPO_ROOT, 'codex', 'config.toml');
+  // fixedFlow 項目：src 恆為本機端、dest 恆為 repo 端（來自 SYNC_AREAS，單一路徑來源）
+  const localPath = item.src;
+  const repoPath = item.dest;
   const base = {
     label: itemLabel(item),
     dest: repoPath, verboseSrc: localPath, verboseDest: repoPath, itemType: 'codex-config',
@@ -1475,8 +1466,8 @@ function diffSyncItem(item, direction) {
  */
 function applySyncItem(item, direction, dryRun) {
   switch (item.type) {
-    case 'settings': return applyMergeItem(() => mergeSettingsJson(direction, dryRun), 'settings.json');
-    case 'codex-config': return applyMergeItem(() => mergeCodexConfigToml(direction, dryRun), 'codex/config.toml');
+    case 'settings': return applyMergeItem(() => mergeSettingsBetween(item.src, item.dest, direction, dryRun), 'settings.json');
+    case 'codex-config': return applyMergeItem(() => mergeCodexConfigToml(item.src, item.dest, direction, dryRun), 'codex/config.toml');
     case 'file': return applyFileItem(item, dryRun);
     case 'dir': return applyDirItem(item, dryRun);
     default: return [];
