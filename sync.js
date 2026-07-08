@@ -1194,110 +1194,64 @@ function appendSyncLog(direction, changes) {
 // =============================================================================
 
 /**
- * 建立同步項目清單
+ * 同步項目宣告式清單：一列 = 一個同步路徑，為所有同步項目的單一事實來源。
+ * 新增同步內容只需在此加一列（不需改任何 builder 或 dispatch switch）。
+ *   - area：'claude' → ~/.claude ↔ repo claude/；'codex' → ~/.codex ↔ repo codex/
+ *   - type：'file'|'settings'|'codex-config'|'dir'（型別行為由 diffSyncItem／applySyncItem 分派）
+ *   - fixedFlow：true 代表 src 恆為本機端、dest 恆為 repo 端，不隨 direction 交換
+ *     （settings.json／config.toml 由 mergeSettingsJson／mergeCodexConfigToml 內部依 direction 決定流向）
+ * @type {Array<{area: 'claude'|'codex', label: string, type: SyncItem['type'], fixedFlow?: boolean}>}
+ */
+const SYNC_MANIFEST = [
+  { area: 'claude', label: 'CLAUDE.md',     type: 'file' },
+  { area: 'claude', label: 'settings.json', type: 'settings', fixedFlow: true },
+  { area: 'claude', label: 'statusline.sh', type: 'file' },
+  { area: 'claude', label: 'agents',        type: 'dir' },
+  { area: 'claude', label: 'commands',      type: 'dir' },
+  { area: 'claude', label: 'skills',        type: 'dir' },
+  { area: 'claude', label: 'rules',         type: 'dir' },
+  { area: 'codex',  label: 'AGENTS.md',     type: 'file' },
+  { area: 'codex',  label: 'config.toml',   type: 'codex-config', fixedFlow: true },
+  { area: 'codex',  label: 'agents',        type: 'dir' },
+];
+
+/**
+ * 解析 area 對應的本機端／repo 端 base 路徑與顯示前綴
+ * @param {'claude'|'codex'} area
+ * @returns {{homeBase: string, repoBase: string, prefix: string}}
+ */
+function resolveSyncArea(area) {
+  if (area === 'codex') {
+    return { homeBase: CODEX_HOME, repoBase: path.join(REPO_ROOT, 'codex'), prefix: 'codex/' };
+  }
+  return { homeBase: CLAUDE_HOME, repoBase: path.join(REPO_ROOT, 'claude'), prefix: 'claude/' };
+}
+
+/**
+ * 將一列 manifest 依同步方向 materialize 成 SyncItem。
+ * fixedFlow 項目 src/dest 固定（home→repo），其餘依 direction 交換。
+ * @param {{area: 'claude'|'codex', label: string, type: SyncItem['type'], fixedFlow?: boolean}} entry
+ * @param {'to-repo'|'to-local'} direction
+ * @returns {SyncItem}
+ */
+function materializeSyncItem(entry, direction) {
+  const { homeBase, repoBase, prefix } = resolveSyncArea(entry.area);
+  const homePath = path.join(homeBase, entry.label);
+  const repoPath = path.join(repoBase, entry.label);
+  const isToRepo = direction === 'to-repo';
+  // fixedFlow：src 恆為本機端、dest 恆為 repo 端（由 merge 函式內部依 direction 決定流向）
+  const src = entry.fixedFlow || isToRepo ? homePath : repoPath;
+  const dest = entry.fixedFlow || isToRepo ? repoPath : homePath;
+  return { label: entry.label, src, dest, type: entry.type, prefix };
+}
+
+/**
+ * 建立同步項目清單：map SYNC_MANIFEST → SyncItem[]
  * @param {'to-repo'|'to-local'} direction - 同步方向
  * @returns {SyncItem[]}
  */
 function buildSyncItems(direction) {
-  const isToRepo = direction === 'to-repo';
-  const localBase = CLAUDE_HOME;
-  const repoBase = path.join(REPO_ROOT, 'claude');
-  const src = isToRepo ? localBase : repoBase;
-  const dest = isToRepo ? repoBase : localBase;
-  return [
-    ...buildClaudeSyncItems(src, dest, localBase, repoBase),
-    ...buildCodexSyncItems(isToRepo),
-  ];
-}
-
-/**
- * 建立 Claude 同步項目清單
- * @param {string} src
- * @param {string} dest
- * @param {string} localBase
- * @param {string} repoBase
- * @returns {SyncItem[]}
- */
-function buildClaudeSyncItems(src, dest, localBase, repoBase) {
-  return [
-    buildPathSyncItem('CLAUDE.md', src, dest, 'file'),
-    // 注意：settings.json 的 src/dest 固定為 localPath/repoPath，不隨 direction 調換。
-    // 因為 settings.json 需要特殊的裝置欄位排除邏輯（mergeSettingsJson），
-    // 由 mergeSettingsJson 內部根據 direction 決定資料流向。
-    {
-      label: 'settings.json',
-      src: path.join(localBase, 'settings.json'),
-      dest: path.join(repoBase, 'settings.json'),
-      type: 'settings',
-    },
-    buildPathSyncItem('statusline.sh', src, dest, 'file'),
-    buildPathSyncItem('agents', src, dest, 'dir'),
-    buildPathSyncItem('commands', src, dest, 'dir'),
-    buildPathSyncItem('skills', src, dest, 'dir'),
-    buildPathSyncItem('rules', src, dest, 'dir'),
-  ];
-}
-
-/**
- * 建立一般路徑同步項目
- * @param {string} label
- * @param {string} srcBase
- * @param {string} destBase
- * @param {'file'|'dir'} type
- * @returns {SyncItem}
- */
-function buildPathSyncItem(label, srcBase, destBase, type) {
-  return {
-    label,
-    src: path.join(srcBase, label),
-    dest: path.join(destBase, label),
-    type,
-  };
-}
-
-/**
- * 建立方向相依的同步項目：to-repo 時 home→repo，to-local 時 repo→home。
- * 集中 direction-swap，避免每個 codex 項目各寫一次三元式（消除重複與方向打反風險）。
- * @param {string} label
- * @param {string} homePath - 本機端絕對路徑
- * @param {string} repoPath - repo 端絕對路徑
- * @param {'file'|'dir'} type
- * @param {boolean} isToRepo
- * @param {string} prefix
- * @returns {SyncItem}
- */
-function buildSwapItem(label, homePath, repoPath, type, isToRepo, prefix) {
-  return {
-    label,
-    src: isToRepo ? homePath : repoPath,
-    dest: isToRepo ? repoPath : homePath,
-    type,
-    prefix,
-  };
-}
-
-/**
- * 建立 Codex 同步項目清單
- * @param {boolean} isToRepo
- * @returns {SyncItem[]}
- */
-function buildCodexSyncItems(isToRepo) {
-  return [
-    buildSwapItem('AGENTS.md', path.join(CODEX_HOME, 'AGENTS.md'),
-      path.join(REPO_ROOT, 'codex', 'AGENTS.md'), 'file', isToRepo, 'codex/'),
-    // Codex config.toml：src/dest 固定（同 settings.json），由 mergeCodexConfigToml 內部依 direction
-    // 決定流向；只同步 allowlist 欄位，其餘本機狀態與裝置欄位保留
-    {
-      label: 'config.toml',
-      src: path.join(CODEX_HOME, 'config.toml'),
-      dest: path.join(REPO_ROOT, 'codex', 'config.toml'),
-      type: 'codex-config',
-      prefix: 'codex/',
-    },
-    // Codex agents：與 ~/.codex/agents/ 同步
-    buildSwapItem('agents', path.join(CODEX_HOME, 'agents'),
-      path.join(REPO_ROOT, 'codex', 'agents'), 'dir', isToRepo, 'codex/'),
-  ];
+  return SYNC_MANIFEST.map(entry => materializeSyncItem(entry, direction));
 }
 
 /**
@@ -2591,7 +2545,8 @@ if (require.main === module) {
     diffDirItems,
     printToLocalPreview,
     buildSyncItems,
-    buildSwapItem,
+    materializeSyncItem,
+    SYNC_MANIFEST,
     actionToIcon,
     mergeSettingsBetween,
     readFileSafe,

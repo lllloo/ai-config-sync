@@ -69,13 +69,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **主入口 + safety／codex-config 模組**：`sync.js` 為主 CLI 入口（同步／diff／skills／init 邏輯），`safety:check` 掃描與輸出獨立於 `safety-check.js`，Codex `config.toml` 過濾同步獨立於 `codex-config.js`。三檔零外部相依、只用 Node.js 內建模組。兩子模組皆 **不反向 require `sync.js`**：
 
 - `safety-check.js`：透過 `createSafetyChecker(deps)` 由 `sync.js` 注入共用工具（`REPO_ROOT`、`getFiles`、`readFileSafe`、`readJson`、`toRelativePath`、`maskHome`、`col`、`EXIT_*`）；`sync.js` 以 lazy singleton 建立 checker（避開 const 相依的 TDZ），`runSafetyCheck`／`runSafetyChecks` 僅為轉接。safety 專屬常數（`SENSITIVE_KEY_PATTERN` 等 pattern、掃描範圍）由 `safety-check.js` 持有並被 `sync.js` re-export，避免漂移。對外入口 `node sync.js safety:check` 與 `npm run safety:check` 不變。
-- `codex-config.js`：承載 Codex config 的 TOML parse／serialize／merge、可攜欄位判斷、load／get 與 apply 進出口，以及專屬常數（`CODEX_CONFIG_TOP_KEYS`、`CODEX_CONFIG_SECTION_KEYS`）。純 parse／serialize／merge 無 IO 直接匯出；load／get／apply 需讀寫檔，經 `createCodexConfigHandler(deps)`（注入 `readFileSafe`、`writeTextSafe`、`REPO_ROOT`、`CODEX_HOME`）建立，`sync.js` 以 lazy singleton 轉接，`SYNC_TYPE_HANDLERS` 的 `codex-config` 分派僅呼叫 `mergeCodexConfigToml`。常數與純函式由模組持有、`sync.js` re-export（供 `codex-config.test.js` 沿用既有 import 來源）。**`diffCodexConfigItem`／`diffCodexConfigToLocal` 屬 diff 引擎、留在 Sync Core**（依賴 `createTmpDiffFile`／`isEolOnlyDiff`），只回呼模組匯出的 `loadPortableCodexConfig`／`mergePortableCodexConfig`／`getPortableCodexConfig`，不複製 merge 判斷。
+- `codex-config.js`：承載 Codex config 的 TOML parse／serialize／merge、可攜欄位判斷、load／get 與 apply 進出口，以及專屬常數（`CODEX_CONFIG_TOP_KEYS`、`CODEX_CONFIG_SECTION_KEYS`）。純 parse／serialize／merge 無 IO 直接匯出；load／get／apply 需讀寫檔，經 `createCodexConfigHandler(deps)`（注入 `readFileSafe`、`writeTextSafe`、`REPO_ROOT`、`CODEX_HOME`）建立，`sync.js` 以 lazy singleton 轉接，`applySyncItem` 的 `codex-config` case 僅呼叫 `mergeCodexConfigToml`。常數與純函式由模組持有、`sync.js` re-export（供 `codex-config.test.js` 沿用既有 import 來源）。**`diffCodexConfigItem`／`diffCodexConfigToLocal` 屬 diff 引擎、留在 Sync Core**（依賴 `createTmpDiffFile`／`isEolOnlyDiff`），只回呼模組匯出的 `loadPortableCodexConfig`／`mergePortableCodexConfig`／`getPortableCodexConfig`，不複製 merge 判斷。
 
 檔案結構採 section banner 分段，關鍵不變式：
 
 - **所有函式 ≤ 60 行**（經 iter4/iter5 稽核強制）— 新增函式若超過需拆分
-- **Data-driven dispatch**：`COMMANDS` 物件含 `handler`，`main()` 透過 `await COMMANDS[cmd].handler(opts)` 派發，**新增指令只需改 `COMMANDS`**
-- **SyncItem 抽象 + 型別行為查表**：`buildSyncItems()` 產出宣告式 `SyncItem[]`；型別行為由 `SYNC_TYPE_HANDLERS`（`{ diff, apply, isDir }`）集中分派，`diffSyncItems` / `applySyncItems` / `buildFullDiffList` 三個消費端皆查表，**新增同步類型只需在 `SYNC_TYPE_HANDLERS` 加一筆**，不必逐處改 `if (type===...)`。方向相依的 codex 項目走 `buildSwapItem` 統一交換 src/dest
+- **指令分派（switch）**：`COMMANDS` 物件為 `{ alias, desc }`（名稱／別名／說明的單一來源）；`main()` 先檢查 `COMMANDS[cmd]` 是否存在，再由 `runCommand(cmd, opts)` 以明確 `switch` 分派到各 `runXxx`。**新增指令需同步改 `COMMANDS`（登錄名稱／別名／說明）與 `runCommand` 的 `switch`（接上 handler）**——刻意不走 handler 注入表，換取分派可讀性
+- **宣告式同步項目 `SYNC_MANIFEST`**：所有同步項目由單一宣告式 `SYNC_MANIFEST`（一列 = 一路徑，欄位 `area`／`label`／`type`／可選 `fixedFlow`）定義；`buildSyncItems(direction)` 以 `materializeSyncItem` 依方向 map 產出 `SyncItem[]`（`resolveSyncArea` 對 `area` 解析 base 路徑與 `prefix`；`fixedFlow` 項目 src/dest 固定不隨方向交換，供 `settings.json`／`config.toml` 由 merge 函式內部決定流向）。**新增同步內容只需在 `SYNC_MANIFEST` 加一列**，不需改任何 builder 或 dispatch
+- **型別行為分派（switch）**：`SyncItem.type`（`file`／`settings`／`codex-config`／`dir`）的 diff／apply 行為由 `diffSyncItem`／`applySyncItem` 兩個明確 `switch` 分派，`buildFullDiffList` 另以 `item.type === 'dir'` 特判摘要行呈現。**新增同步類型需改此兩處 `switch`（與 `buildFullDiffList` 的 dir 特判如涉及）**——同樣刻意不走 handler 查表
 - **Atomic write**：底層 `writeFileSafe` 先寫同目錄暫存檔（隨機尾碼 + `flag:'wx'` O_EXCL）再 rename（同檔系統避免 EXDEV），所有寫入路徑（`writeJsonSafe`、`writeTextSafe`、`copyFile`、`mirrorDir`）皆走此函式。提供**原子性**（避免半截損壞），但**不付 fsync 成本、不保證持久性**（設定檔對持久性需求低）。diff 暫存檔走 `createTmpDiffFile`（os.tmpdir() 下隨機名 + O_EXCL，防共用 /tmp 的 symlink 攻擊 CWE-377/59）。對稱的 `readFileSafe` 統一將讀取例外包成 `SyncError`（帶 path context），不讓裸 fs 例外穿透 `formatError`
 - **統一錯誤處理**：`SyncError` class（`code` + `context`）+ 檔尾 `.catch(formatError)`，所有路徑經 `formatError`，**禁止**裸 `console.error + process.exit`
 - **Exit code 語義**：`EXIT_OK=0`（成功或 diff 無差異）、`EXIT_DIFF=1`（diff 有差異，可用於 CI）、`EXIT_ERROR=2`
@@ -87,7 +88,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 修改守則
 
 - **README.md 須同步更新**：新增/移除指令、改變同步項目、調整行為、新增旗標時必跟。
-- **新增/調整 npm script 時須同步更新 README 的指令別名表與 `COMMANDS` 物件**，避免別名與 handler 漂移。
+- **新增/調整 npm script 時須同步更新 README 的指令別名表、`COMMANDS` 物件與 `runCommand` 的 `switch`**（三者為指令名稱／別名／分派的來源，缺一即漂移）。
 - **函式行數守則**：新增或重構後若某函式 > 60 行，需拆分（`buildSyncItems` 54 行為宣告式陣列，例外）。
 - **禁止新增外部相依**：所有功能必須使用 Node.js 內建模組，不得 `npm install` 任何套件。
 - **settings.json top-level 採黑名單制**（`DEVICE_SETTINGS_KEYS`）：預設同步官方 top-level 欄位，僅排除黑名單列舉（裝置偏好、平台綁定 `hooks`、憑證 helper）。`SENSITIVE_KEY_PATTERN` 不再作為同步剝除或中止條件；敏感命名 key 依一般 settings 差異同步，改由 `npm run safety:check` 以 warning 供人工審核。strip／preserve 由 `partitionSettingsTopLevel` 同源保證互補；增減黑名單欄位須改 `DEVICE_SETTINGS_KEYS` 常數與 README。

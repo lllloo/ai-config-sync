@@ -26,7 +26,9 @@ const {
   loadSkillsFromLock,
   computeSkillsDiff,
   sanitizeForTerminal,
-  buildSwapItem,
+  buildSyncItems,
+  materializeSyncItem,
+  SYNC_MANIFEST,
   actionToIcon,
   SyncError,
   ERR,
@@ -245,12 +247,50 @@ test('actionToIcon：added/deleted 直映，其餘（updated）→ changed', () 
   assert.equal(actionToIcon('updated'), 'changed');
 });
 
-test('buildSwapItem：to-repo 為 home→repo，to-local 為 repo→home', () => {
-  const toRepo = buildSwapItem('AGENTS.md', '/home/x', '/repo/x', 'file', true, 'codex/');
-  assert.deepEqual(toRepo, { label: 'AGENTS.md', src: '/home/x', dest: '/repo/x', type: 'file', prefix: 'codex/' });
-  const toLocal = buildSwapItem('AGENTS.md', '/home/x', '/repo/x', 'file', false, 'codex/');
-  assert.equal(toLocal.src, '/repo/x');
-  assert.equal(toLocal.dest, '/home/x');
+test('materializeSyncItem：非 fixedFlow 依方向交換 src/dest', () => {
+  const entry = { area: 'codex', label: 'AGENTS.md', type: 'file' };
+  const toRepo = materializeSyncItem(entry, 'to-repo');
+  assert.equal(toRepo.label, 'AGENTS.md');
+  assert.equal(toRepo.type, 'file');
+  assert.equal(toRepo.prefix, 'codex/');
+  // to-repo：home→repo
+  assert.match(toRepo.src, /[\\/]\.codex[\\/]AGENTS\.md$/);
+  assert.match(toRepo.dest, /[\\/]codex[\\/]AGENTS\.md$/);
+  const toLocal = materializeSyncItem(entry, 'to-local');
+  // to-local：repo→home（src/dest 對調）
+  assert.equal(toLocal.src, toRepo.dest);
+  assert.equal(toLocal.dest, toRepo.src);
+});
+
+test('materializeSyncItem：fixedFlow 項目 src/dest 不隨方向交換', () => {
+  const entry = { area: 'claude', label: 'settings.json', type: 'settings', fixedFlow: true };
+  const toRepo = materializeSyncItem(entry, 'to-repo');
+  const toLocal = materializeSyncItem(entry, 'to-local');
+  // fixedFlow：src 恆為本機端、dest 恆為 repo 端
+  assert.equal(toLocal.src, toRepo.src);
+  assert.equal(toLocal.dest, toRepo.dest);
+  assert.match(toRepo.src, /[\\/]\.claude[\\/]settings\.json$/);
+  assert.match(toRepo.dest, /[\\/]claude[\\/]settings\.json$/);
+});
+
+test('buildSyncItems：manifest 順序保留、fixedFlow 項目雙向 src/dest 一致', () => {
+  const labels = SYNC_MANIFEST.map(e => e.label);
+  const repoItems = buildSyncItems('to-repo');
+  const localItems = buildSyncItems('to-local');
+  // 順序與數量鎖定 manifest
+  assert.deepEqual(repoItems.map(i => i.label), labels);
+  assert.equal(repoItems.length, SYNC_MANIFEST.length);
+  // 每列 materialize 出的 type 與 manifest 對齊；fixedFlow 項目雙向路徑相同、非 fixedFlow 對調
+  SYNC_MANIFEST.forEach((entry, i) => {
+    assert.equal(repoItems[i].type, entry.type);
+    if (entry.fixedFlow) {
+      assert.equal(localItems[i].src, repoItems[i].src);
+      assert.equal(localItems[i].dest, repoItems[i].dest);
+    } else {
+      assert.equal(localItems[i].src, repoItems[i].dest);
+      assert.equal(localItems[i].dest, repoItems[i].src);
+    }
+  });
 });
 
 // -----------------------------------------------------------------------------
