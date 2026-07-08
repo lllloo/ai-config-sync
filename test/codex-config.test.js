@@ -15,6 +15,8 @@ const {
   serializePortableCodexConfig,
   mergePortableCodexConfig,
   loadPortableCodexConfig,
+  isKnownDeviceCodexSection,
+  collectUnclassifiedCodexKeys,
 } = require('../sync.js');
 const { withTmpDir } = require('./helpers');
 
@@ -125,4 +127,44 @@ test('loadPortableCodexConfig：repo 與本機萃取內容相同時序列化相�
     const portable = loadPortableCodexConfig(localPath);
     assert.equal(portable.serialized, PORTABLE_CONFIG);
   });
+});
+
+test('isKnownDeviceCodexSection：device section 前綴與子 section 命中、白名單 section 不命中', () => {
+  assert.equal(isKnownDeviceCodexSection('model_providers'), true);
+  assert.equal(isKnownDeviceCodexSection('model_providers.openai'), true);
+  assert.equal(isKnownDeviceCodexSection('mcp_servers.foo'), true);
+  assert.equal(isKnownDeviceCodexSection('projects.\'d:\\code\''), true);
+  assert.equal(isKnownDeviceCodexSection('tui'), false);
+  assert.equal(isKnownDeviceCodexSection(''), false);
+  // 前綴須為完整 section 段，不可誤命中同字首的不相關 section
+  assert.equal(isKnownDeviceCodexSection('historyx'), false);
+});
+
+test('collectUnclassifiedCodexKeys：白名單與 device section 排除，其餘回報且去重保序', () => {
+  const content = `personality = "x"
+model = "gpt-5"
+model_reasoning_effort = "high"
+
+[tui]
+status_line = true
+notifications = true
+
+[model_providers.openai]
+api_key = "sk-secret"
+
+[mcp_servers.foo]
+command = "bar"
+
+[experimental]
+new_flag = true
+new_flag = true
+`;
+  assert.deepEqual(
+    collectUnclassifiedCodexKeys(content),
+    ['model', 'model_reasoning_effort', 'tui.notifications', 'experimental.new_flag'],
+  );
+});
+
+test('collectUnclassifiedCodexKeys：全部為白名單或 device 時回空陣列', () => {
+  assert.deepEqual(collectUnclassifiedCodexKeys(PORTABLE_CONFIG), []);
 });

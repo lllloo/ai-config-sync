@@ -78,9 +78,12 @@ const DEVICE_ENV_KEYS = [
 const {
   CODEX_CONFIG_TOP_KEYS,
   CODEX_CONFIG_SECTION_KEYS,
+  CODEX_CONFIG_DEVICE_SECTION_PREFIXES,
   parsePortableCodexConfig,
   serializePortableCodexConfig,
   mergePortableCodexConfig,
+  isKnownDeviceCodexSection,
+  collectUnclassifiedCodexKeys,
 } = codexConfigModule;
 
 /** 永遠排除的檔案名稱 */
@@ -1695,6 +1698,27 @@ function printSectionDivider() {
  * @param {ParsedArgs} opts - CLI 引數
  * @returns {number} exit code（EXIT_OK=無差異, EXIT_DIFF=有差異）
  */
+/**
+ * 提示本機 Codex config.toml 的「未分類欄位」（白名單未涵蓋、也非已知 device section）。
+ * 這些欄位不會被同步（白名單 fail-safe 不變），僅列出供人工判斷是否納入白名單——
+ * 例如 Codex 改版新增的可攜欄位。只印 key path、不印值，避免洩漏。
+ * @returns {void}
+ */
+function warnUnclassifiedCodexConfig() {
+  const localPath = path.join(CODEX_HOME, 'config.toml');
+  if (!fs.existsSync(localPath)) return;
+  const keys = collectUnclassifiedCodexKeys(String(readFileSafe(localPath, '讀取 Codex 設定', 'utf8')));
+  if (keys.length === 0) return;
+  console.log(col.yellow(`\n  ⚠ Codex config 有 ${keys.length} 個未分類欄位（白名單未涵蓋、不會同步）：`));
+  for (const k of keys) console.log(col.dim(`      ${k}`));
+  console.log(col.dim('    要判斷是否納入白名單，可把此清單貼給 Claude/Codex 討論。'));
+}
+
+/**
+ * diff 指令：純比較本機 vs repo，不寫入
+ * @param {ParsedArgs} opts - CLI 引數
+ * @returns {number} exit code
+ */
 function runDiff(opts) {
   console.log('');
   printSectionDivider();
@@ -1715,6 +1739,7 @@ function runDiff(opts) {
     if (printDiffItem(item, opts)) hasDiff = true;
   }
   printSkillDiffSummaries(skillsSummary);
+  warnUnclassifiedCodexConfig();
   if (!hasDiff) {
     console.log(col.green('\n  本機與 repo 完全一致\n'));
     return EXIT_OK;
@@ -1820,6 +1845,7 @@ function runToRepo(opts) {
 
     console.log('');
     printSummary(stats);
+    warnUnclassifiedCodexConfig();
 
     if (dryRun) {
       console.log(col.dim('\n  以上為預覽，未實際寫入任何檔案'));
@@ -2559,6 +2585,9 @@ if (require.main === module) {
     PRIVATE_KEY_PATTERN,
     CODEX_CONFIG_TOP_KEYS,
     CODEX_CONFIG_SECTION_KEYS,
+    CODEX_CONFIG_DEVICE_SECTION_PREFIXES,
+    isKnownDeviceCodexSection,
+    collectUnclassifiedCodexKeys,
     INIT_FILE_MAP,
     INIT_RULES_TO_REMOVE,
     SyncError,

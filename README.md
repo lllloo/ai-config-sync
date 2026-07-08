@@ -160,6 +160,7 @@ npm run to-local
 - **`hooks` 不跨裝置同步**：hook command 多為平台綁定（PowerShell／終端跳脫序列），在 Windows 與 macOS 無法共用，故各裝置自行維護本機 `hooks`，repo 不攜帶。需在新裝置重建 hook 時手動設定
 - `codex/config.toml` 只同步可攜欄位：`personality`、`web_search`、`tui.status_line`、`features.memories`、`features.goals`、`memories.generate_memories`、`memories.use_memories`、`plugins.*.enabled`
 - `codex/config.toml` 會排除 `model`、`model_reasoning_effort`、`projects.*`、`marketplaces.*`、`windows`、`tui.model_availability_nux` 與未知欄位；to-local 時保留本機未受管理欄位
+- **未分類欄位提示**：`diff`／`status`／`to-repo` 會列出本機 `config.toml` 中「白名單未涵蓋、也非已知 device section（`model_providers`／`mcp_servers`／`projects`／`profiles`／`history`／`shell_environment_policy`）」的欄位——這些**不會被同步**（白名單 fail-safe 不變），只是提示你判斷是否納入白名單（例如 Codex 改版新增的可攜欄位），可把清單貼給 Claude／Codex 討論。只印 key path、不印值，不洩漏；device section 因明顯含憑證／本機路徑而刻意不提示
 - `.agents/skills/` 是本地 skill 實體目錄，已納入版控；Claude Code 靠 `.claude/skills` symlink 讀取，Codex 原生把 `.agents/skills`（專案層）與 `~/.agents/skills`（全域層）納入探索路徑、無需 symlink
 - Claude agents 儲存於 `claude/agents/`，以 package 子目錄分組（目前為 `everything-claude-code/`）；Codex agents 儲存於 `codex/agents/`，同樣以 package 子目錄分組（目前無 agent），Codex CLI 會遞迴掃描子目錄
 - Skills 不在自動同步範圍內，用 `npm run skills:diff` 查看差異；本機多裝者會列出 `npm run skills:add`（加入 repo）與 `npx skills remove`（從本機移除）兩種建議

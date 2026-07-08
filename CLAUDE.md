@@ -57,7 +57,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `claude/skills/` | `~/.claude/skills/` | 目錄鏡射 |
 | `claude/rules/` | `~/.claude/rules/` | 模組化全域規則（CLAUDE.md 的拆分檔），支援 frontmatter `paths:` 做 path-specific scoping |
 | `codex/AGENTS.md` | `~/.codex/AGENTS.md` | Codex 全域指示（跨專案規則），全文比對 |
-| `codex/config.toml` | `~/.codex/config.toml` | 僅同步可攜欄位（`personality`、`web_search`、`tui.status_line`、`features.memories`、`features.goals`、`memories.generate_memories`、`memories.use_memories`、`plugins.*.enabled`）；裝置特定欄位與未知欄位保留本機值 |
+| `codex/config.toml` | `~/.codex/config.toml` | 僅同步可攜欄位（`personality`、`web_search`、`tui.status_line`、`features.memories`、`features.goals`、`memories.generate_memories`、`memories.use_memories`、`plugins.*.enabled`）；裝置特定欄位與未知欄位保留本機值。**`diff`／`status`／`to-repo` 另以 `warnUnclassifiedCodexConfig` 列出「白名單未涵蓋、也非已知 device section（`CODEX_CONFIG_DEVICE_SECTION_PREFIXES`）」的未分類欄位供人工判斷是否納入白名單——僅提示、不同步、只印 key path 不印值；白名單 fail-safe 不變** |
 | `codex/agents/` | `~/.codex/agents/` | Codex `.toml` agents，以 package 子目錄組織；Codex CLI 遞迴掃描子目錄載入（目前無 agent） |
 
 ### 刻意不同步（勿加入 `buildSyncItems`）
@@ -69,7 +69,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **主入口 + safety／codex-config 模組**：`sync.js` 為主 CLI 入口（同步／diff／skills／init 邏輯），`safety:check` 掃描與輸出獨立於 `safety-check.js`，Codex `config.toml` 過濾同步獨立於 `codex-config.js`。三檔零外部相依、只用 Node.js 內建模組。兩子模組皆 **不反向 require `sync.js`**：
 
 - `safety-check.js`：透過 `createSafetyChecker(deps)` 由 `sync.js` 注入共用工具（`REPO_ROOT`、`getFiles`、`readFileSafe`、`readJson`、`toRelativePath`、`maskHome`、`col`、`EXIT_*`）；`sync.js` 以 lazy singleton 建立 checker（避開 const 相依的 TDZ），`runSafetyCheck`／`runSafetyChecks` 僅為轉接。safety 專屬常數（`SENSITIVE_KEY_PATTERN` 等 pattern、掃描範圍）由 `safety-check.js` 持有並被 `sync.js` re-export，避免漂移。對外入口 `node sync.js safety:check` 與 `npm run safety:check` 不變。
-- `codex-config.js`：承載 Codex config 的 TOML parse／serialize／merge、可攜欄位判斷、load／get 與 apply 進出口，以及專屬常數（`CODEX_CONFIG_TOP_KEYS`、`CODEX_CONFIG_SECTION_KEYS`）。純 parse／serialize／merge 無 IO 直接匯出；load／get／apply 需讀寫檔，經 `createCodexConfigHandler(deps)`（注入 `readFileSafe`、`writeTextSafe`、`REPO_ROOT`、`CODEX_HOME`）建立，`sync.js` 以 lazy singleton 轉接，`applySyncItem` 的 `codex-config` case 僅呼叫 `mergeCodexConfigToml`。常數與純函式由模組持有、`sync.js` re-export（供 `codex-config.test.js` 沿用既有 import 來源）。**`diffCodexConfigItem`／`diffCodexConfigToLocal` 屬 diff 引擎、留在 Sync Core**（依賴 `createTmpDiffFile`／`isEolOnlyDiff`），只回呼模組匯出的 `loadPortableCodexConfig`／`mergePortableCodexConfig`／`getPortableCodexConfig`，不複製 merge 判斷。
+- `codex-config.js`：承載 Codex config 的 TOML parse／serialize／merge、可攜欄位判斷、load／get 與 apply 進出口，以及專屬常數（`CODEX_CONFIG_TOP_KEYS`、`CODEX_CONFIG_SECTION_KEYS`、`CODEX_CONFIG_DEVICE_SECTION_PREFIXES`）與未分類欄位偵測（`isKnownDeviceCodexSection`、`collectUnclassifiedCodexKeys`，供 `sync.js` 的 `warnUnclassifiedCodexConfig` 呼叫）。純 parse／serialize／merge／偵測無 IO 直接匯出；load／get／apply 需讀寫檔，經 `createCodexConfigHandler(deps)`（注入 `readFileSafe`、`writeTextSafe`、`REPO_ROOT`、`CODEX_HOME`）建立，`sync.js` 以 lazy singleton 轉接，`applySyncItem` 的 `codex-config` case 僅呼叫 `mergeCodexConfigToml`。常數與純函式由模組持有、`sync.js` re-export（供 `codex-config.test.js` 沿用既有 import 來源）。**`diffCodexConfigItem`／`diffCodexConfigToLocal` 屬 diff 引擎、留在 Sync Core**（依賴 `createTmpDiffFile`／`isEolOnlyDiff`），只回呼模組匯出的 `loadPortableCodexConfig`／`mergePortableCodexConfig`／`getPortableCodexConfig`，不複製 merge 判斷。
 
 檔案結構採 section banner 分段，關鍵不變式：
 

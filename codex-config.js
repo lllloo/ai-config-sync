@@ -29,6 +29,17 @@ const CODEX_CONFIG_SECTION_KEYS = {
   memories: ['generate_memories', 'use_memories'],
 };
 
+/**
+ * 已知刻意不同步的 device／機密 section 前綴——僅供「未分類欄位偵測」降噪，
+ * 不影響同步放行（放行永遠只由白名單 isPortableCodexConfigKey 決定）。
+ * 這些 section 明顯含憑證（model_providers.*.api_key、mcp_servers.*）、本機路徑
+ * （projects、profiles）或裝置狀態（history），報出來只會洗版，故不列為待討論。
+ * 列漏只會多印一行提示、絕不造成洩漏——安全方向偏「多報」。
+ */
+const CODEX_CONFIG_DEVICE_SECTION_PREFIXES = [
+  'model_providers', 'mcp_servers', 'projects', 'profiles', 'history', 'shell_environment_policy',
+];
+
 // -----------------------------------------------------------------------------
 // 純函式：TOML parse／serialize／merge（無 IO，直接匯出）
 // -----------------------------------------------------------------------------
@@ -43,6 +54,46 @@ function isPortableCodexConfigKey(section, key) {
   if (section === '') return CODEX_CONFIG_TOP_KEYS.includes(key);
   if (section.startsWith('plugins.')) return key === 'enabled';
   return (CODEX_CONFIG_SECTION_KEYS[section] || []).includes(key);
+}
+
+/**
+ * 判斷 section 是否屬「已知刻意排除」的 device／機密 section（僅用於未分類偵測降噪）
+ * @param {string} section - TOML section 名稱，top-level 為空字串
+ * @returns {boolean}
+ */
+function isKnownDeviceCodexSection(section) {
+  if (section === '') return false;
+  return CODEX_CONFIG_DEVICE_SECTION_PREFIXES.some(
+    prefix => section === prefix || section.startsWith(`${prefix}.`),
+  );
+}
+
+/**
+ * 收集 config.toml 中「既非白名單、也非已知 device section」的未分類欄位 key path。
+ * 這些欄位不會被同步（白名單 fail-safe 不變），但值得提示使用者判斷是否納入白名單
+ * ——例如 Codex 改版新增的可攜欄位。回傳去重後、依出現順序的 key path 陣列。
+ * @param {string} content - config.toml 原始內容
+ * @returns {string[]}
+ */
+function collectUnclassifiedCodexKeys(content) {
+  const found = [];
+  const seen = new Set();
+  let section = '';
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const sectionMatch = line.match(/^\[([^\]]+)\]\s*(?:#.*)?$/);
+    if (sectionMatch) { section = sectionMatch[1].trim(); continue; }
+    const keyMatch = line.match(/^([A-Za-z0-9_-]+)\s*=/);
+    if (!keyMatch) continue;
+    const key = keyMatch[1];
+    if (isPortableCodexConfigKey(section, key) || isKnownDeviceCodexSection(section)) continue;
+    const keyPath = section ? `${section}.${key}` : key;
+    if (seen.has(keyPath)) continue;
+    seen.add(keyPath);
+    found.push(keyPath);
+  }
+  return found;
 }
 
 /**
@@ -360,8 +411,11 @@ function createCodexConfigHandler(deps) {
 module.exports = {
   CODEX_CONFIG_TOP_KEYS,
   CODEX_CONFIG_SECTION_KEYS,
+  CODEX_CONFIG_DEVICE_SECTION_PREFIXES,
   parsePortableCodexConfig,
   serializePortableCodexConfig,
   mergePortableCodexConfig,
+  isKnownDeviceCodexSection,
+  collectUnclassifiedCodexKeys,
   createCodexConfigHandler,
 };
