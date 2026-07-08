@@ -1351,9 +1351,12 @@ function diffCodexConfigItem(item, direction) {
   if (!fs.existsSync(localPath)) return { ...base, status: null, src: null };
   const portable = getPortableCodexConfig(localPath);
   if (portable === null) return { ...base, status: null, src: null };
+  const repoExists = fs.existsSync(repoPath);
+  // 與 mergeCodexConfigToRepo 的空字串保護對齊（codex-config.js）：本機無可攜欄位（portable === ''）
+  // 且 repo 尚無此檔時，apply 不會建空檔，diff 亦須視同無差異，避免永久假「將新增」。
+  if (portable === '' && !repoExists) return { ...base, status: null, src: null };
   const tmpSrc = createTmpDiffFile('toml', portable);
-  // 空字串也視為「新增」，避免 truthy 檢查吞掉 portable === '' 的合法新檔
-  const status = fs.existsSync(repoPath)
+  const status = repoExists
     ? compareStrippedToRepo(portable, repoPath, '讀取 repo Codex 設定')
     : 'new';
   return { ...base, status, src: tmpSrc };
@@ -1586,6 +1589,7 @@ function showGitStatus() {
   }
   console.log('');
   console.log(col.bold('  下一步：'));
+  console.log(col.dim('   npm run safety:check   # commit 前先掃 hard block／需人工審核的機密'));
   console.log(col.dim(`   git add -A && git commit -m "sync: from ${os.hostname()}" && git push`));
 }
 

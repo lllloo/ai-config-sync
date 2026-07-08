@@ -334,6 +334,30 @@ test('to-local --yes：codex 內容套用到本機，config.toml 保留本機未
   }
 });
 
+// 回歸：本機 config.toml 僅含裝置／黑名單欄位（portable === ''）、repo 尚無此檔時，
+// diff 不得誤報「將新增」，且 apply 不得建立空檔——diff 預覽須與 mergeCodexConfigToRepo
+// 的空字串保護（codex-config.js）對齊，否則 npm run diff 會永久回報假差異卡住 CI。
+test('to-repo：本機 config.toml 只有黑名單欄位且 repo 無檔 → diff 不報新增、apply 不建檔', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    // model 為裝置 key、[model_providers.x] 為黑名單 section → 過濾後 portable 為空字串
+    writeText(path.join(home, '.codex', 'config.toml'),
+      'model = "o3"\n\n[model_providers.openai]\napi_key = "sk-DEVICE"\n');
+
+    const d = run(repo, home, ['diff']);
+    // 修復前 config.toml 會被標為 [+]（新增）；修復後應標為 [✓]（一致），與 apply 不建檔對齊
+    assert.match(d.stdout, /\[✓\]\s*codex\/config\.toml/,
+      'repo 無檔且本機無可攜欄位時，diff 應把 codex/config.toml 視為一致，而非將新增');
+
+    const r = run(repo, home, ['to-repo']);
+    assert.equal(r.status <= 1, true, `to-repo 應正常結束\n${r.stdout}\n${r.stderr}`);
+    assert.equal(fs.existsSync(path.join(repo, 'codex', 'config.toml')), false,
+      'apply 不得建立空的 codex/config.toml');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // -----------------------------------------------------------------------------
 // 部分失敗可見度：apply 中途拋錯時，已寫入變更須列出並記入 .sync-history.log
 // （與 handleSignal 的訊號中斷警告互補；此前例外中斷路徑零可見度、audit trail 全失）
