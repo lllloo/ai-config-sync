@@ -121,7 +121,8 @@ npm run to-local
 
 | 檔案 | 說明 |
 |------|------|
-| `sync.js` | 主腳本，實作所有指令邏輯（無外部相依） |
+| `sync.js` | 主 CLI 入口，實作同步／diff／skills／init 指令邏輯（無外部相依） |
+| `safety-check.js` | `safety:check` 唯讀掃描模組，由 `sync.js` 注入共用工具（不獨立執行、不反向 require） |
 | `test/sync.test.js` | 同步邏輯純函式單元測試（使用 Node.js 內建 `node:test`） |
 | `test/settings.test.js` | settings.json 相關純函式單元測試 |
 | `test/codex-config.test.js` | Codex config.toml 過濾同步測試 |

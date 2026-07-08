@@ -19,10 +19,11 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { noColorEnv } = require('./helpers.js');
 
-const SYNC_JS = path.join(__dirname, '..', 'sync.js');
+// sync.js require('./safety-check.js')，任何 `node sync.js` 指令缺此檔即崩，故兩檔同抄。
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js'];
 
 /**
- * 建立沙箱：repo（含 sync.js 副本、git init）與 home。
+ * 建立沙箱：repo（含 sync.js + safety-check.js 副本、git init）與 home。
  * @returns {{repo: string, home: string}}
  */
 function setupSandbox() {
@@ -31,7 +32,9 @@ function setupSandbox() {
   const home = path.join(root, 'home');
   fs.mkdirSync(repo);
   fs.mkdirSync(home);
-  fs.copyFileSync(SYNC_JS, path.join(repo, 'sync.js'));
+  for (const name of SYNC_RUNTIME_FILES) {
+    fs.copyFileSync(path.join(__dirname, '..', name), path.join(repo, name));
+  }
   // to-repo 非 dry-run 需在 git repo 內；init 即可（不需 commit）
   spawnSync('git', ['init', '-q'], { cwd: repo });
   return { repo, home, root };
