@@ -13,6 +13,7 @@ const crypto = require('crypto');
 const readline = require('readline');
 const { spawnSync } = require('child_process');
 const safetyCheckModule = require('./safety-check.js');
+const codexConfigModule = require('./codex-config.js');
 
 // =============================================================================
 // Section: Constants -- 全域常數與設定
@@ -73,15 +74,19 @@ function isDeviceEnvKey(key) {
   return DEVICE_ENV_KEYS.some((k) => k.toLowerCase() === key.toLowerCase());
 }
 
-/** Codex config.toml 中允許跨裝置同步的 top-level key */
-const CODEX_CONFIG_TOP_KEYS = ['personality', 'web_search'];
-
-/** Codex config.toml 中允許跨裝置同步的固定 section key */
-const CODEX_CONFIG_SECTION_KEYS = {
-  tui: ['status_line'],
-  features: ['memories', 'goals'],
-  memories: ['generate_memories', 'use_memories'],
-};
+/**
+ * Codex config 專屬常數與純轉換函式由 codex-config.js 持有，於此 re-export，
+ * 供既有測試（codex-config.test.js 引用 parse／serialize／merge 純函式）與
+ * module.exports 沿用，避免漂移。load／get／apply 進出口經 codexConfigHandler()
+ * lazy singleton 注入共用工具建立。
+ */
+const {
+  CODEX_CONFIG_TOP_KEYS,
+  CODEX_CONFIG_SECTION_KEYS,
+  parsePortableCodexConfig,
+  serializePortableCodexConfig,
+  mergePortableCodexConfig,
+} = codexConfigModule;
 
 /** 永遠排除的檔案名稱 */
 const GLOBAL_EXCLUDE = ['.DS_Store'];
@@ -1110,299 +1115,48 @@ function mergeSettingsBetween(localPath, repoPath, direction, dryRun = false) {
 }
 
 // =============================================================================
-// Section: Codex Config Handler -- config.toml 過濾同步邏輯
-// 處理 ~/.codex/config.toml 的可攜欄位萃取與合併
+// Section: Codex Config Handler -- config.toml 過濾同步進出口
+// TOML parse／serialize／merge 純函式與常數在 codex-config.js；此處僅注入
+// 共用工具並轉接 load／get／apply。diff 渲染留在 Sync Core（見下方 diff 引擎）。
 // =============================================================================
 
-/**
- * 判斷 Codex config.toml key 是否可跨裝置同步
- * @param {string} section - TOML section 名稱，top-level 為空字串
- * @param {string} key - TOML key
- * @returns {boolean}
- */
-function isPortableCodexConfigKey(section, key) {
-  if (section === '') return CODEX_CONFIG_TOP_KEYS.includes(key);
-  if (section.startsWith('plugins.')) return key === 'enabled';
-  return (CODEX_CONFIG_SECTION_KEYS[section] || []).includes(key);
-}
-
-/**
- * 寫入 Codex config map
- * @param {Map<string, Map<string, string>>} data
- * @param {string} section
- * @param {string} key
- * @param {string} value
- */
-function setCodexConfigValue(data, section, key, value) {
-  if (!data.has(section)) data.set(section, new Map());
-  data.get(section).set(key, value);
-}
-
-/**
- * 從 TOML 內容萃取可攜 Codex config 欄位；保留 value 原始字串
- * @param {string} content
- * @returns {Map<string, Map<string, string>>}
- */
-function parsePortableCodexConfig(content) {
-  const data = new Map();
-  let section = '';
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const sectionMatch = line.match(/^\[([^\]]+)\]\s*(?:#.*)?$/);
-    if (sectionMatch) {
-      section = sectionMatch[1].trim();
-      continue;
-    }
-    const keyMatch = line.match(/^([A-Za-z0-9_-]+)\s*=(.*)$/);
-    if (!keyMatch) continue;
-    const key = keyMatch[1];
-    if (isPortableCodexConfigKey(section, key)) {
-      setCodexConfigValue(data, section, key, keyMatch[2].trimStart());
-    }
+/** lazy singleton：延後到執行期建立，避開對 const 相依（REPO_ROOT 等）的 TDZ。 */
+let _codexConfigHandler = null;
+function codexConfigHandler() {
+  if (!_codexConfigHandler) {
+    _codexConfigHandler = codexConfigModule.createCodexConfigHandler({
+      readFileSafe, writeTextSafe, REPO_ROOT, CODEX_HOME,
+    });
   }
-  return data;
+  return _codexConfigHandler;
 }
 
 /**
- * 取得 section 中依固定順序輸出的 key
- * @param {Map<string, Map<string, string>>} data
- * @param {string} section
- * @returns {string[]}
- */
-function getCodexConfigKeys(data, section) {
-  if (section === '') return CODEX_CONFIG_TOP_KEYS;
-  if (section.startsWith('plugins.')) return ['enabled'];
-  return CODEX_CONFIG_SECTION_KEYS[section] || [];
-}
-
-/**
- * 將可攜 Codex config map 序列化為穩定 TOML
- * @param {Map<string, Map<string, string>>} data
- * @returns {string}
- */
-function serializePortableCodexConfig(data) {
-  const lines = [];
-  pushCodexConfigTopLevel(lines, data);
-  for (const section of Object.keys(CODEX_CONFIG_SECTION_KEYS)) {
-    pushCodexConfigSection(lines, data, section);
-  }
-  const plugins = [...data.keys()].filter(s => s.startsWith('plugins.')).sort();
-  for (const section of plugins) pushCodexConfigSection(lines, data, section);
-  return lines.length ? `${lines.join('\n')}\n` : '';
-}
-
-/**
- * 序列化 top-level Codex config key
- * @param {string[]} lines
- * @param {Map<string, Map<string, string>>} data
- */
-function pushCodexConfigTopLevel(lines, data) {
-  const top = data.get('');
-  if (!top) return;
-  for (const key of CODEX_CONFIG_TOP_KEYS) {
-    if (top.has(key)) lines.push(`${key} = ${top.get(key)}`);
-  }
-}
-
-/**
- * 序列化單一 Codex config section
- * @param {string[]} lines
- * @param {Map<string, Map<string, string>>} data
- * @param {string} section
- */
-function pushCodexConfigSection(lines, data, section) {
-  const values = data.get(section);
-  if (!values) return;
-  const keys = getCodexConfigKeys(data, section).filter(key => values.has(key));
-  if (keys.length === 0) return;
-  if (lines.length > 0) lines.push('');
-  lines.push(`[${section}]`);
-  for (const key of keys) lines.push(`${key} = ${values.get(key)}`);
-}
-
-/**
- * 複製 Codex config map，供 to-local merge 時逐步刪除已套用欄位
- * @param {Map<string, Map<string, string>>} data
- * @returns {Map<string, Map<string, string>>}
- */
-function cloneCodexConfigMap(data) {
-  const cloned = new Map();
-  for (const [section, values] of data) cloned.set(section, new Map(values));
-  return cloned;
-}
-
-/**
- * 刪除已套用的 Codex config 欄位
- * @param {Map<string, Map<string, string>>} data
- * @param {string} section
- * @param {string} key
- */
-function deleteCodexConfigValue(data, section, key) {
-  const values = data.get(section);
-  if (!values) return;
-  values.delete(key);
-  if (values.size === 0) data.delete(section);
-}
-
-/**
- * 載入並萃取可攜 Codex config
+ * 載入並萃取可攜 Codex config（轉接模組 handler）
  * @param {string} filePath
  * @returns {{ data: Map<string, Map<string, string>>, serialized: string } | null}
  */
 function loadPortableCodexConfig(filePath) {
-  if (!fs.existsSync(filePath)) return null;
-  const data = parsePortableCodexConfig(readFileSafe(filePath, '讀取 Codex 設定', 'utf8'));
-  return { data, serialized: serializePortableCodexConfig(data) };
+  return codexConfigHandler().loadPortableCodexConfig(filePath);
 }
 
 /**
- * 取得可攜 Codex config TOML 字串
+ * 取得可攜 Codex config TOML 字串（轉接模組 handler）
  * @param {string} filePath
  * @returns {string|null}
  */
 function getPortableCodexConfig(filePath) {
-  const result = loadPortableCodexConfig(filePath);
-  return result ? result.serialized : null;
+  return codexConfigHandler().getPortableCodexConfig(filePath);
 }
 
 /**
- * 將 repo 可攜欄位合併進本機 Codex config，保留本機未受管理欄位
- * @param {string} localContent
- * @param {Map<string, Map<string, string>>} portable
- * @returns {string}
- */
-function mergePortableCodexConfig(localContent, portable) {
-  if (localContent.trim() === '') return serializePortableCodexConfig(portable);
-  const remaining = cloneCodexConfigMap(portable);
-  const lines = localContent.replace(/\r\n/g, '\n').replace(/\n$/g, '').split('\n');
-  const output = [];
-  let section = '';
-  for (const rawLine of lines) {
-    const nextSection = rawLine.trim().match(/^\[([^\]]+)\]\s*(?:#.*)?$/);
-    if (nextSection) {
-      pushRemainingCodexConfigValues(output, remaining, section);
-      section = nextSection[1].trim();
-      output.push(rawLine);
-      continue;
-    }
-    mergeCodexConfigLine(output, remaining, section, rawLine);
-  }
-  pushRemainingCodexConfigValues(output, remaining, section);
-  appendRemainingCodexConfigSections(output, remaining);
-  return `${output.join('\n')}\n`;
-}
-
-/**
- * 合併單行 Codex config；受管理欄位以 repo 值取代，不存在於 repo 者移除
- * @param {string[]} output
- * @param {Map<string, Map<string, string>>} remaining
- * @param {string} section
- * @param {string} rawLine
- */
-function mergeCodexConfigLine(output, remaining, section, rawLine) {
-  const keyMatch = rawLine.trim().match(/^([A-Za-z0-9_-]+)\s*=(.*)$/);
-  if (!keyMatch || !isPortableCodexConfigKey(section, keyMatch[1])) {
-    output.push(rawLine);
-    return;
-  }
-  const key = keyMatch[1];
-  const values = remaining.get(section);
-  if (!values || !values.has(key)) return;
-  output.push(`${key} = ${values.get(key)}`);
-  deleteCodexConfigValue(remaining, section, key);
-}
-
-/**
- * 將既有 section 缺少的 repo 可攜欄位補在 section 結尾
- * @param {string[]} output
- * @param {Map<string, Map<string, string>>} remaining
- * @param {string} section
- */
-function pushRemainingCodexConfigValues(output, remaining, section) {
-  const values = remaining.get(section);
-  if (!values) return;
-  for (const key of getCodexConfigKeys(remaining, section)) {
-    if (!values.has(key)) continue;
-    output.push(`${key} = ${values.get(key)}`);
-    deleteCodexConfigValue(remaining, section, key);
-  }
-}
-
-/**
- * 將本機不存在的可攜 section 追加到檔尾
- * @param {string[]} output
- * @param {Map<string, Map<string, string>>} remaining
- */
-function appendRemainingCodexConfigSections(output, remaining) {
-  pushRemainingCodexConfigValues(output, remaining, '');
-  for (const section of Object.keys(CODEX_CONFIG_SECTION_KEYS)) {
-    appendRemainingCodexConfigSection(output, remaining, section);
-  }
-  const plugins = [...remaining.keys()].filter(s => s.startsWith('plugins.')).sort();
-  for (const section of plugins) appendRemainingCodexConfigSection(output, remaining, section);
-}
-
-/**
- * 追加單一缺失 section
- * @param {string[]} output
- * @param {Map<string, Map<string, string>>} remaining
- * @param {string} section
- */
-function appendRemainingCodexConfigSection(output, remaining, section) {
-  if (!remaining.has(section)) return;
-  if (output.length > 0 && output[output.length - 1] !== '') output.push('');
-  output.push(`[${section}]`);
-  pushRemainingCodexConfigValues(output, remaining, section);
-}
-
-/**
- * 合併 Codex config.toml（只同步 allowlist 欄位）
+ * 合併 Codex config.toml（只同步 allowlist 欄位；轉接模組 handler）
  * @param {'to-repo'|'to-local'} direction - 同步方向
  * @param {boolean} [dryRun=false] - 是否為 dry-run 模式
  * @returns {boolean} 是否有實際變更
  */
 function mergeCodexConfigToml(direction, dryRun = false) {
-  const localPath = path.join(CODEX_HOME, 'config.toml');
-  const repoPath = path.join(REPO_ROOT, 'codex', 'config.toml');
-  if (direction === 'to-repo') return mergeCodexConfigToRepo(localPath, repoPath, dryRun);
-  return mergeCodexConfigToLocal(localPath, repoPath, dryRun);
-}
-
-/**
- * 本機 Codex config.toml -> repo 過濾檔
- * @param {string} localPath
- * @param {string} repoPath
- * @param {boolean} dryRun
- * @returns {boolean}
- */
-function mergeCodexConfigToRepo(localPath, repoPath, dryRun) {
-  const portable = loadPortableCodexConfig(localPath);
-  if (!portable) return false;
-  if (portable.serialized === '' && !fs.existsSync(repoPath)) return false;
-  const repoContent = fs.existsSync(repoPath) ? readFileSafe(repoPath, '讀取 repo Codex 設定', 'utf8') : null;
-  if (repoContent === portable.serialized) return false;
-  if (dryRun) return true;
-  writeTextSafe(repoPath, portable.serialized);
-  return true;
-}
-
-/**
- * repo Codex config.toml -> 本機，保留本機未受管理欄位
- * @param {string} localPath
- * @param {string} repoPath
- * @param {boolean} dryRun
- * @returns {boolean}
- */
-function mergeCodexConfigToLocal(localPath, repoPath, dryRun) {
-  const portable = loadPortableCodexConfig(repoPath);
-  if (!portable) return false;
-  const localContent = fs.existsSync(localPath) ? readFileSafe(localPath, '讀取本機 Codex 設定', 'utf8') : '';
-  const merged = mergePortableCodexConfig(localContent, portable.data);
-  if (localContent === merged) return false;
-  if (dryRun) return true;
-  writeTextSafe(localPath, merged);
-  return true;
+  return codexConfigHandler().mergeCodexConfigToml(direction, dryRun);
 }
 
 // =============================================================================

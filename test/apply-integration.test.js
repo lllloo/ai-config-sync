@@ -19,11 +19,12 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { noColorEnv } = require('./helpers.js');
 
-// sync.js require('./safety-check.js')，任何 `node sync.js` 指令缺此檔即崩，故兩檔同抄。
-const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js'];
+// sync.js require('./safety-check.js') 與 './codex-config.js'，任何 `node sync.js`
+// 指令缺任一檔即崩，故三檔同抄。
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'codex-config.js'];
 
 /**
- * 建立沙箱：repo（含 sync.js + safety-check.js 副本、git init）與 home。
+ * 建立沙箱：repo（含 sync.js + safety-check.js + codex-config.js 副本、git init）與 home。
  * @returns {{repo: string, home: string}}
  */
 function setupSandbox() {
