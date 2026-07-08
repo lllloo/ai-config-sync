@@ -1,0 +1,5 @@
+{
+  // opencode 全域主設定，會同步到 ~/.config/opencode/opencode.jsonc
+  // 完整欄位參考 $schema；fork 後請填入自己的偏好（model、theme、provider 等）。
+  "$schema": "https://opencode.ai/config.json"
+}

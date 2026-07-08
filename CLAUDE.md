@@ -10,11 +10,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、statusline.sh、agents、commands、skills、rules），由 `sync.js` 管理。
 - **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（AGENTS.md、config.toml 過濾欄位、agents `.toml`），由 `sync.js` 管理。
+- **`opencode/`**（無點）— 要同步到 `~/.config/opencode/` 的全域設定（`opencode.jsonc` 主設定、`AGENTS.md` 全域指示），由 `sync.js` 管理。opencode 採 XDG 佈局，設定家在 `~/.config/opencode`（非 `~/.opencode`）。
 - **`.claude/`**（有點）— 本 repo 專用的 Claude Code 本地設定（`settings.json` 等），**不參與同步、不映射到 `~/.claude/`**。`.claude/skills` 是 symlink 指向 `../.agents/skills`。
 - **Codex 本地 skill** — **不需建 `.codex/skills`**。Codex CLI 會自動探索 `.agents/skills`：專案層由 `repo_agents_skill_roots` 從 project root 逐層掃 `<dir>/.agents/skills`，全域層掃 `~/.agents/skills`（原始碼 `codex-rs/core-skills/src/loader.rs` 的 `skill_roots()`）。故本 repo 的 `.agents/skills` 對 Codex 直接生效，無需 symlink。
 - **`.agents/skills/`** — 本地 skill **實體目錄**（已納入版控），跨工具（Claude Code / Codex）共用來源；遵循 [Agent Skills](https://agentskills.io) 開放標準。
 
-新增同步項目：Claude Code 放 `claude/`、Codex 放 `codex/`；新增本地 skill 一律放 `.agents/skills/<name>/`。勿誤放到 `.claude/` 或 `.codex/`。
+新增同步項目：Claude Code 放 `claude/`、Codex 放 `codex/`、opencode 放 `opencode/`；新增本地 skill 一律放 `.agents/skills/<name>/`。勿誤放到 `.claude/` 或 `.codex/`。
 
 ## 執行環境
 
@@ -59,10 +60,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `codex/AGENTS.md` | `~/.codex/AGENTS.md` | Codex 全域指示（跨專案規則），全文比對 |
 | `codex/config.toml` | `~/.codex/config.toml` | **section 級黑名單混合制（capability `codex-config-sync`）：預設同步各 section，僅整段排除 `CODEX_CONFIG_DEVICE_SECTION_PREFIXES`（`model_providers`／`mcp_servers`／`projects`／`profiles`／`history`／`shell_environment_policy`／`tui.model_availability_nux`）。未知新 section／新 key 預設同步（含 Codex 未來新增）。兩個精確 carve-out：top-level 維持窄允許清單 `CODEX_CONFIG_TOP_KEYS`（`personality`／`web_search`，缺 Codex 權威 schema、裝置 key 隨版本增生故不翻轉）、`plugins.*` 維持 `enabled`-only（開放 key 空間、plugin section 可能載憑證）。三分支集中在 `isPortableCodexConfigKey` 單一 predicate。第 2 層由 `safety:check` 對 repo config.toml 的機密 section（`model_providers.*`／`mcp_servers.*`）hard block 兜底。to-local 保留本機被排除 section 不受影響** |
 | `codex/agents/` | `~/.codex/agents/` | Codex `.toml` agents，以 package 子目錄組織；Codex CLI 遞迴掃描子目錄載入（目前無 agent） |
+| `opencode/opencode.jsonc` | `~/.config/opencode/opencode.jsonc` | opencode 全域主設定，整檔 `file` 型同步。**XDG 佈局**：`SYNC_AREAS.opencode.homeBase = ~/.config/opencode`（第一個非 `~/.<tool>` 直屬的 area）。**檔名變體**：`materializeSyncItem` 對此列（manifest 帶 `variants: ['opencode.jsonc','opencode.json']`）以 `resolveVariantLabel` 取兩端實際存在的 canonical `label`（`.jsonc` 優先、皆不存在採 `opencode.jsonc`），兩端同名杜絕重複檔；此解析不影響無 `variants` 欄位的既有列 |
+| `opencode/AGENTS.md` | `~/.config/opencode/AGENTS.md` | opencode 全域指示，`file` 型整檔同步，獨立於 Claude 的 `CLAUDE.md`（opencode 缺此檔時會 fallback 讀 `~/.claude/CLAUDE.md`，維護獨立一份可與 Claude 分歧） |
 
 ### 刻意不同步（勿加入 `buildSyncItems`）
 
 - **`~/.claude.json`** — 含 MCP server 設定與憑證、專案級狀態，屬高風險敏感檔，**永遠不同步**。
+- **opencode 機密與資料目錄** — `~/.local/share/opencode`（含 `auth.json`、`opencode.db`）、`~/.cache/opencode`、`~/.local/state/opencode`。因 opencode area 的 `homeBase` 鎖定 `~/.config/opencode`，這些分屬不同根目錄的機密與資料**天生不在同步射程**，無需顯式排除。
+- **opencode 執行期產物** — `~/.config/opencode` 內的 `node_modules/`、`package.json`、`package-lock.json`、`plugins/`（插件執行期產物）。因 `SYNC_MANIFEST` 只列 `opencode.jsonc`／`AGENTS.md` 兩個具名 `file`、未列任何 opencode `dir` 型項目，這些**未列入即不被同步**（無需 `exclude` 機制）。未來新增 opencode `dir`（如 `skills/`）時才需評估 `exclude`。
 
 ## 架構重點
 
@@ -94,7 +99,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **settings.json top-level 採黑名單制**（`DEVICE_SETTINGS_KEYS`）：預設同步官方 top-level 欄位，僅排除黑名單列舉（裝置偏好、平台綁定 `hooks`、憑證 helper）。`SENSITIVE_KEY_PATTERN` 不再作為同步剝除或中止條件；敏感命名 key 依一般 settings 差異同步，改由 `npm run safety:check` 以 warning 供人工審核。strip／preserve 由 `partitionSettingsTopLevel` 同源保證互補；增減黑名單欄位須改 `DEVICE_SETTINGS_KEYS` 常數與 README。
 - **settings.json `env` 區塊全部依一般同步語意同步**：不再因 `DEVICE_ENV_KEYS` 或 `SENSITIVE_KEY_PATTERN` strip，也不在 to-local 特別保留本機 env key。`DEVICE_ENV_KEYS` 僅保留為既有 review 清單參考。diff／status 顯示層仍由 `maskEnvValuesForDisplay` 將 env 值遮罩為 `***`；這只保護輸出，不代表 repo 內容安全。
 - **codex config.toml 採 section 級黑名單混合制**（`CODEX_CONFIG_DEVICE_SECTION_PREFIXES`）：預設同步各 section，僅整段排除黑名單 section；top-level／`plugins.*` 為維持窄允許清單的精確 carve-out（`CODEX_CONFIG_TOP_KEYS`／`enabled`-only）。三分支集中在 `isPortableCodexConfigKey`。**增減黑名單 section 須改 `CODEX_CONFIG_DEVICE_SECTION_PREFIXES` 常數與 README**；若新機密載體 section 出現，另須同步 `safety-check.js` 的 `CODEX_CONFIG_HARD_BLOCK_SECTIONS`。**top-level 翻黑名單的前置條件**：先盤出 Codex top-level 裝置 key 全集（`model`／`approval_policy`／`sandbox_mode` 等），另開 change 決策，本 change 刻意不做半吊子翻轉。
-- **安全審核改由 `npm run safety:check`**：唯讀、離線掃描 `claude/`、`codex/`、`skills-lock.json`，不掃 `test/`、`openspec/`、README 等非同步來源文件。**secret／私鑰／HOME 路徑的 text pattern 掃描另排除外部套件文件目錄（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`：`claude/agents/`／`claude/skills/`／`codex/agents/`）**——這些為原樣鏡射的第三方文件、為說明偵測規則本就含 token／路徑樣式，掃它們天生整類 false positive；排除只作用於 text 掃描，結構化 `.json`／`.toml` 的 hard block 不受影響。**取捨（明文承擔）**：套件文件若真含機密不再被 text pattern 攔，可接受（公開上游、非本 repo 產物）；真正機密載體與使用者手改的設定來源仍全覆蓋。增減排除目錄須改常數與 README。hard block：已知 secret value pattern、私鑰片段、絕對 HOME 路徑、repo `claude/settings.json` 出現 `hooks` 或 credential helper 欄位、repo `codex/config.toml` 出現機密載體 section（`model_providers.*`／`mcp_servers.*`）；warning：`claude/settings.json` env key 清單與結構化設定中命中 `SENSITIVE_KEY_PATTERN` 的 key path。輸出只列分類、檔案與欄位／key／line，不輸出 env 值、secret 原值或完整 HOME 路徑。exit code：clean 0、只有 warning 1、任一 hard block 2。
+- **安全審核改由 `npm run safety:check`**：唯讀、離線掃描 `claude/`、`codex/`、`opencode/`、`skills-lock.json`，不掃 `test/`、`openspec/`、README 等非同步來源文件。**secret／私鑰／HOME 路徑的 text pattern 掃描另排除外部套件文件目錄（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`：`claude/agents/`／`claude/skills/`／`codex/agents/`）**——這些為原樣鏡射的第三方文件、為說明偵測規則本就含 token／路徑樣式，掃它們天生整類 false positive；排除只作用於 text 掃描，結構化 `.json`／`.toml` 的 hard block 不受影響。**取捨（明文承擔）**：套件文件若真含機密不再被 text pattern 攔，可接受（公開上游、非本 repo 產物）；真正機密載體與使用者手改的設定來源仍全覆蓋。增減排除目錄須改常數與 README。hard block：已知 secret value pattern、私鑰片段、絕對 HOME 路徑、repo `claude/settings.json` 出現 `hooks` 或 credential helper 欄位、repo `codex/config.toml` 出現機密載體 section（`model_providers.*`／`mcp_servers.*`）；warning：`claude/settings.json` env key 清單與結構化設定中命中 `SENSITIVE_KEY_PATTERN` 的 key path。輸出只列分類、檔案與欄位／key／line，不輸出 env 值、secret 原值或完整 HOME 路徑。exit code：clean 0、只有 warning 1、任一 hard block 2。
 - **構建規則**（來自全域 CLAUDE.md）：禁擅自執行 `npm run build`。
 - **嚴禁洩漏敏感資訊到輸出**：`diff`／`status` 不得顯示 env 值，`safety:check` 不得顯示 secret 原值或完整 HOME 路徑。同步流程本身不再宣稱能阻止所有機密寫入 repo；`file`／`dir` 型項目仍原樣同步，commit 前須執行 `npm run safety:check` 與人工審核。
 - **部分失敗可見度**：apply 中途拋例外時，`mirrorDir` 把已完成變更附掛到 `SyncError.context.partialChanges`，`applySyncItems` 補印並經 `logPartialApply` 記入 `.sync-history.log`（標記「因錯誤中斷」）——與 `handleSignal` 的訊號中斷警告互補，已寫入的檔案不得零可見度。

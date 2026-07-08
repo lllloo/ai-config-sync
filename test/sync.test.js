@@ -28,7 +28,9 @@ const {
   sanitizeForTerminal,
   buildSyncItems,
   materializeSyncItem,
+  resolveVariantLabel,
   SYNC_MANIFEST,
+  SYNC_AREAS,
   actionToIcon,
   SyncError,
   ERR,
@@ -271,6 +273,91 @@ test('buildSyncItems：manifest 順序保留、fixedFlow 項目雙向 src/dest �
       assert.equal(localItems[i].dest, repoItems[i].src);
     }
   });
+});
+
+// -----------------------------------------------------------------------------
+// opencode area：materialize 產出、檔名變體解析、drift-guard
+// -----------------------------------------------------------------------------
+test('SYNC_AREAS：opencode area 為 XDG 佈局（~/.config/opencode）且 repoDir/prefix 正確', () => {
+  const oc = SYNC_AREAS.opencode;
+  assert.ok(oc, 'opencode area 應存在');
+  assert.match(oc.homeBase, /[\\/]\.config[\\/]opencode$/);
+  assert.equal(oc.repoDir, 'opencode');
+  assert.equal(oc.prefix, 'opencode/');
+});
+
+test('materializeSyncItem：opencode AGENTS.md 依方向交換且 prefix 為 opencode/', () => {
+  const entry = { area: 'opencode', label: 'AGENTS.md', type: 'file' };
+  const toRepo = materializeSyncItem(entry, 'to-repo');
+  assert.equal(toRepo.label, 'AGENTS.md');
+  assert.equal(toRepo.type, 'file');
+  assert.equal(toRepo.prefix, 'opencode/');
+  // to-repo：home（~/.config/opencode）→ repo（opencode/）
+  assert.match(toRepo.src, /[\\/]\.config[\\/]opencode[\\/]AGENTS\.md$/);
+  assert.match(toRepo.dest, /[\\/]opencode[\\/]AGENTS\.md$/);
+  const toLocal = materializeSyncItem(entry, 'to-local');
+  assert.equal(toLocal.src, toRepo.dest);
+  assert.equal(toLocal.dest, toRepo.src);
+});
+
+test('resolveVariantLabel：僅 .json 存在時採 .json', () => {
+  withTmpDir((home) => withTmpDir((repo) => {
+    fs.writeFileSync(path.join(home, 'opencode.json'), '{}');
+    const label = resolveVariantLabel(['opencode.jsonc', 'opencode.json'], home, repo);
+    assert.equal(label, 'opencode.json');
+  }));
+});
+
+test('resolveVariantLabel：僅 .jsonc 存在時採 .jsonc', () => {
+  withTmpDir((home) => withTmpDir((repo) => {
+    fs.writeFileSync(path.join(repo, 'opencode.jsonc'), '{}');
+    const label = resolveVariantLabel(['opencode.jsonc', 'opencode.json'], home, repo);
+    assert.equal(label, 'opencode.jsonc');
+  }));
+});
+
+test('resolveVariantLabel：兩變體同時存在時 .jsonc 優先', () => {
+  withTmpDir((home) => withTmpDir((repo) => {
+    // 本機端有 .json、repo 端有 .jsonc → 優先序（.jsonc 在前）勝出
+    fs.writeFileSync(path.join(home, 'opencode.json'), '{}');
+    fs.writeFileSync(path.join(repo, 'opencode.jsonc'), '{}');
+    const label = resolveVariantLabel(['opencode.jsonc', 'opencode.json'], home, repo);
+    assert.equal(label, 'opencode.jsonc');
+  }));
+});
+
+test('resolveVariantLabel：兩變體皆不存在時採預設 variants[0]', () => {
+  withTmpDir((home) => withTmpDir((repo) => {
+    const label = resolveVariantLabel(['opencode.jsonc', 'opencode.json'], home, repo);
+    assert.equal(label, 'opencode.jsonc');
+  }));
+});
+
+test('materializeSyncItem：opencode 主設定 variants 解析後兩端同名（canonical 單一 label）', () => {
+  const entry = { area: 'opencode', label: 'opencode.jsonc', type: 'file', variants: ['opencode.jsonc', 'opencode.json'] };
+  const item = materializeSyncItem(entry, 'to-repo');
+  // 解析結果依真實環境而定，但 src/dest basename 必一致（杜絕 .json/.jsonc 重複檔）
+  assert.equal(path.basename(item.src), path.basename(item.dest));
+  assert.equal(item.label, path.basename(item.src));
+  assert.match(item.label, /^opencode\.jsonc?$/);
+});
+
+test('drift-guard：新增 opencode area 後 claude／codex 既有項目 materialize 產出不變', () => {
+  for (const direction of ['to-repo', 'to-local']) {
+    const items = buildSyncItems(direction);
+    const byArea = (prefix) => items.filter(i => i.prefix === prefix);
+    // claude/codex 項目數與既有 manifest 對齊，且 label 未受 opencode 加入影響
+    const claudeLabels = byArea('claude/').map(i => i.label);
+    const codexLabels = byArea('codex/').map(i => i.label);
+    assert.deepEqual(claudeLabels,
+      ['CLAUDE.md', 'settings.json', 'statusline.sh', 'agents', 'commands', 'skills', 'rules']);
+    assert.deepEqual(codexLabels, ['AGENTS.md', 'config.toml', 'agents']);
+    // 每個非 opencode 項目的 src/dest 皆不含 .config/opencode 路徑
+    for (const it of [...byArea('claude/'), ...byArea('codex/')]) {
+      assert.doesNotMatch(it.src, /[\\/]\.config[\\/]opencode[\\/]/);
+      assert.doesNotMatch(it.dest, /[\\/]opencode[\\/]/);
+    }
+  }
 });
 
 // -----------------------------------------------------------------------------

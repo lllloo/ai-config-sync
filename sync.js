@@ -30,6 +30,9 @@ const REPO_ROOT = __dirname;
 const HOME = os.homedir();
 const CLAUDE_HOME = path.join(HOME, '.claude');
 const CODEX_HOME = path.join(HOME, '.codex');
+// opencode 採 XDG 佈局：設定家在 ~/.config/opencode（非 ~/.opencode）；
+// 機密（auth.json）與資料庫落在 ~/.local/share、~/.cache、~/.local/state，天生不在此射程。
+const OPENCODE_HOME = path.join(HOME, '.config', 'opencode');
 const AGENTS_HOME = path.join(HOME, '.agents');
 const SYNC_HISTORY_LOG = path.join(REPO_ROOT, '.sync-history.log');
 const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
@@ -132,6 +135,9 @@ const INIT_FILE_MAP = [
   { src: 'skills-lock.example.json',     dest: 'skills-lock.json',     type: 'json' },
   { src: 'claude/CLAUDE.example.md',     dest: 'claude/CLAUDE.md',     type: 'text' },
   { src: 'codex/AGENTS.example.md',      dest: 'codex/AGENTS.md',      type: 'text' },
+  // opencode 主設定重置為 canonical opencode.jsonc（type text 以保留 JSONC 註解）
+  { src: 'opencode/opencode.example.jsonc', dest: 'opencode/opencode.jsonc', type: 'text' },
+  { src: 'opencode/AGENTS.example.md',      dest: 'opencode/AGENTS.md',      type: 'text' },
 ];
 
 /**
@@ -1148,8 +1154,9 @@ function appendSyncLog(direction, changes) {
  * @type {Record<string, {homeBase: string, repoDir: string, prefix: string}>}
  */
 const SYNC_AREAS = {
-  claude: { homeBase: CLAUDE_HOME, repoDir: 'claude', prefix: 'claude/' },
-  codex:  { homeBase: CODEX_HOME,  repoDir: 'codex',  prefix: 'codex/'  },
+  claude:   { homeBase: CLAUDE_HOME,   repoDir: 'claude',   prefix: 'claude/'   },
+  codex:    { homeBase: CODEX_HOME,    repoDir: 'codex',    prefix: 'codex/'    },
+  opencode: { homeBase: OPENCODE_HOME, repoDir: 'opencode', prefix: 'opencode/' },
 };
 
 /**
@@ -1160,7 +1167,9 @@ const SYNC_AREAS = {
  *   - fixedFlow：true 代表 src 恆為本機端、dest 恆為 repo 端，不隨 direction 交換
  *     （settings.json／config.toml 由 mergeSettingsBetween／mergeCodexConfigToml 依 direction 決定流向）
  *   - exclude（選填，僅 dir 型）：glob 片段陣列，diffDir／mirrorDir 以 matchExclude 略過對應相對路徑
- * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[]}>}
+ *   - variants（選填，僅 file 型）：檔名變體優先序陣列（如 opencode.jsonc/.json），materializeSyncItem
+ *     以兩端實際存在者決定 canonical label、皆不存在採 variants[0]；不影響無此欄位的既有列
+ * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[], variants?: string[]}>}
  */
 const SYNC_MANIFEST = [
   { area: 'claude', label: 'CLAUDE.md',     type: 'file' },
@@ -1173,6 +1182,8 @@ const SYNC_MANIFEST = [
   { area: 'codex',  label: 'AGENTS.md',     type: 'file' },
   { area: 'codex',  label: 'config.toml',   type: 'codex-config', fixedFlow: true },
   { area: 'codex',  label: 'agents',        type: 'dir' },
+  { area: 'opencode', label: 'opencode.jsonc', type: 'file', variants: ['opencode.jsonc', 'opencode.json'] },
+  { area: 'opencode', label: 'AGENTS.md',      type: 'file' },
 ];
 
 /**
@@ -1186,22 +1197,41 @@ function resolveSyncArea(area) {
 }
 
 /**
+ * 解析檔名變體的 canonical label：以優先序掃 variants，任一端（本機／repo）實際存在即採之，
+ * 皆不存在則回退 variants[0]（預設變體）。兩端共用單一 canonical label，杜絕產生重複檔。
+ * @param {string[]} variants - 檔名變體，依優先序排列（如 ['opencode.jsonc', 'opencode.json']）
+ * @param {string} homeBase - 本機端 base 路徑
+ * @param {string} repoBase - repo 端 base 路徑
+ * @returns {string} canonical 檔名
+ */
+function resolveVariantLabel(variants, homeBase, repoBase) {
+  for (const cand of variants) {
+    if (fs.existsSync(path.join(homeBase, cand)) || fs.existsSync(path.join(repoBase, cand))) {
+      return cand;
+    }
+  }
+  return variants[0];
+}
+
+/**
  * 將一列 manifest 依同步方向 materialize 成 SyncItem。
  * fixedFlow 項目 src/dest 固定（home→repo），其餘依 direction 交換。
  * dir 型可選 `exclude`：propagate 為 `excludePatterns`，供 diffDir／mirrorDir 略過（matchExclude）。
- * @param {{area: 'claude'|'codex', label: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[]}} entry
+ * file 型可選 `variants`：以 resolveVariantLabel 取兩端實際存在的 canonical label（皆不存在採 variants[0]）。
+ * @param {{area: keyof typeof SYNC_AREAS, label: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[], variants?: string[]}} entry
  * @param {'to-repo'|'to-local'} direction
  * @returns {SyncItem}
  */
 function materializeSyncItem(entry, direction) {
   const { homeBase, repoBase, prefix } = resolveSyncArea(entry.area);
-  const homePath = path.join(homeBase, entry.label);
-  const repoPath = path.join(repoBase, entry.label);
+  const label = entry.variants ? resolveVariantLabel(entry.variants, homeBase, repoBase) : entry.label;
+  const homePath = path.join(homeBase, label);
+  const repoPath = path.join(repoBase, label);
   const isToRepo = direction === 'to-repo';
   // fixedFlow：src 恆為本機端、dest 恆為 repo 端（由 merge 函式內部依 direction 決定流向）
   const src = entry.fixedFlow || isToRepo ? homePath : repoPath;
   const dest = entry.fixedFlow || isToRepo ? repoPath : homePath;
-  const item = { label: entry.label, src, dest, type: entry.type, prefix };
+  const item = { label, src, dest, type: entry.type, prefix };
   if (entry.exclude) item.excludePatterns = entry.exclude;
   return item;
 }
@@ -2528,7 +2558,9 @@ if (require.main === module) {
     printToLocalPreview,
     buildSyncItems,
     materializeSyncItem,
+    resolveVariantLabel,
     SYNC_MANIFEST,
+    SYNC_AREAS,
     actionToIcon,
     mergeSettingsBetween,
     readFileSafe,

@@ -458,10 +458,14 @@ function seedInitFixtures(repo) {
   writeJson(path.join(repo, 'skills-lock.example.json'), { skills: [] });
   writeText(path.join(repo, 'claude', 'CLAUDE.example.md'), 'SKELETON-CLAUDE\n');
   writeText(path.join(repo, 'codex', 'AGENTS.example.md'), 'SKELETON-AGENTS\n');
+  writeText(path.join(repo, 'opencode', 'opencode.example.jsonc'), 'SKELETON-OPENCODE\n');
+  writeText(path.join(repo, 'opencode', 'AGENTS.example.md'), 'SKELETON-OPENCODE-AGENTS\n');
   // 正式檔（作者個資），init 應以 .example 覆寫
   writeJson(path.join(repo, 'claude', 'settings.json'), { personal: 'SECRET' });
   writeText(path.join(repo, 'claude', 'CLAUDE.md'), 'AUTHOR-PERSONAL');
   writeText(path.join(repo, 'codex', 'AGENTS.md'), 'AUTHOR-AGENTS');
+  writeText(path.join(repo, 'opencode', 'opencode.jsonc'), 'AUTHOR-OPENCODE');
+  writeText(path.join(repo, 'opencode', 'AGENTS.md'), 'AUTHOR-OPENCODE-AGENTS');
   // 個人 rules，init 應刪除
   writeText(path.join(repo, 'claude', 'rules', 'llm-docs.md'), 'X');
   writeText(path.join(repo, 'claude', 'rules', 'skill-writing.md'), 'Y');
@@ -498,6 +502,11 @@ test('init --yes：以 .example 覆寫正式檔、刪除個人 rules、缺檔 EN
       'CLAUDE.md 應被 .example 覆寫');
     assert.equal(fs.readFileSync(path.join(repo, 'codex', 'AGENTS.md'), 'utf8'), 'SKELETON-AGENTS\n',
       'AGENTS.md 應被 .example 覆寫');
+    // opencode 主設定重置為 canonical opencode.jsonc、AGENTS.md 覆寫為骨架
+    assert.equal(fs.readFileSync(path.join(repo, 'opencode', 'opencode.jsonc'), 'utf8'), 'SKELETON-OPENCODE\n',
+      'opencode.jsonc 應被 .example 覆寫');
+    assert.equal(fs.readFileSync(path.join(repo, 'opencode', 'AGENTS.md'), 'utf8'), 'SKELETON-OPENCODE-AGENTS\n',
+      'opencode/AGENTS.md 應被 .example 覆寫');
     // json 正式檔被 .example 覆寫（作者個資消失）
     const settings = fs.readFileSync(path.join(repo, 'claude', 'settings.json'), 'utf8');
     assert.match(settings, /"skeleton": true/, 'settings.json 應為 .example 骨架');
