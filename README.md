@@ -4,7 +4,11 @@
 
 **這是一個 GitHub Template**：點 [Use this template](https://github.com/) 建立自己的私有 repo，再執行 `npm run init` 清空作者範例後填入自己的設定。詳見下方「Fork 後初次設定」。
 
-**同步項目**：`~/.claude/CLAUDE.md`、`~/.claude/settings.json`、`~/.claude/statusline.sh`、全域 agents、全域 skills、全域 rules、`~/.codex/AGENTS.md`、`~/.codex/config.toml`（過濾版）、`~/.codex/agents/`、`~/.config/opencode/opencode.jsonc`、`~/.config/opencode/AGENTS.md`
+**同步項目**（依工具分三類）：
+
+- **Claude Code**（`~/.claude/`）：`CLAUDE.md`、`settings.json`（top-level 黑名單過濾版）、`statusline.sh`、全域 agents、全域 skills、全域 rules
+- **Codex**（`~/.codex/`）：`AGENTS.md`、`config.toml`（section 黑名單過濾版）、agents
+- **opencode**（`~/.config/opencode/`）：`opencode.jsonc`（主設定）、`AGENTS.md`（全域指示）
 
 > **目錄命名**：
 > - `claude/`（無點）— 要同步到 `~/.claude/` 的全域設定
