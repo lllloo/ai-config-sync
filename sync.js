@@ -69,11 +69,6 @@ const DEVICE_ENV_KEYS = [
   'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY',
 ];
 
-/** env key 是否命中裝置黑名單（大小寫不敏感——proxy 慣例 http_proxy／HTTP_PROXY 皆有） */
-function isDeviceEnvKey(key) {
-  return DEVICE_ENV_KEYS.some((k) => k.toLowerCase() === key.toLowerCase());
-}
-
 /**
  * Codex config 專屬常數與純轉換函式由 codex-config.js 持有，於此 re-export，
  * 供既有測試（codex-config.test.js 引用 parse／serialize／merge 純函式）與
@@ -828,7 +823,7 @@ function isGitAvailable() {
  * 比較單一檔案差異
  * @param {string} src - 來源檔案路徑
  * @param {string} dest - 目的檔案路徑
- * @returns {'new'|'changed'|null} 差異狀態
+ * @returns {'new'|'changed'|'deleted'|'eol'|null} 差異狀態
  */
 function diffFile(src, dest) {
   if (!fs.existsSync(src)) return fs.existsSync(dest) ? 'deleted' : null;
@@ -886,44 +881,6 @@ function diffDir(src, dest, excludePatterns = []) {
   }
   for (const rel of destFiles) {
     if (!srcFiles.has(rel)) result.push({ rel, status: 'deleted' });
-  }
-  return result;
-}
-
-/**
- * 純 JS 實作的 line diff（不依賴外部 diff 指令）
- * 直接走簡化的逐行集合比對，保留可讀輸出但不追求最小編輯序列。
- * @param {string} oldText - 舊版文字
- * @param {string} newText - 新版文字
- * @returns {Array<{type: '+'|'-'|' ', line: string}>}
- */
-function computeLineDiff(oldText, newText) {
-  return computeSimpleLineDiff(oldText.split('\n'), newText.split('\n'));
-}
-
-/**
- * 簡易逐行比對（保留易讀輸出，不追求最小編輯序列）
- * 注意：使用 Set 比對，重複行只計一次——若舊文字有 3 行 "foo" 而新文字只有 1 行，
- * 此函式不會顯示任何刪除行。
- * @param {string[]} oldLines
- * @param {string[]} newLines
- * @returns {Array<{type: '+'|'-'|' ', line: string}>}
- */
-function computeSimpleLineDiff(oldLines, newLines) {
-  const result = [];
-  const oldSet = new Set(oldLines);
-  const newSet = new Set(newLines);
-  for (const line of oldLines) {
-    if (!newSet.has(line)) {
-      result.push({ type: '-', line });
-    } else {
-      result.push({ type: ' ', line });
-    }
-  }
-  for (const line of newLines) {
-    if (!oldSet.has(line)) {
-      result.push({ type: '+', line });
-    }
   }
   return result;
 }
@@ -1194,13 +1151,23 @@ function appendSyncLog(direction, changes) {
 // =============================================================================
 
 /**
+ * 同步 area 資料表：一筆 = 一個工具的本機端 base、repo 子目錄與顯示前綴。
+ * 新增工具 area 只需加一筆（對稱於 SYNC_MANIFEST 的「加一列」）。
+ * @type {Record<string, {homeBase: string, repoDir: string, prefix: string}>}
+ */
+const SYNC_AREAS = {
+  claude: { homeBase: CLAUDE_HOME, repoDir: 'claude', prefix: 'claude/' },
+  codex:  { homeBase: CODEX_HOME,  repoDir: 'codex',  prefix: 'codex/'  },
+};
+
+/**
  * 同步項目宣告式清單：一列 = 一個同步路徑，為所有同步項目的單一事實來源。
  * 新增同步內容只需在此加一列（不需改任何 builder 或 dispatch switch）。
- *   - area：'claude' → ~/.claude ↔ repo claude/；'codex' → ~/.codex ↔ repo codex/
+ *   - area：對應 SYNC_AREAS 的 key（'claude' → ~/.claude ↔ repo claude/；'codex' → ~/.codex ↔ repo codex/）
  *   - type：'file'|'settings'|'codex-config'|'dir'（型別行為由 diffSyncItem／applySyncItem 分派）
  *   - fixedFlow：true 代表 src 恆為本機端、dest 恆為 repo 端，不隨 direction 交換
  *     （settings.json／config.toml 由 mergeSettingsJson／mergeCodexConfigToml 內部依 direction 決定流向）
- * @type {Array<{area: 'claude'|'codex', label: string, type: SyncItem['type'], fixedFlow?: boolean}>}
+ * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, type: SyncItem['type'], fixedFlow?: boolean}>}
  */
 const SYNC_MANIFEST = [
   { area: 'claude', label: 'CLAUDE.md',     type: 'file' },
@@ -1216,15 +1183,13 @@ const SYNC_MANIFEST = [
 ];
 
 /**
- * 解析 area 對應的本機端／repo 端 base 路徑與顯示前綴
- * @param {'claude'|'codex'} area
+ * 解析 area 對應的本機端／repo 端 base 路徑與顯示前綴（查 SYNC_AREAS 資料表）
+ * @param {keyof typeof SYNC_AREAS} area
  * @returns {{homeBase: string, repoBase: string, prefix: string}}
  */
 function resolveSyncArea(area) {
-  if (area === 'codex') {
-    return { homeBase: CODEX_HOME, repoBase: path.join(REPO_ROOT, 'codex'), prefix: 'codex/' };
-  }
-  return { homeBase: CLAUDE_HOME, repoBase: path.join(REPO_ROOT, 'claude'), prefix: 'claude/' };
+  const cfg = SYNC_AREAS[area];
+  return { homeBase: cfg.homeBase, repoBase: path.join(REPO_ROOT, cfg.repoDir), prefix: cfg.prefix };
 }
 
 /**
@@ -1296,6 +1261,17 @@ function maskEnvValuesForDisplay(obj) {
 }
 
 /**
+ * 統一構造同步項目的顯示標籤：`<prefix><label>[/rel]`。
+ * prefix 由 materialize 保證存在；`|| 'claude/'` 為手工建構 item 的防呆 fallback。
+ * @param {SyncItem} item
+ * @param {string} [rel] - dir 型項目的相對子路徑
+ * @returns {string}
+ */
+function itemLabel(item, rel) {
+  return `${item.prefix || 'claude/'}${item.label}${rel ? `/${rel}` : ''}`;
+}
+
+/**
  * 為 settings 項目產生 diff result entry（direction-aware，與實際 apply 判斷對齊）
  * to-repo：本機 stripped → repo；to-local：repo → 本機（本機缺檔時回 'new'，避免 preview 漏列）
  * @param {SyncItem} item
@@ -1306,7 +1282,7 @@ function diffSettingsItem(item, direction) {
   const localPath = path.join(CLAUDE_HOME, 'settings.json');
   const repoPath = path.join(REPO_ROOT, 'claude', 'settings.json');
   const base = {
-    label: `claude/${item.label}`,
+    label: itemLabel(item),
     dest: repoPath, verboseSrc: localPath, verboseDest: repoPath, itemType: 'settings',
   };
 
@@ -1364,7 +1340,7 @@ function diffCodexConfigItem(item, direction) {
   const localPath = path.join(CODEX_HOME, 'config.toml');
   const repoPath = path.join(REPO_ROOT, 'codex', 'config.toml');
   const base = {
-    label: `codex/${item.label}`,
+    label: itemLabel(item),
     dest: repoPath, verboseSrc: localPath, verboseDest: repoPath, itemType: 'codex-config',
   };
 
@@ -1389,7 +1365,7 @@ function diffCodexConfigItem(item, direction) {
  */
 function diffFileItem(item) {
   return {
-    label: `${item.prefix || 'claude/'}${item.label}`,
+    label: itemLabel(item),
     status: diffFile(item.src, item.dest),
     src: item.src,
     dest: item.dest,
@@ -1412,7 +1388,7 @@ function diffDirItems(item) {
     const src = path.join(item.src, d.rel);
     const dest = path.join(item.dest, d.rel);
     const entry = {
-      label: `${item.prefix || 'claude/'}${item.label}/${d.rel}`,
+      label: itemLabel(item, d.rel),
       status: d.status, src, dest, verboseSrc: src, verboseDest: dest, itemType: 'dir',
     };
     if (d.status === 'deleted' && srcMissing) entry.preserved = true;
@@ -1439,7 +1415,7 @@ function applyMergeItem(mergeFn, label) {
 function applyFileItem(item, dryRun) {
   const existed = fs.existsSync(item.dest);
   if (!copyFile(item.src, item.dest, false, dryRun)) return [];
-  return [{ action: existed ? 'updated' : 'added', label: `${item.prefix || 'claude/'}${item.label}` }];
+  return [{ action: existed ? 'updated' : 'added', label: itemLabel(item) }];
 }
 
 /**
@@ -1450,7 +1426,7 @@ function applyFileItem(item, dryRun) {
  */
 function applyDirItem(item, dryRun) {
   return mirrorDir(item.src, item.dest, item.excludePatterns || [], false, dryRun)
-    .map(c => ({ action: c.action, label: `${item.prefix || 'claude/'}${item.label}/${c.rel}` }));
+    .map(c => ({ action: c.action, label: itemLabel(item, c.rel) }));
 }
 
 /**
@@ -1535,8 +1511,7 @@ function applySyncItems(items, direction, opts) {
       // 統計與輸出，再把整體已套用清單附掛給呼叫端（logPartialApply 記 audit log）——
       // 與 handleSignal 的訊號中斷警告互補，讓「例外中斷」路徑的部分寫入同樣可見
       if (e instanceof SyncError) {
-        const prefix = `${item.prefix || 'claude/'}${item.label}/`;
-        for (const c of e.context.partialChanges || []) record({ action: c.action, label: `${prefix}${c.rel}` });
+        for (const c of e.context.partialChanges || []) record({ action: c.action, label: itemLabel(item, c.rel) });
         delete e.context.partialChanges;
         e.context.applied = { stats, changeLog };
       }
@@ -1664,7 +1639,7 @@ function buildFullDiffList(items, diffItems) {
   // 補上無差異的 file 與 settings 項目（ok 狀態）
   for (const item of items) {
     if (item.type === 'dir') continue;
-    const label = `${item.prefix || 'claude/'}${item.label}`;
+    const label = itemLabel(item);
     if (!result.some(d => d.label === label)) {
       result.push({
         label,
@@ -1681,7 +1656,7 @@ function buildFullDiffList(items, diffItems) {
   // 補上無差異的 dir 項目（以摘要行呈現，證明已被檢查）
   for (const item of items) {
     if (item.type !== 'dir') continue;
-    const prefix = `${item.prefix || 'claude/'}${item.label}/`;
+    const prefix = `${itemLabel(item)}/`;
     const hasAny = result.some(d => d.label.startsWith(prefix));
     if (!hasAny) {
       result.push({
@@ -2527,8 +2502,6 @@ if (require.main === module) {
 } else {
   module.exports = {
     // 純函式 / 輔助：供單元測試使用
-    computeLineDiff,
-    computeSimpleLineDiff,
     collectSkillDiffSummary,
     buildFullDiffList,
     diffFile,
@@ -2584,7 +2557,6 @@ if (require.main === module) {
     DEVICE_ENV_KEYS,
     SETTINGS_HARD_BLOCK_KEYS,
     PRIVATE_KEY_PATTERN,
-    isDeviceEnvKey,
     CODEX_CONFIG_TOP_KEYS,
     CODEX_CONFIG_SECTION_KEYS,
     INIT_FILE_MAP,

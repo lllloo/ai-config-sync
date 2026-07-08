@@ -18,6 +18,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { noColorEnv } = require('./helpers.js');
+const { COMMANDS } = require('../sync.js');
 
 // sync.js require('./safety-check.js') 與 './codex-config.js'，任何 `node sync.js`
 // 指令缺任一檔即崩，故三檔同抄。
@@ -378,6 +379,26 @@ test('diff：二進位檔差異輸出不得含沙箱絕對路徑', () => {
     assert.equal(r.status, 1, `有差異應 exit 1\n${r.stdout}\n${r.stderr}`);
     const output = r.stdout + r.stderr;
     assert.ok(!output.includes(root), `輸出不得含沙箱絕對路徑（外部 diff 的 Binary files 訊息須遮罩）\n${output}`);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// dispatch drift-guard：每個 COMMANDS 登錄指令都須能被 runCommand 分派，
+// 不落入「未知指令」default——鎖住「新增指令漏改 runCommand switch」的漂移。
+// 以 --dry-run --yes 讓破壞性指令安全非互動執行；缺參數的 skills:* 會回其自身
+// 參數錯誤（非「未知指令」），故 guard 只斷言「未落 default 分支」。
+// -----------------------------------------------------------------------------
+test('dispatch guard：COMMANDS 每個指令皆可被 runCommand 分派（不落未知指令）', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    for (const cmd of Object.keys(COMMANDS)) {
+      const r = run(repo, home, [cmd, '--dry-run', '--yes']);
+      const output = `${r.stdout}\n${r.stderr}`;
+      assert.ok(!output.includes('未知指令'),
+        `指令 "${cmd}" 應被 runCommand 分派，卻落入「未知指令」default\n${output}`);
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

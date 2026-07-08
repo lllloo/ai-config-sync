@@ -11,7 +11,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const {
-  computeLineDiff,
   collectSkillDiffSummary,
   buildFullDiffList,
   diffFile,
@@ -38,35 +37,6 @@ const {
   INIT_RULES_TO_REMOVE,
 } = require('../sync.js');
 const { withArgv, withTmpDir, withTmpFile } = require('./helpers');
-
-// -----------------------------------------------------------------------------
-// computeLineDiff
-// -----------------------------------------------------------------------------
-test('computeLineDiff：兩個相同字串應無 +/- 行', () => {
-  const ops = computeLineDiff('a\nb\nc', 'a\nb\nc');
-  const changed = ops.filter(op => op.type !== ' ');
-  assert.equal(changed.length, 0);
-});
-
-test('computeLineDiff：全新內容應全為 + 行', () => {
-  const ops = computeLineDiff('', 'hello\nworld');
-  const added = ops.filter(op => op.type === '+').map(op => op.line);
-  assert.deepEqual(added, ['hello', 'world']);
-});
-
-test('computeLineDiff：刪除行應產生 - 行', () => {
-  const ops = computeLineDiff('a\nb\nc', 'a\nc');
-  const removed = ops.filter(op => op.type === '-').map(op => op.line);
-  assert.deepEqual(removed, ['b']);
-});
-
-test('computeLineDiff：中間修改應同時有 + 與 - 行', () => {
-  const ops = computeLineDiff('a\nb\nc', 'a\nB\nc');
-  const removed = ops.filter(op => op.type === '-').map(op => op.line);
-  const added = ops.filter(op => op.type === '+').map(op => op.line);
-  assert.deepEqual(removed, ['b']);
-  assert.deepEqual(added, ['B']);
-});
 
 // -----------------------------------------------------------------------------
 // matchExclude

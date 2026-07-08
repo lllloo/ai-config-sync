@@ -9,8 +9,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
-  computeLineDiff,
-  computeSimpleLineDiff,
   matchExclude,
   parseArgs,
   parseSkillSource,
@@ -44,10 +42,6 @@ const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 const { withArgv, withTmpDir, noColorEnv } = require('./helpers');
-
-// =============================================================================
-// 高優先：computeSimpleLineDiff（簡化逐行比對）
-// =============================================================================
 
 // =============================================================================
 // 安全：askConfirm 在非互動環境的行為（避免 to-local 卡死或靜默 no-op）
@@ -106,25 +100,6 @@ test('readJson：JSON 解析失敗的錯誤不洩漏內容片段（密鑰）', (
     assert.ok(!blob.includes('sk-ant-SECRET12345'), '錯誤不得含密鑰片段');
     assert.ok(!('parseError' in (err.context || {})), 'context 不得保留 parseError');
   });
-});
-
-test('computeSimpleLineDiff：刪除行標記為 -，新增行標記為 +', () => {
-  const ops = computeSimpleLineDiff(['a', 'b', 'c'], ['a', 'c', 'd']);
-  const removed = ops.filter(op => op.type === '-').map(op => op.line);
-  const added = ops.filter(op => op.type === '+').map(op => op.line);
-  assert.deepEqual(removed, ['b']);
-  assert.deepEqual(added, ['d']);
-});
-
-test('computeSimpleLineDiff：相同內容無 +/- 行', () => {
-  const ops = computeSimpleLineDiff(['x', 'y'], ['x', 'y']);
-  const changed = ops.filter(op => op.type !== ' ');
-  assert.equal(changed.length, 0);
-});
-
-test('computeSimpleLineDiff：空陣列對空陣列回傳空', () => {
-  const ops = computeSimpleLineDiff([], []);
-  assert.equal(ops.length, 0);
 });
 
 // =============================================================================
