@@ -358,6 +358,24 @@ test('to-repo：本機 config.toml 只有黑名單欄位且 repo 無檔 → diff
   }
 });
 
+// 回歸：codex config.toml 的 to-local 預覽，本機與 merged 僅檔尾換行（CRLF vs LF）
+// 差異時應標為 eol（將更新（僅檔尾換行））而非 changed，避免 EOL 噪音被誤報為內容變更。
+test('to-local 預覽：codex config.toml 僅 CRLF/LF 差異 → 標為 eol 而非 changed', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'codex', 'config.toml'), 'personality = "x"\n');
+    // 本機為相同可攜內容但 CRLF；merged 產出 LF → 僅 EOL 差異
+    writeText(path.join(home, '.codex', 'config.toml'), 'personality = "x"\r\n');
+
+    const d = run(repo, home, ['to-local', '--dry-run']);
+    assert.match(d.stdout, /\[≈\]\s*codex\/config\.toml/, '僅 EOL 差異應標為 eol（≈）');
+    assert.match(d.stdout, /codex\/config\.toml.*僅檔尾換行/, '應標示「將更新（僅檔尾換行）」');
+    assert.doesNotMatch(d.stdout, /\[~\]\s*codex\/config\.toml/, '不得標為 changed（~）');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // -----------------------------------------------------------------------------
 // 部分失敗可見度：apply 中途拋錯時，已寫入變更須列出並記入 .sync-history.log
 // （與 handleSignal 的訊號中斷警告互補；此前例外中斷路徑零可見度、audit trail 全失）
@@ -423,6 +441,85 @@ test('dispatch guard：COMMANDS 每個指令皆可被 runCommand 分派（不落
       assert.ok(!output.includes('未知指令'),
         `指令 "${cmd}" 應被 runCommand 分派，卻落入「未知指令」default\n${output}`);
     }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// init：破壞性重置（.example 覆寫正式檔、刪除個人 rules）端到端。
+// init 對 REPO_ROOT（沙箱 repo）操作；此前僅有資料形狀 unit test，實際覆寫／刪除
+// ／dry-run 不寫／ENOENT 容錯零回歸防護，是 fork 後執行一次的高破壞性指令。
+// -----------------------------------------------------------------------------
+
+/** 在沙箱 repo 內鋪好 init 所需的 .example 範本、正式檔與個人 rules。 */
+function seedInitFixtures(repo) {
+  writeJson(path.join(repo, 'claude', 'settings.example.json'), { skeleton: true });
+  writeJson(path.join(repo, 'skills-lock.example.json'), { skills: [] });
+  writeText(path.join(repo, 'claude', 'CLAUDE.example.md'), 'SKELETON-CLAUDE\n');
+  writeText(path.join(repo, 'codex', 'AGENTS.example.md'), 'SKELETON-AGENTS\n');
+  // 正式檔（作者個資），init 應以 .example 覆寫
+  writeJson(path.join(repo, 'claude', 'settings.json'), { personal: 'SECRET' });
+  writeText(path.join(repo, 'claude', 'CLAUDE.md'), 'AUTHOR-PERSONAL');
+  writeText(path.join(repo, 'codex', 'AGENTS.md'), 'AUTHOR-AGENTS');
+  // 個人 rules，init 應刪除
+  writeText(path.join(repo, 'claude', 'rules', 'llm-docs.md'), 'X');
+  writeText(path.join(repo, 'claude', 'rules', 'skill-writing.md'), 'Y');
+}
+
+test('init --dry-run：預覽變更但不寫入、不刪除', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    seedInitFixtures(repo);
+    const r = run(repo, home, ['init', '--dry-run']);
+    assert.equal(r.status, 0, `dry-run 應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /\[dry-run\]/, '應標示 dry-run');
+    // 正式檔內容不變、rules 未刪
+    assert.match(fs.readFileSync(path.join(repo, 'claude', 'CLAUDE.md'), 'utf8'), /AUTHOR-PERSONAL/,
+      'dry-run 不得覆寫正式檔');
+    assert.equal(fs.existsSync(path.join(repo, 'claude', 'rules', 'llm-docs.md')), true,
+      'dry-run 不得刪除個人 rules');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('init --yes：以 .example 覆寫正式檔、刪除個人 rules、缺檔 ENOENT 容錯', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    seedInitFixtures(repo);
+    // 其中一個 rules 事先不存在，驗證 unlink 的 ENOENT 容錯不致中斷
+    fs.rmSync(path.join(repo, 'claude', 'rules', 'skill-writing.md'));
+
+    const r = run(repo, home, ['init', '--yes']);
+    assert.equal(r.status, 0, `init 應 exit 0\n${r.stdout}\n${r.stderr}`);
+    // text 正式檔被 .example 覆寫
+    assert.equal(fs.readFileSync(path.join(repo, 'claude', 'CLAUDE.md'), 'utf8'), 'SKELETON-CLAUDE\n',
+      'CLAUDE.md 應被 .example 覆寫');
+    assert.equal(fs.readFileSync(path.join(repo, 'codex', 'AGENTS.md'), 'utf8'), 'SKELETON-AGENTS\n',
+      'AGENTS.md 應被 .example 覆寫');
+    // json 正式檔被 .example 覆寫（作者個資消失）
+    const settings = fs.readFileSync(path.join(repo, 'claude', 'settings.json'), 'utf8');
+    assert.match(settings, /"skeleton": true/, 'settings.json 應為 .example 骨架');
+    assert.doesNotMatch(settings, /SECRET/, '作者個資不得殘留');
+    // 個人 rules 皆已刪除（含事先不存在者不報錯）
+    assert.equal(fs.existsSync(path.join(repo, 'claude', 'rules', 'llm-docs.md')), false,
+      'llm-docs.md 應被刪除');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('init 無 --yes（非互動）：拒絕執行並回 exit 2，不破壞任何檔', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    seedInitFixtures(repo);
+    const r = run(repo, home, ['init']);
+    assert.equal(r.status, 2, `非互動缺 --yes 應 exit 2\n${r.stdout}\n${r.stderr}`);
+    assert.match(fs.readFileSync(path.join(repo, 'claude', 'CLAUDE.md'), 'utf8'), /AUTHOR-PERSONAL/,
+      '拒絕執行時不得覆寫正式檔');
+    assert.equal(fs.existsSync(path.join(repo, 'claude', 'rules', 'llm-docs.md')), true,
+      '拒絕執行時不得刪除 rules');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

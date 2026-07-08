@@ -819,6 +819,52 @@ test('safety:check：只有 warning 時 exit 1，列 key 不列 env 值', () => 
   }
 });
 
+test('safety:check：settings.json env 值為已知格式 secret → hard block exit 2（不只 warning）', () => {
+  const { repo, root } = setupSafetySandbox();
+  try {
+    // env 已翻黑名單制、值不再 strip；known-format token 由 text 掃描兜底為 hard block。
+    // 未知格式 token 天生無法被 pattern 攔（僅剩 key 名 warning + 人工審核），為明文承擔。
+    const secret = 'sk-' + 'a'.repeat(24);
+    writeSafetyJson(repo, 'claude/settings.json', { env: { ANTHROPIC_API_KEY: secret } });
+    const r = runSafety(repo);
+    assert.equal(r.status, 2, `env 內已知格式 secret 應 hard block\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /疑似機密值/, '應歸類為疑似機密值 hard block');
+    assert.doesNotMatch(r.stdout, new RegExp(secret), '不得輸出 secret 原值');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('safety:check：SECRET_VALUE_PATTERN 各 token 前綴皆 hard block（防 regex 分支誤刪）', () => {
+  const samples = [
+    'sk-' + 'a'.repeat(20),          // Anthropic/OpenAI
+    'sk_live_' + 'a'.repeat(12),     // Stripe
+    'ghp_' + 'a'.repeat(24),         // GitHub PAT
+    'github_pat_' + 'a'.repeat(10),  // GitHub fine-grained
+    'glpat-' + 'a'.repeat(12),       // GitLab
+    'AKIA' + 'ABCDEFGHIJKLMNOP',     // AWS
+    'AIza' + 'a'.repeat(20),         // Google
+    'SG.' + 'a'.repeat(20),          // SendGrid
+    'npm_' + 'a'.repeat(24),         // npm
+    'xoxb-' + 'a'.repeat(10),        // Slack bot
+    'xapp-' + 'a'.repeat(10),        // Slack app
+    'eyJ' + 'a'.repeat(12) + '.',    // JWT header
+  ];
+  for (const token of samples) {
+    const { repo, root } = setupSafetySandbox();
+    try {
+      writeSafetyText(repo, 'claude/statusline.sh', `echo ${token}\n`);
+      const r = runSafety(repo);
+      assert.equal(r.status, 2, `token 前綴應 hard block: ${token.slice(0, 8)}…\n${r.stdout}\n${r.stderr}`);
+      assert.match(r.stdout, /疑似機密值/);
+      assert.doesNotMatch(r.stdout, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+        '不得輸出 secret 原值');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
 test('safety:check：hard block exit 2，輸出遮罩 secret 與 HOME 路徑', () => {
   const { repo, root } = setupSafetySandbox();
   try {

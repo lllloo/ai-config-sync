@@ -243,6 +243,49 @@ api_key = "sk-secret-leak"
   assert.ok(serialized.includes('[features]\nenabled = true'));
 });
 
+test('parse/serialize：多行陣列元素字串內含 ] 與 # 不提前截斷', () => {
+  // scanCodexValueState 須在引號內略過 ]（不減深度）與 #（不當註解），否則陣列被截斷成無效 TOML
+  const input = `[tui]
+notifications = [
+  "a]b#c",
+  "plain",
+]
+theme = "x"
+`;
+  const serialized = serializePortableCodexConfig(parsePortableCodexConfig(input));
+  assert.equal(serialized, input);
+  assert.ok(serialized.includes('a]b#c'), '含 ]/# 的字串元素須完整保留');
+  assert.ok(serialized.includes('theme = "x"'), '陣列後的 key 須正確歸屬同 section');
+});
+
+test('parse/serialize：多行陣列中含 ] 的整行註解不誤閉合陣列', () => {
+  const input = `[tui]
+notifications = [
+  # 這行註解含 ] 不應閉合陣列
+  "a",
+]
+theme = "x"
+`;
+  const serialized = serializePortableCodexConfig(parsePortableCodexConfig(input));
+  assert.equal(serialized, input);
+  assert.ok(serialized.includes('theme = "x"'), '註解內的 ] 不得使 theme 掉出 section');
+});
+
+test('parse/serialize：跳脫引號與巢狀多行陣列完整保留', () => {
+  const input = `[tui]
+label = [
+  "a\\"]b",
+]
+matrix = [
+  [1, 2],
+  [3, 4],
+]
+theme = "x"
+`;
+  const serialized = serializePortableCodexConfig(parsePortableCodexConfig(input));
+  assert.equal(serialized, input);
+});
+
 test('merge：to-local 更新多行陣列並保留本機 array-of-tables 機密 section', () => {
   const repo = parsePortableCodexConfig(`[tui]
 notifications = [
