@@ -16,6 +16,7 @@ const {
   diffFile,
   diffDir,
   diffDirItems,
+  diffFileItem,
   printToLocalPreview,
   matchExclude,
   statusToStatsKey,
@@ -498,6 +499,17 @@ test('diffDirItems：源目錄存在但缺該檔 → deleted 不標 preserved（
     const del = entries.find(e => e.status === 'deleted');
     assert.ok(del, '應有一筆 deleted');
     assert.notEqual(del.preserved, true, '源目錄存在時該檔會被刪，不得標 preserved');
+  });
+});
+
+test('diffFileItem：repo 缺來源檔 → deleted 標 preserved（copyFile 永不刪 dest）', () => {
+  withTmpDir((dir) => {
+    const src = path.join(dir, 'repo-missing.md');
+    const dest = path.join(dir, 'local.md');
+    fs.writeFileSync(dest, 'local content');
+    const entry = diffFileItem({ src, dest, label: 'CLAUDE.md', prefix: 'claude/' });
+    assert.equal(entry.status, 'deleted');
+    assert.equal(entry.preserved, true, 'file 型 apply 不刪 dest，deleted 應標 preserved');
   });
 });
 

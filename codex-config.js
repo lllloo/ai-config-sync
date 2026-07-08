@@ -93,26 +93,108 @@ function setCodexConfigValue(data, section, key, value) {
 }
 
 /**
- * 從 TOML 內容萃取可攜 Codex config 欄位；保留 value 原始字串
+ * 掃描 value 文字，回報「陣列括號淨深度」與「三引號字串是否未閉合」。
+ * 逐字元走訪，略過單／雙引號字串、三引號字串（`"""`／`'''`）與行內 `#` 註解內容，
+ * 只在字串／註解外計算 `[`／`]`，供跨行續行偵測用。
+ * @param {string} text
+ * @returns {{ depth: number, openTriple: boolean }}
+ */
+function scanCodexValueState(text) {
+  let depth = 0;
+  let quote = null;
+  let triple = null;
+  for (let i = 0; i < text.length;) {
+    if (triple) {
+      if (text.startsWith(triple, i)) { triple = null; i += 3; } else i += 1;
+      continue;
+    }
+    if (quote) {
+      if (quote === '"' && text[i] === '\\') { i += 2; continue; }
+      if (text[i] === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (text.startsWith('"""', i)) { triple = '"""'; i += 3; continue; }
+    if (text.startsWith("'''", i)) { triple = "'''"; i += 3; continue; }
+    const ch = text[i];
+    if (ch === '"' || ch === "'") { quote = ch; i += 1; continue; }
+    if (ch === '#') { while (i < text.length && text[i] !== '\n') i += 1; continue; }
+    if (ch === '[') depth += 1;
+    else if (ch === ']') depth -= 1;
+    i += 1;
+  }
+  return { depth, openTriple: triple !== null };
+}
+
+/**
+ * 判斷 value 文字是否尚未完結（多行陣列未閉合或三引號字串未閉合），需併入續行。
+ * @param {string} text
+ * @returns {boolean}
+ */
+function isIncompleteCodexValue(text) {
+  const state = scanCodexValueState(text);
+  return state.depth > 0 || state.openTriple;
+}
+
+/**
+ * 比對 TOML section header：array-of-tables（`[[x]]`）與一般 table（`[x]`）。
+ * @param {string} trimmed - 已 trim 的整行
+ * @returns {{ type: 'section', name: string, arrayTable: boolean }|null}
+ */
+function matchCodexHeader(trimmed) {
+  const arrayTable = trimmed.match(/^\[\[([^\]]+)\]\]\s*(?:#.*)?$/);
+  if (arrayTable) return { type: 'section', name: arrayTable[1].trim(), arrayTable: true };
+  const table = trimmed.match(/^\[([^\]]+)\]\s*(?:#.*)?$/);
+  if (table) return { type: 'section', name: table[1].trim(), arrayTable: false };
+  return null;
+}
+
+/**
+ * 將 TOML 內容拆成邏輯語句 token：section header、key-value（含跨行多行陣列／
+ * 三引號字串，`value`／`raw` 保留完整原文）、其餘（空行／註解／無法辨識）。
+ * 逐行掃描，遇未閉合陣列或三引號字串時併入後續行，避免逐行截斷損毀。
+ * @param {string} content
+ * @returns {Array<{type:'section',name:string,arrayTable:boolean,raw:string}|{type:'kv',key:string,value:string,raw:string}|{type:'other',raw:string}>}
+ */
+function readCodexStatements(content) {
+  const lines = content.split(/\r?\n/);
+  const statements = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = lines[i];
+    const trimmed = raw.trim();
+    if (trimmed === '' || trimmed.startsWith('#')) { statements.push({ type: 'other', raw }); continue; }
+    const header = matchCodexHeader(trimmed);
+    if (header) { statements.push({ ...header, raw }); continue; }
+    const kv = trimmed.match(/^(.+?)\s*=(.*)$/);
+    if (!kv) { statements.push({ type: 'other', raw }); continue; }
+    let value = kv[2].replace(/^[ \t]+/, '');
+    const rawLines = [raw];
+    while (isIncompleteCodexValue(value) && i + 1 < lines.length) {
+      i += 1;
+      rawLines.push(lines[i]);
+      value += `\n${lines[i]}`;
+    }
+    statements.push({ type: 'kv', key: kv[1].trim(), value, raw: rawLines.join('\n') });
+  }
+  return statements;
+}
+
+/**
+ * 從 TOML 內容萃取可攜 Codex config 欄位；保留 value 原始字串（含多行）。
+ * array-of-tables（`[[x]]`）其下 key 一律不視為可攜（真實 array-of-tables section
+ * 皆為機密／裝置載體；即使非黑名單也不 round-trip，避免誤序列化成單一 table）。
  * @param {string} content
  * @returns {Map<string, Map<string, string>>}
  */
 function parsePortableCodexConfig(content) {
   const data = new Map();
   let section = '';
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const sectionMatch = line.match(/^\[([^\]]+)\]\s*(?:#.*)?$/);
-    if (sectionMatch) {
-      section = sectionMatch[1].trim();
-      continue;
-    }
-    const keyMatch = line.match(/^([A-Za-z0-9_-]+)\s*=(.*)$/);
-    if (!keyMatch) continue;
-    const key = keyMatch[1];
-    if (isPortableCodexConfigKey(section, key)) {
-      setCodexConfigValue(data, section, key, keyMatch[2].trimStart());
+  let arrayTable = false;
+  for (const st of readCodexStatements(content)) {
+    if (st.type === 'section') { section = st.name; arrayTable = st.arrayTable; continue; }
+    if (st.type !== 'kv' || arrayTable) continue;
+    if (isPortableCodexConfigKey(section, st.key)) {
+      setCodexConfigValue(data, section, st.key, st.value);
     }
   }
   return data;
@@ -210,18 +292,20 @@ function deleteCodexConfigValue(data, section, key) {
 function mergePortableCodexConfig(localContent, portable) {
   if (localContent.trim() === '') return serializePortableCodexConfig(portable);
   const remaining = cloneCodexConfigMap(portable);
-  const lines = localContent.replace(/\r\n/g, '\n').replace(/\n$/g, '').split('\n');
+  const normalized = localContent.replace(/\r\n/g, '\n').replace(/\n$/, '');
   const output = [];
   let section = '';
-  for (const rawLine of lines) {
-    const nextSection = rawLine.trim().match(/^\[([^\]]+)\]\s*(?:#.*)?$/);
-    if (nextSection) {
+  let arrayTable = false;
+  for (const st of readCodexStatements(normalized)) {
+    if (st.type === 'section') {
       pushRemainingCodexConfigValues(output, remaining, section);
-      section = nextSection[1].trim();
-      output.push(rawLine);
+      section = st.name;
+      arrayTable = st.arrayTable;
+      output.push(st.raw);
       continue;
     }
-    mergeCodexConfigLine(output, remaining, section, rawLine);
+    if (st.type === 'kv' && !arrayTable) mergeCodexConfigStatement(output, remaining, section, st);
+    else output.push(st.raw);
   }
   pushRemainingCodexConfigValues(output, remaining, section);
   appendRemainingCodexConfigSections(output, remaining);
@@ -229,23 +313,22 @@ function mergePortableCodexConfig(localContent, portable) {
 }
 
 /**
- * 合併單行 Codex config；受管理欄位以 repo 值取代，不存在於 repo 者移除
+ * 合併單一 key-value 語句（可能多行）；受管理欄位以 repo 值取代，不存在於 repo 者移除，
+ * 非受管理欄位保留原文（含原始縮排／多行）。
  * @param {string[]} output
  * @param {Map<string, Map<string, string>>} remaining
  * @param {string} section
- * @param {string} rawLine
+ * @param {{key:string, value:string, raw:string}} st
  */
-function mergeCodexConfigLine(output, remaining, section, rawLine) {
-  const keyMatch = rawLine.trim().match(/^([A-Za-z0-9_-]+)\s*=(.*)$/);
-  if (!keyMatch || !isPortableCodexConfigKey(section, keyMatch[1])) {
-    output.push(rawLine);
+function mergeCodexConfigStatement(output, remaining, section, st) {
+  if (!isPortableCodexConfigKey(section, st.key)) {
+    output.push(st.raw);
     return;
   }
-  const key = keyMatch[1];
   const values = remaining.get(section);
-  if (!values || !values.has(key)) return;
-  output.push(`${key} = ${values.get(key)}`);
-  deleteCodexConfigValue(remaining, section, key);
+  if (!values || !values.has(st.key)) return;
+  output.push(`${st.key} = ${values.get(st.key)}`);
+  deleteCodexConfigValue(remaining, section, st.key);
 }
 
 /**

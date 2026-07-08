@@ -856,6 +856,25 @@ test('safety:check：repo config.toml 機密 section（model_providers）→ har
   }
 });
 
+test('safety:check：機密 section header 變體（[[x]]／尾註解／內部空白）仍 hard block exit 2', () => {
+  const variants = [
+    '[[model_providers]]\nbase_url = "v"\n',            // array-of-tables
+    '[model_providers.openai] # 尾註解\nbase_url = "v"\n', // 尾註解
+    '[ mcp_servers.foo ]\ncommand = "v"\n',              // header 內部空白
+  ];
+  for (const body of variants) {
+    const { repo, root } = setupSafetySandbox();
+    try {
+      writeSafetyText(repo, 'codex/config.toml', `personality = "x"\n\n${body}`);
+      const r = runSafety(repo);
+      assert.equal(r.status, 2, `header 變體應 hard block\n${body}\n${r.stdout}\n${r.stderr}`);
+      assert.match(r.stdout, /不應同步 codex 機密 section/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
 test('safety:check：外部套件文件（claude/agents）含機密/HOME 樣式 → 不觸發 hard block，exit 0', () => {
   const { repo, root } = setupSafetySandbox();
   try {

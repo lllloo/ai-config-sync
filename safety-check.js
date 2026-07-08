@@ -29,8 +29,8 @@ const SENSITIVE_KEY_PATTERN = /(key|token|secret|credential|password|auth|cert|c
  */
 const SECRET_VALUE_PATTERN = /\b(sk-[\w-]{8,}|sk_(?:live|test)_\w{8,}|ghp_\w{20,}|github_pat_|glpat-|AKIA[0-9A-Z]{16}|AIza[\w-]{16,}|SG\.[\w-]{16,}|npm_\w{20,}|xox[baprs]-|xapp-|eyJ[\w-]{10,}\.)/;
 
-/** 絕對家目錄路徑偵測（C:\Users\、/Users/、/home/）——完整使用者路徑不得進 repo */
-const HOME_PATH_PATTERN = /[A-Za-z]:[\\/]Users[\\/]|\/(?:home|Users)\/\w/;
+/** 絕對家目錄路徑偵測（C:\Users\、/Users/、/home/、/root/）——完整使用者路徑不得進 repo */
+const HOME_PATH_PATTERN = /[A-Za-z]:[\\/]Users[\\/]|\/(?:home|Users)\/\w|\/root\//;
 
 /** 私鑰片段偵測（只回報位置，不輸出內容） */
 const PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
@@ -148,9 +148,12 @@ function createSafetyChecker(deps) {
     let section = '';
     for (const raw of content.split(/\r?\n/)) {
       const line = raw.trim();
-      const header = line.match(/^\[([^\]]+)\]$/);
+      // 與 codex-config 同步端對齊：辨識 array-of-tables（[[x]]）與一般 table（[x]），
+      // 允許尾註解並 trim section 名，避免 `[[model_providers]]`／`[ x ] # 註解`
+      // 等合法 header 變體繞過機密 section hard block。
+      const header = line.match(/^\[\[([^\]]+)\]\]\s*(?:#.*)?$/) || line.match(/^\[([^\]]+)\]\s*(?:#.*)?$/);
       if (header) {
-        section = header[1];
+        section = header[1].trim();
         if (isCodexSecretSection(section)) {
           addSafetyIssue(issues, 'hard', '不應同步 codex 機密 section', filePath, section);
         }

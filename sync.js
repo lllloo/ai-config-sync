@@ -1365,15 +1365,21 @@ function diffCodexConfigItem(item, direction) {
  * @returns {object}
  */
 function diffFileItem(item) {
-  return {
+  const status = diffFile(item.src, item.dest);
+  const entry = {
     label: itemLabel(item),
-    status: diffFile(item.src, item.dest),
+    status,
     src: item.src,
     dest: item.dest,
     verboseSrc: item.src,
     verboseDest: item.dest,
     itemType: 'file',
   };
+  // file 型 apply 走 copyFile，來源缺檔時直接 return false、永不刪除 dest；
+  // 故 to-local 對 'deleted'（repo 缺此來源、本機有）標 preserved，與 dir 對稱，
+  // 避免預覽誤報「將刪除」卻實際不動作。
+  if (status === 'deleted') entry.preserved = true;
+  return entry;
 }
 
 /**
@@ -1855,7 +1861,7 @@ function printToLocalPreview(diffResults) {
     if (d.status === 'new') printStatusLine('added', d.label, '將新增');
     else if (d.status === 'changed') printStatusLine('changed', d.label, '將更新');
     else if (d.status === 'eol') printStatusLine('eol', d.label, '將更新（僅檔尾換行）');
-    else if (d.status === 'deleted' && d.preserved) printStatusLine('up', d.label, '本機保留（repo 無此目錄，不會刪除）');
+    else if (d.status === 'deleted' && d.preserved) printStatusLine('up', d.label, '本機保留（repo 無對應來源，不會刪除）');
     else if (d.status === 'deleted') printStatusLine('deleted', d.label, '將刪除');
   }
 
@@ -2517,6 +2523,7 @@ if (require.main === module) {
     applySyncItems,
     diffSyncItems,
     diffDirItems,
+    diffFileItem,
     printToLocalPreview,
     buildSyncItems,
     materializeSyncItem,
