@@ -107,15 +107,16 @@ test('to-local：本機已存在且內容相同時宣告一致、不寫入', () 
 });
 
 // -----------------------------------------------------------------------------
-// to-repo：破壞性寫入 repo + 金鑰剝除（端到端走真實 CLI）
+// to-repo：破壞性寫入 repo；安全審核改由 safety:check 負責
 // -----------------------------------------------------------------------------
-test('to-repo：把本機內容寫進 repo，且 settings 金鑰被剝除', () => {
+test('to-repo：把本機內容寫進 repo，且 env 金鑰照常同步', () => {
   const { repo, home, root } = setupSandbox();
   try {
     writeText(path.join(home, '.claude', 'CLAUDE.md'), 'LOCAL-CONTENT');
+    const token = 'sk-' + 'A'.repeat(12);
     writeJson(path.join(home, '.claude', 'settings.json'), {
       permissions: ['p'],
-      env: { ANTHROPIC_API_KEY: 'sk-LEAK', EDITOR: 'vim' },
+      env: { ANTHROPIC_API_KEY: token, EDITOR: 'vim' },
       model: 'opus',
     });
 
@@ -126,11 +127,11 @@ test('to-repo：把本機內容寫進 repo，且 settings 金鑰被剝除', () =
       'LOCAL-CONTENT', 'CLAUDE.md 應被寫入 repo');
 
     const repoSettings = fs.readFileSync(path.join(repo, 'claude', 'settings.json'), 'utf8');
-    assert.ok(!repoSettings.includes('sk-LEAK'), 'repo settings 不得含 API Key');
-    assert.ok(!r.stdout.includes('sk-LEAK'), 'diff/輸出不得含 API Key');
+    assert.ok(repoSettings.includes(token), 'repo settings 會包含 env API Key，交由 safety:check 回報');
+    assert.ok(!r.stdout.includes(token), 'to-repo 狀態輸出不應印出 env 值');
     const parsed = JSON.parse(repoSettings);
     assert.equal(parsed.model, undefined, '裝置欄位 model 應被剝除');
-    assert.equal(parsed.env.ANTHROPIC_API_KEY, undefined, '金鑰不得進 repo');
+    assert.equal(parsed.env.ANTHROPIC_API_KEY, token, 'env 金鑰照常同步');
     assert.equal(parsed.env.EDITOR, 'vim', '可攜 env（乾淨名）應保留');
     assert.deepEqual(parsed.permissions, ['p'], '可攜欄位應保留');
   } finally {
@@ -214,28 +215,29 @@ test('skills:diff：本機有、repo 未記錄 → exit 1 並列出加入/移除
 });
 
 // -----------------------------------------------------------------------------
-// 值層防線 direction-aware：to-repo fail-loud；diff 標記 blocked 續行；to-local 不受阻
-// （回歸：本機 permissions.additionalDirectories 含絕對家目錄路徑曾讓 diff/to-local 整個罷工）
+// 同步流程降責：敏感命名、known secret value 與 HOME 路徑不再讓同步中止
 // -----------------------------------------------------------------------------
-test('to-repo：本機 settings 可攜欄位含家目錄路徑 → exit 2、repo 未寫入、錯誤不含值', () => {
+test('to-repo：敏感命名、known secret 與 HOME 路徑不再中止', () => {
   const { repo, home, root } = setupSandbox();
   try {
+    const token = 'sk-' + 'b'.repeat(20);
     writeJson(path.join(home, '.claude', 'settings.json'),
-      { permissions: { additionalDirectories: ['/home/leaky/proj'] } });
+      {
+        permissions: { additionalDirectories: ['/home/leaky/proj'] },
+        integrations: { apiToken: token },
+      });
 
     const r = run(repo, home, ['to-repo']);
-    assert.equal(r.status, 2, `to-repo 應 fail-loud exit 2\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stderr, /絕對家目錄路徑/, '應說明攔截原因');
-    assert.match(r.stderr, /permissions\.additionalDirectories\.0/, '應含欄位路徑');
-    assert.ok(!r.stderr.includes('leaky') && !r.stdout.includes('leaky'), '輸出不得含值本身');
-    assert.equal(fs.existsSync(path.join(repo, 'claude', 'settings.json')), false,
-      '中止時不得寫入 repo');
+    assert.equal(r.status, 0, `to-repo 不應因安全訊號中止\n${r.stdout}\n${r.stderr}`);
+    const written = JSON.parse(fs.readFileSync(path.join(repo, 'claude', 'settings.json'), 'utf8'));
+    assert.equal(written.integrations.apiToken, token);
+    assert.deepEqual(written.permissions.additionalDirectories, ['/home/leaky/proj']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('diff：本機 settings 含家目錄路徑 → exit 1 標記值層防線，不中止、其他項目續列', () => {
+test('diff：本機 settings 含家目錄路徑 → 一般 settings 差異，不標記 blocked', () => {
   const { repo, home, root } = setupSandbox();
   try {
     writeJson(path.join(home, '.claude', 'settings.json'),
@@ -245,9 +247,8 @@ test('diff：本機 settings 含家目錄路徑 → exit 1 標記值層防線，
 
     const r = run(repo, home, ['diff']);
     assert.equal(r.status, 1, `diff 應回 EXIT_DIFF=1 而非中止 exit 2\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /值層防線命中/, '應標記 settings.json 為 blocked');
-    assert.match(r.stdout, /permissions\.additionalDirectories\.0/, '應含欄位路徑');
-    assert.ok(!r.stdout.includes('leaky'), '輸出不得含值本身');
+    assert.match(r.stdout, /claude\/settings\.json/, 'settings.json 應列為一般差異');
+    assert.doesNotMatch(r.stdout, /值層防線命中|blocked/, '不應再標記 blocked');
     assert.match(r.stdout, /claude\/CLAUDE\.md/, '其他項目仍應照常列出');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

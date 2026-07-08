@@ -33,13 +33,8 @@ const SYNC_HISTORY_LOG = path.join(REPO_ROOT, '.sync-history.log');
 const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
 
 /**
- * settings.json top-level 採黑名單混合制：預設同步，僅排除列於此黑名單或命中
- * SENSITIVE_KEY_PATTERN 的 key；被排除者不進 repo、不入 diff 差異，to-local 保留本機原值。
- * 跨工具過濾慣例：「結構性官方欄位（key 名為官方定義的有限集合）→ 黑名單；開放 key 空間
- * （key 名使用者任意定義、可含機密）→ 白名單」。top-level 走黑名單；`env` 原走白名單，
- * 現依使用者決策亦翻為黑名單混合制（DEVICE_ENV_KEYS，見該常數），以零摩擦自動同步合法 key，
- * 代價是已承擔的安全邊界弱化（見 DEVICE_ENV_KEYS docstring）。防線三層：本黑名單 →
- * 敏感命名 pattern → 值層掃描（assertPortableSettingsSafe）。新增裝置／平台／憑證類欄位須在此明列。
+ * settings.json top-level 採黑名單制：預設同步，僅排除列於此黑名單的裝置／平台綁定欄位。
+ * 敏感命名不再作為同步排除條件；改由 safety:check 回報 warning 供人工審核。
  */
 const DEVICE_SETTINGS_KEYS = [
   // 裝置偏好：各機不同，同步會互踩
@@ -50,16 +45,12 @@ const DEVICE_SETTINGS_KEYS = [
   'apiKeyHelper', 'awsCredentialExport', 'awsAuthRefresh', 'otelHeadersHelper',
 ];
 
-/**
- * 敏感命名護欄：top-level key 命中即排除同步；亦用於值層掃描的巢狀 key 檢查。
- * 寧緊勿鬆——誤傷方向是「該同步的沒同步」（沉默且無害，dropped 清單可見），
- * 誤放方向（機密進 repo、進 git history 即永久）才不可接受。
- */
+/** 敏感命名 review pattern：僅供 safety:check warning，不參與同步剝除。 */
 const SENSITIVE_KEY_PATTERN = /(key|token|secret|credential|password|auth|cert|cookie|session|jwt|helper|refresh)/i;
 
 /**
- * 機密樣式值偵測（已知 token 前綴），用於 assertPortableSettingsSafe 值層防線。
- * 前綴清單天生無法窮舉（自訂 token 必漏），只作補漏；key-name 黑白名單才是主防線。
+ * 機密樣式值偵測（已知 token 前綴），用於 safety:check hard block。
+ * 前綴清單天生無法窮舉（自訂 token 必漏），只作補漏。
  * 涵蓋：Anthropic/OpenAI sk-、Stripe sk_live_/sk_test_、GitHub ghp_/github_pat_、
  * GitLab glpat-、AWS AKIA、Google AIza、SendGrid SG.、npm npm_、Slack xox?-／xapp-、JWT eyJ
  */
@@ -69,26 +60,24 @@ const SECRET_VALUE_PATTERN = /\b(sk-[\w-]{8,}|sk_(?:live|test)_\w{8,}|ghp_\w{20,
 const HOME_PATH_PATTERN = /[A-Za-z]:[\\/]Users[\\/]|\/(?:home|Users)\/\w/;
 
 /**
- * settings.json `env` 區塊的裝置／憑證黑名單（黑名單混合制，取代舊白名單 PORTABLE_ENV_KEYS）。
- * env key 預設同步進 repo，僅排除：列於本清單者，或命中 SENSITIVE_KEY_PATTERN 者。
- *
- * **已承擔的安全邊界弱化（明文）**：黑名單無法枚舉機密 key 名。key 名未命中
- * SENSITIVE_KEY_PATTERN、值未命中 SECRET_VALUE_PATTERN、且未列入本清單的機密
- * （如 `DB_PASS=hunter2`、`postgres://u:pw@h`）仍會經 to-repo 寫入 repo／git history（永久）。
- * 此為使用者在完整說明後接受的代價；緩解：機密改由 apiKeyHelper／本機憑證檔提供、to-repo 後檢視。
- * diff 預覽對 env 值遮罩（見 maskEnvValuesForDisplay）擋顯示外洩，但擋不了 to-repo 寫入。
- *
- * 本清單收錄「名字乾淨（pattern 抓不到）但屬裝置綁定或值即憑證」的 env：
- * - CLAUDE_CODE_USE_POWERSHELL_TOOL：平台綁定
- * - ANTHROPIC_CUSTOM_HEADERS：值常為 `Authorization: Bearer …`
- * - HTTP_PROXY／HTTPS_PROXY／ALL_PROXY：值常內嵌 `user:pass@host` 憑證
- * 比對採大小寫不敏感（proxy 慣例大小寫皆有），見 isDeviceEnvKey。
+ * 既有 env review 清單：保留常數與 helper 供文件／測試參考。
+ * 同步流程不再依此清單剝除或保留 env key；safety:check 會列出所有 env key 供人工審核。
  */
 const DEVICE_ENV_KEYS = [
   'CLAUDE_CODE_USE_POWERSHELL_TOOL',
   'ANTHROPIC_CUSTOM_HEADERS',
   'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY',
 ];
+
+/** repo settings.json 內出現即為 hard block 的 top-level 欄位 */
+const SETTINGS_HARD_BLOCK_KEYS = ['hooks', 'apiKeyHelper', 'awsCredentialExport', 'awsAuthRefresh', 'otelHeadersHelper'];
+
+/** 私鑰片段偵測（只回報位置，不輸出內容） */
+const PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
+
+/** safety:check 僅掃同步來源與 skills manifest，不掃 test/openspec/README 等文件 */
+const SAFETY_SCAN_DIRS = ['claude', 'codex'];
+const SAFETY_SCAN_FILES = ['skills-lock.json'];
 
 /** env key 是否命中裝置黑名單（大小寫不敏感——proxy 慣例 http_proxy／HTTP_PROXY 皆有） */
 function isDeviceEnvKey(key) {
@@ -121,7 +110,6 @@ const STATUS_ICONS = {
   eol:     { icon: '\u2248', color: 'dim'    },  // 僅檔尾換行差異
   up:      { icon: '\u2191', color: 'cyan'   },  // 本機有、repo 沒有
   down:    { icon: '\u2193', color: 'yellow' },  // repo 有、本機沒有
-  blocked: { icon: '!', color: 'yellow' },  // 值層防線命中，暫不同步
 };
 
 /**
@@ -134,6 +122,7 @@ const COMMANDS = {
   'status':      { alias: 's',  desc: '同時比對設定與 skills 差異' },
   'to-repo':     { alias: 'tr', desc: '本機設定 -> repo' },
   'to-local':    { alias: 'tl', desc: 'repo 設定 -> 本機' },
+  'safety:check': { alias: null, desc: '檢查同步來源是否含高風險內容' },
   'skills:diff': { alias: 'sd', desc: '比對 skills 差異' },
   'skills:add':  { alias: 'sa', desc: '新增 skill 到 skills-lock.json' },
   'skills:remove': { alias: 'sr', desc: '從 skills-lock.json 移除 skill' },
@@ -249,7 +238,6 @@ const ERR = {
   PERMISSION:     'PERMISSION',
   INVALID_ARGS:   'INVALID_ARGS',
   IO_ERROR:       'IO_ERROR',
-  SENSITIVE_CONTENT: 'SENSITIVE_CONTENT',
 };
 
 /**
@@ -270,7 +258,6 @@ function formatError(err) {
     [ERR.PERMISSION]:     '請檢查檔案權限，或以適當權限重新執行',
     [ERR.INVALID_ARGS]:   '請參閱 node sync.js help 查看可用指令',
     [ERR.IO_ERROR]:       '請確認磁碟空間充足且檔案未被其他程式鎖定',
-    [ERR.SENSITIVE_CONTENT]: '值層防線攔截：改寫該欄位的值，或將其 top-level key 加入 DEVICE_SETTINGS_KEYS 排除同步',
   };
 
   console.error(col.red(`  [!] ${err.message}`));
@@ -1001,26 +988,18 @@ function serializeSettings(obj) {
 }
 
 /**
- * 將 settings 物件的 env 區塊依黑名單混合制收斂：刪除命中 DEVICE_ENV_KEYS 或
- * SENSITIVE_KEY_PATTERN 的 key（裝置綁定／憑證），其餘 env key 預設保留同步。
- * env 收斂後為空物件時刪除 env 鍵，保持 repo 設定乾淨。原地修改 data。
- * 與 extractDeviceValues 的 env 迴圈為對稱兩處判斷，保證 strip↔preserve 互補。
+ * env key 不再由同步流程剝除；僅移除空 env 物件，避免 repo 產生無內容區塊。
  * @param {Record<string, unknown>} data
  */
 function stripDeviceEnv(data) {
   if (!data.env || typeof data.env !== 'object') return;
-  for (const key of Object.keys(data.env)) {
-    if (isDeviceEnvKey(key) || SENSITIVE_KEY_PATTERN.test(key)) delete data.env[key];
-  }
   if (Object.keys(data.env).length === 0) delete data.env;
 }
 
 /**
- * 將 settings top-level 依可攜性分區（黑名單混合制）：列於 DEVICE_SETTINGS_KEYS 或命中
- * SENSITIVE_KEY_PATTERN 者為 device，其餘為 portable（保持原順序）。strip（to-repo）、
- * preserve（to-local）與 diff 的 dropped 清單皆消費同一次分區結果——top-level 互補由
- * 同一次計算保證。注意：env 子鍵的互補是另一對獨立實作（stripDeviceEnv ↔
- * extractDeviceValues 的 env 迴圈），不受本函式保護。
+ * 將 settings top-level 依可攜性分區：列於 DEVICE_SETTINGS_KEYS 者為 device，
+ * 其餘為 portable（保持原順序）。strip（to-repo）、preserve（to-local）與 diff 的
+ * dropped 清單皆消費同一次分區結果，確保 top-level 互補。
  * @param {Record<string, unknown>} data
  * @returns {{ portable: Record<string, unknown>, device: Record<string, unknown> }}
  */
@@ -1028,87 +1007,34 @@ function partitionSettingsTopLevel(data) {
   const portable = {};
   const device = {};
   for (const key of Object.keys(data)) {
-    if (DEVICE_SETTINGS_KEYS.includes(key) || SENSITIVE_KEY_PATTERN.test(key)) device[key] = data[key];
+    if (DEVICE_SETTINGS_KEYS.includes(key)) device[key] = data[key];
     else portable[key] = data[key];
   }
   return { portable, device };
 }
 
 /**
- * 值層防線（defense in depth）：黑名單只查 top-level key 名，巢狀內容整包放行，此函式在
- * 收斂結果進入 repo／diff 前遞迴掃描——巢狀 key 名命中 SENSITIVE_KEY_PATTERN（env 子樹跳過
- * key 掃描：其 key 名已由 stripDeviceEnv 用同一 pattern 處理過，再掃是死碼；env 值掃描恆常適用），
- * 或字串值命中機密前綴／絕對家目錄路徑時，拋 SyncError 中止而非靜默剝除——把「該加黑名單的欄位」逼到人眼前。
- * 錯誤訊息只含欄位路徑，不含值本身（維持「輸出不得出現機密」不變式）。
- * @param {Record<string, unknown>} clean - 已收斂的可攜 settings
- */
-function assertPortableSettingsSafe(clean) {
-  const fail = (msg, trail) => {
-    throw new SyncError(
-      `${msg}：${trail}（值不顯示）。請改寫該值（如絕對路徑改用 ~/），或將其 top-level key 加入 DEVICE_SETTINGS_KEYS`,
-      ERR.SENSITIVE_CONTENT, { field: trail },
-    );
-  };
-  const walk = (node, trail, skipKeyScan) => {
-    if (typeof node === 'string') {
-      if (SECRET_VALUE_PATTERN.test(node)) fail('偵測到疑似機密樣式的值', trail);
-      if (HOME_PATH_PATTERN.test(node)) fail('偵測到絕對家目錄路徑', trail);
-      return;
-    }
-    if (node === null || typeof node !== 'object') return;
-    for (const [key, val] of Object.entries(node)) {
-      if (!skipKeyScan && SENSITIVE_KEY_PATTERN.test(key)) fail('巢狀欄位命中敏感命名護欄', `${trail}.${key}`);
-      walk(val, `${trail}.${key}`, false);
-    }
-  };
-  for (const [key, val] of Object.entries(clean)) walk(val, key, key === 'env');
-}
-
-/**
- * 將 settings.json 收斂為可攜版後回傳 { clean, serialized, dropped }
- * top-level 走黑名單混合制分區（partitionSettingsTopLevel）；env 另經 stripDeviceEnv
- * 巢狀黑名單混合制收斂；最後過 assertPortableSettingsSafe 值層防線。
- * onSensitive 控制值層防線命中時的行為（direction-aware）：
- * - 'throw'（預設）：拋 SENSITIVE_CONTENT 中止——to-repo 實際寫入前的 fail-loud 閘門
- * - 'skip'：回傳結果加註 sensitiveField（命中欄位路徑，不含值）——diff／to-local 等
- *   僅比對情境用，呼叫端須標記跳過而非中止整個指令，且不得輸出 serialized 內容
+ * 將 settings.json 收斂為同步版後回傳 { clean, serialized, dropped }
+ * top-level 僅剝除 DEVICE_SETTINGS_KEYS；env 與敏感命名 key 依一般同步語意保留。
  * @param {string} filePath - settings.json 路徑
- * @param {{onSensitive?: 'throw'|'skip'}} [opts]
- * @returns {{ clean: Record<string, unknown>, serialized: string, dropped: string[], sensitiveField?: string } | null} 檔案不存在時回傳 null
+ * @returns {{ clean: Record<string, unknown>, serialized: string, dropped: string[] } | null} 檔案不存在時回傳 null
  */
-function loadStrippedSettings(filePath, { onSensitive = 'throw' } = {}) {
+function loadStrippedSettings(filePath) {
   if (!fs.existsSync(filePath)) return null;
   const data = readJson(filePath);
   const { portable, device } = partitionSettingsTopLevel(data);
   stripDeviceEnv(portable);
-  const result = { clean: portable, serialized: serializeSettings(portable), dropped: Object.keys(device) };
-  try {
-    assertPortableSettingsSafe(portable);
-  } catch (e) {
-    if (onSensitive !== 'skip' || !(e instanceof SyncError) || e.code !== ERR.SENSITIVE_CONTENT) throw e;
-    result.sensitiveField = String(e.context.field);
-  }
-  return result;
+  return { clean: portable, serialized: serializeSettings(portable), dropped: Object.keys(device) };
 }
 
 /**
- * 從 local settings 萃取本機保留欄位（供 to-local 套用時保留，不被 repo 覆寫）
- * 分區的 device 桶：黑名單與敏感 pattern 命中的 top-level key（裝置偏好、平台綁定、憑證
- * helper 路徑等）整批保留本機原值；env 命中黑名單（DEVICE_ENV_KEYS 或敏感 pattern）的 key
- * 亦保留本機值，避免被 repo 覆寫掉。與 stripDeviceEnv 為對稱兩處判斷，保證 strip↔preserve 互補。
+ * 從 local settings 萃取本機保留欄位（供 to-local 套用時保留，不被 repo 覆寫）。
+ * 僅保留 DEVICE_SETTINGS_KEYS top-level 欄位；env key 不再被同步流程特別保留。
  * @param {Record<string, unknown>} local
  * @returns {{ deviceValues: Record<string, unknown> }}
  */
 function extractDeviceValues(local) {
   const { device: deviceValues } = partitionSettingsTopLevel(local);
-  // env 命中黑名單（DEVICE_ENV_KEYS／敏感 pattern）的 key 須保留本機原值；其餘為可攜、由 repo 值勝出
-  if (local.env && typeof local.env === 'object') {
-    for (const [key, val] of Object.entries(local.env)) {
-      if (!isDeviceEnvKey(key) && !SENSITIVE_KEY_PATTERN.test(key)) continue;
-      if (!deviceValues.env) deviceValues.env = {};
-      deviceValues.env[key] = val;
-    }
-  }
   return { deviceValues };
 }
 
@@ -1182,9 +1108,7 @@ function mergeSettingsBetween(localPath, repoPath, direction, dryRun = false) {
     const repoStr = serializeSettings(repo);
 
     // 比對 repo 與 stripped local（兩邊皆使用 serializeSettings 確保結尾換行對稱）。
-    // 此處僅供「是否已一致」判斷、不寫回 repo，故值層防線命中不中止（onSensitive: 'skip'）——
-    // 本機可攜欄位含機密樣式值時，repo 必與其相異（repo 永遠為收斂版），自然進入套用流程
-    const stripped = loadStrippedSettings(localPath, { onSensitive: 'skip' });
+    const stripped = loadStrippedSettings(localPath);
     if (stripped && repoStr === stripped.serialized) return false;
 
     if (dryRun) return true;
@@ -1691,23 +1615,18 @@ function diffSettingsItem(item, direction) {
 
   if (direction === 'to-local') {
     // repo → 本機：repo 缺檔則無可同步；本機缺檔則將新增（與 mergeSettingsJson('to-local') 對齊）。
-    // 本機 stripped 僅供比對，值層防線命中不中止（含機密樣式值時必與 repo 相異 → 'changed'）
+    // 本機 stripped 僅供比對；安全審核由 safety:check 處理。
     if (!fs.existsSync(repoPath)) return { ...base, status: null, src: null };
     if (!fs.existsSync(localPath)) return { ...base, status: 'new', src: null };
-    const stripped = loadStrippedSettings(localPath, { onSensitive: 'skip' });
+    const stripped = loadStrippedSettings(localPath);
     if (stripped === null) return { ...base, status: null, src: null };
     return { ...base, status: compareStrippedToRepo(stripped.serialized, repoPath, '讀取 repo 設定'), src: null };
   }
 
-  // to-repo：本機 stripped → repo。值層防線命中時標記 blocked——只列欄位路徑、
-  // 不建暫存 diff 檔、不輸出內容（to-repo 實際執行仍會 fail-loud 中止）
+  // to-repo：本機 stripped → repo。狀態以未遮罩內容判定；顯示層遮罩 env 值。
   if (!fs.existsSync(localPath)) return { ...base, status: null, src: null };
-  const stripped = loadStrippedSettings(localPath, { onSensitive: 'skip' });
+  const stripped = loadStrippedSettings(localPath);
   if (stripped === null) return { ...base, status: null, src: null };
-  if (stripped.sensitiveField) {
-    return { ...base, status: 'blocked', src: null, droppedKeys: stripped.dropped, blockedField: stripped.sensitiveField };
-  }
-  // 狀態以未遮罩內容判定；顯示層另建 env 值遮罩過的暫存檔，避免後續檢視時直接看到原值。
   const tmpSrc = createTmpDiffFile('json', serializeSettings(maskEnvValuesForDisplay(stripped.clean)));
   const repoExists = fs.existsSync(repoPath);
   const status = repoExists
@@ -1992,8 +1911,138 @@ function showGitStatus() {
 }
 
 // =============================================================================
+// Section: Safety Check -- 唯讀安全檢查
+// =============================================================================
+
+function addSafetyIssue(issues, severity, category, filePath, detail = '') {
+  issues.push({ severity, category, file: toRelativePath(filePath), detail: maskHome(detail) });
+}
+
+function collectSafetyScanFiles() {
+  const files = [];
+  for (const dir of SAFETY_SCAN_DIRS) {
+    const root = path.join(REPO_ROOT, dir);
+    for (const rel of getFiles(root)) files.push(path.join(root, rel));
+  }
+  for (const rel of SAFETY_SCAN_FILES) {
+    const filePath = path.join(REPO_ROOT, rel);
+    if (fs.existsSync(filePath)) files.push(filePath);
+  }
+  return files;
+}
+
+function findFirstMatchingLine(content, pattern) {
+  const lines = content.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    if (pattern.test(lines[i])) return i + 1;
+  }
+  return null;
+}
+
+function scanSafetyTextFile(filePath, issues) {
+  const content = String(readFileSafe(filePath, '讀取安全檢查檔案', 'utf8'));
+  const checks = [
+    ['疑似機密值', SECRET_VALUE_PATTERN],
+    ['私鑰片段', PRIVATE_KEY_PATTERN],
+    ['絕對 HOME 路徑', HOME_PATH_PATTERN],
+  ];
+  for (const [category, pattern] of checks) {
+    const line = findFirstMatchingLine(content, pattern);
+    if (line !== null) addSafetyIssue(issues, 'hard', category, filePath, `line ${line}`);
+  }
+}
+
+function scanSensitiveKeyPaths(node, filePath, issues, trail = '', skipEnv = false) {
+  if (node === null || typeof node !== 'object') return;
+  for (const [key, val] of Object.entries(node)) {
+    const next = trail ? `${trail}.${key}` : key;
+    if (trail === '' && SETTINGS_HARD_BLOCK_KEYS.includes(key)) continue;
+    if (skipEnv && next === 'env') continue;
+    if (SENSITIVE_KEY_PATTERN.test(key)) addSafetyIssue(issues, 'warning', '敏感命名 key path', filePath, next);
+    scanSensitiveKeyPaths(val, filePath, issues, next, skipEnv);
+  }
+}
+
+function scanClaudeSettingsSafety(filePath, issues) {
+  const data = readJson(filePath);
+  for (const key of SETTINGS_HARD_BLOCK_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      addSafetyIssue(issues, 'hard', '不應同步 settings 欄位', filePath, key);
+    }
+  }
+  if (data.env && typeof data.env === 'object') {
+    for (const key of Object.keys(data.env)) addSafetyIssue(issues, 'warning', 'env key 需人工審核', filePath, `env.${key}`);
+  }
+  scanSensitiveKeyPaths(data, filePath, issues, '', true);
+}
+
+function scanJsonKeyWarnings(filePath, issues) {
+  scanSensitiveKeyPaths(readJson(filePath), filePath, issues);
+}
+
+function scanTomlKeyWarnings(filePath, issues) {
+  const content = String(readFileSafe(filePath, '讀取 TOML 安全檢查檔案', 'utf8'));
+  let section = '';
+  for (const raw of content.split(/\r?\n/)) {
+    const line = raw.trim();
+    const header = line.match(/^\[([^\]]+)\]$/);
+    if (header) { section = header[1]; continue; }
+    const pair = line.match(/^([A-Za-z0-9_.-]+)\s*=/);
+    if (!pair) continue;
+    const keyPath = section ? `${section}.${pair[1]}` : pair[1];
+    if (SENSITIVE_KEY_PATTERN.test(keyPath)) addSafetyIssue(issues, 'warning', '敏感命名 key path', filePath, keyPath);
+  }
+}
+
+function scanSafetyStructuredFile(filePath, issues) {
+  const rel = toRelativePath(filePath).replace(/\\/g, '/');
+  if (rel === 'claude/settings.json') scanClaudeSettingsSafety(filePath, issues);
+  else if (rel.endsWith('.json')) scanJsonKeyWarnings(filePath, issues);
+  else if (rel.endsWith('.toml')) scanTomlKeyWarnings(filePath, issues);
+}
+
+function runSafetyChecks() {
+  const issues = [];
+  for (const filePath of collectSafetyScanFiles()) {
+    scanSafetyTextFile(filePath, issues);
+    scanSafetyStructuredFile(filePath, issues);
+  }
+  return issues;
+}
+
+function printSafetyIssueGroup(title, issues) {
+  if (!issues.length) return;
+  console.log(col.bold(`  ${title}:`));
+  for (const issue of issues) {
+    const detail = issue.detail ? `（${issue.detail}）` : '';
+    console.log(`    ${issue.category}：${issue.file}${detail}`);
+  }
+  console.log('');
+}
+
+function printSafetyReport(issues) {
+  const hard = issues.filter(i => i.severity === 'hard');
+  const warnings = issues.filter(i => i.severity === 'warning');
+  console.log(col.bold('\n  safety:check 同步來源安全檢查\n'));
+  if (!issues.length) {
+    console.log(col.green('  未發現 hard block 或 warning\n'));
+    return;
+  }
+  printSafetyIssueGroup('Hard blocks', hard);
+  printSafetyIssueGroup('Warnings', warnings);
+  console.log(hard.length ? col.red('  結果：發現 hard block\n') : col.yellow('  結果：僅有 warning\n'));
+}
+
+function runSafetyCheck() {
+  const issues = runSafetyChecks();
+  printSafetyReport(issues);
+  if (issues.some(i => i.severity === 'hard')) return EXIT_ERROR;
+  return issues.length ? EXIT_DIFF : EXIT_OK;
+}
+
+// =============================================================================
 // Section: Commands -- 各指令的實作
-// diff, to-repo, to-local, skills:diff, skills:add, help
+// diff, to-repo, to-local, safety:check, skills:diff, skills:add, help
 // =============================================================================
 
 /**
@@ -2139,25 +2188,13 @@ function printDiffItem(item, opts) {
     changed: ['changed', '有差異'],
     eol: ['eol', '僅檔尾換行差異'],
     deleted: ['deleted', 'repo 有、本機沒有'],
-    blocked: ['blocked', '值層防線命中，暫不同步'],
   };
   if (item.status === null) {
     printStatusLine('ok', item.label);
   } else if (statusMap[item.status]) {
     printStatusLine(statusMap[item.status][0], item.label, statusMap[item.status][1]);
   }
-  // 值層防線命中：只列欄位路徑不含值；diff 不中止，但 to-repo 實際執行會 fail-loud
-  if (item.status === 'blocked' && item.blockedField) {
-    console.log(col.dim(`      欄位：${item.blockedField}（值不顯示）；to-repo 將中止——請改寫該值（如絕對路徑改用 ~/），或將其 top-level key 加入 DEVICE_SETTINGS_KEYS`));
-  }
   if (opts.verbose && item.verboseSrc) logVerbosePaths(item.verboseSrc, item.verboseDest || item.dest);
-  // 黑名單制的日常防守訊號：預設可見（非 --verbose 限定），只列 key 名、不印值。
-  // 只印「意料之外」的排除——明列於 DEVICE_SETTINGS_KEYS 的預期裝置鍵是永久噪音，
-  // 過濾掉後只剩 pattern 誤傷官方欄位的救命訊號；空則整行不印。
-  const surprising = (item.droppedKeys || []).filter((k) => !DEVICE_SETTINGS_KEYS.includes(k));
-  if (surprising.length) {
-    console.log(col.dim(`      未同步（敏感護欄排除）：${surprising.join(', ')}`));
-  }
   return item.status !== null;
 }
 
@@ -2873,6 +2910,7 @@ async function runCommand(command, opts) {
     case 'status': return runStatus(opts);
     case 'to-repo': return runToRepo(opts);
     case 'to-local': return runToLocal(opts);
+    case 'safety:check': return runSafetyCheck();
     case 'skills:diff': return runSkillsDiff();
     case 'skills:add': return runSkillsAdd(opts);
     case 'skills:remove': return runSkillsRemove(opts);
@@ -2924,6 +2962,8 @@ if (require.main === module) {
     toSyncFsError,
     askConfirm,
     runSkillsRemove,
+    runSafetyCheck,
+    runSafetyChecks,
     computeSkillsDiff,
     sanitizeForTerminal,
     validateSkillName,
@@ -2936,7 +2976,6 @@ if (require.main === module) {
     loadStrippedSettings,
     getStrippedSettings,
     partitionSettingsTopLevel,
-    assertPortableSettingsSafe,
     parsePortableCodexConfig,
     serializePortableCodexConfig,
     mergePortableCodexConfig,
@@ -2950,6 +2989,8 @@ if (require.main === module) {
     SECRET_VALUE_PATTERN,
     HOME_PATH_PATTERN,
     DEVICE_ENV_KEYS,
+    SETTINGS_HARD_BLOCK_KEYS,
+    PRIVATE_KEY_PATTERN,
     isDeviceEnvKey,
     CODEX_CONFIG_TOP_KEYS,
     CODEX_CONFIG_SECTION_KEYS,

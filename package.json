@@ -5,6 +5,7 @@
   "scripts": {
     "diff": "node sync.js diff",
     "status": "node sync.js status",
+    "safety:check": "node sync.js safety:check",
     "skills:diff": "node sync.js skills:diff",
     "skills:add": "node sync.js skills:add",
     "skills:remove": "node sync.js skills:remove",

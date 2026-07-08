@@ -333,6 +333,12 @@ test('COMMANDS：init 指令存在且有說明', () => {
   assert.ok(COMMANDS['init'].desc, 'init 應有 desc');
 });
 
+test('COMMANDS：safety:check 指令存在且無別名', () => {
+  assert.ok(COMMANDS['safety:check'], 'COMMANDS 應含 safety:check');
+  assert.equal(COMMANDS['safety:check'].alias, null, 'safety:check 無別名');
+  assert.ok(COMMANDS['safety:check'].desc, 'safety:check 應有 desc');
+});
+
 // -----------------------------------------------------------------------------
 // INIT_FILE_MAP / INIT_RULES_TO_REMOVE：init 指令的資料驅動清單
 // -----------------------------------------------------------------------------

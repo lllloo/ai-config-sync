@@ -51,8 +51,7 @@ test('runDiff (to-repo)：本機 HOME 為空 → codex/AGENTS.md 也應被回報
 });
 
 // =============================================================================
-// quiet-expected-drops：settings.json 的「未同步」行只印意料之外的排除
-// 明列於 DEVICE_SETTINGS_KEYS 的裝置鍵是永久噪音、不印；pattern 誤傷官方欄位才印
+// 明確裝置鍵不列為一般差異；敏感命名不再進「未同步」摘要，改走一般 settings diff
 // =============================================================================
 
 const REPO_SETTINGS = require(path.join(__dirname, '..', 'claude', 'settings.json'));
@@ -80,13 +79,12 @@ test('runDiff：僅 DEVICE_SETTINGS_KEYS 明列鍵被排除時，不印「未同
   }
 });
 
-test('runDiff：命中 SENSITIVE_KEY_PATTERN 但不在明列的 key 仍印出（且不含其值）', () => {
-  const secretValue = 'super-secret-value-xyz-987';
-  const tmpHome = makeHomeWithSettings({ sessionToken: secretValue });
+test('runDiff：敏感命名 key 不再產生「未同步」摘要，改列一般 settings 差異', () => {
+  const tmpHome = makeHomeWithSettings({ sessionDefaults: { compact: true } });
   try {
     const result = runDiffWithFakeHome(tmpHome);
-    assert.match(result.stdout, /未同步（敏感護欄排除）：[^\n]*sessionToken/, '意料之外的排除應列出 key 名');
-    assert.doesNotMatch(result.stdout, new RegExp(secretValue), '被排除 key 的值不得出現在輸出');
+    assert.match(result.stdout, /claude\/settings\.json/, 'settings.json 應被列為有差異');
+    assert.doesNotMatch(result.stdout, /未同步/, '敏感命名不應被列為未同步摘要');
   } finally {
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }

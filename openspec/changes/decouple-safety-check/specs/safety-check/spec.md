@@ -1,0 +1,100 @@
+## ADDED Requirements
+
+### Requirement: safety check 為唯讀離線檢查
+
+系統 SHALL 提供 `npm run safety:check` 指令，用於檢查 repo 內同步來源是否含高風險設定或需人工審核的可疑項目。該指令 SHALL 為唯讀操作，MUST NOT 修改任何檔案、MUST NOT 安裝 git hook、MUST NOT 呼叫 LLM 或網路服務。
+
+#### Scenario: safety check 不寫入檔案
+- **WHEN** 使用者執行 `npm run safety:check`
+- **THEN** 系統 SHALL 只讀取 repo 內容並輸出檢查結果
+- **AND** 系統 MUST NOT 修改任何檔案或 git 設定
+
+#### Scenario: safety check 不連網
+- **WHEN** 使用者執行 `npm run safety:check`
+- **THEN** 系統 MUST NOT 呼叫 LLM、HTTP API 或任何外部網路服務
+
+### Requirement: safety check 掃描同步來源
+
+系統 SHALL 掃描 repo 中會被同步或描述同步狀態的來源，包括 `claude/`、`codex/` 與 `skills-lock.json`。系統 SHALL NOT 預設掃描 `test/`、`openspec/`、README 或其他純文件，以避免測試資料與範例造成噪音。
+
+#### Scenario: 掃描 Claude 與 Codex 同步來源
+- **WHEN** 使用者執行 `npm run safety:check`
+- **THEN** 系統 SHALL 檢查 `claude/` 與 `codex/` 下的同步來源內容
+- **AND** 系統 SHALL 檢查 `skills-lock.json`
+
+#### Scenario: 不掃描測試與規格文件
+- **WHEN** `test/` 或 `openspec/` 中含有 token 範例字串
+- **AND** 使用者執行 `npm run safety:check`
+- **THEN** 系統 SHALL NOT 因這些非同步來源範例回報問題
+
+### Requirement: safety check 回報 hard block
+
+系統 SHALL 對明顯高風險內容回報 hard block。hard block 至少包含：已知 token 值樣式、私鑰片段、絕對 HOME 路徑、`claude/settings.json` 內出現 `hooks` 或 credential helper 欄位。若有任一 hard block，指令 SHALL 以 exit code `2` 結束。
+
+#### Scenario: 偵測已知 token 值
+- **WHEN** 同步來源含有符合已知 secret value pattern 的字串（如 `sk-`、`ghp_`、`AKIA`、`AIza` 或 JWT 前綴）
+- **AND** 使用者執行 `npm run safety:check`
+- **THEN** 系統 SHALL 回報 hard block
+- **AND** 指令 SHALL 以 exit code `2` 結束
+
+#### Scenario: 偵測不應同步的 settings 欄位
+- **WHEN** repo 的 `claude/settings.json` 含有 `hooks`、`apiKeyHelper`、`awsCredentialExport`、`awsAuthRefresh` 或 `otelHeadersHelper`
+- **AND** 使用者執行 `npm run safety:check`
+- **THEN** 系統 SHALL 回報 hard block
+- **AND** 輸出 SHALL 指出欄位路徑但 SHALL NOT 顯示欄位值
+
+#### Scenario: 偵測絕對 HOME 路徑
+- **WHEN** 同步來源含有 `/home/<user>/`、`/Users/<user>/` 或 `C:\Users\<user>\` 形式的絕對 HOME 路徑
+- **AND** 使用者執行 `npm run safety:check`
+- **THEN** 系統 SHALL 回報 hard block
+- **AND** 輸出 SHALL 遮罩完整使用者路徑
+
+### Requirement: safety check 回報人工審核 warning
+
+系統 SHALL 對需人工審核但不應自動阻斷同步的項目回報 warning。warning 至少包含：`claude/settings.json` 中存在 `env` key，以及 key path 命中敏感命名 review pattern 的項目。若沒有 hard block 但有 warning，指令 SHALL 以 exit code `1` 結束。
+
+#### Scenario: env key 需要人工審核
+- **WHEN** repo 的 `claude/settings.json` 含有 `env` 物件
+- **AND** 使用者執行 `npm run safety:check`
+- **THEN** 系統 SHALL 以 warning 列出 env key 名稱
+- **AND** 輸出 SHALL NOT 顯示任何 env 值
+
+#### Scenario: 敏感命名只產生 warning
+- **WHEN** 同步來源的結構化設定 key path 命中敏感命名 review pattern（如 `token`、`secret`、`credential`、`password`、`auth`、`session`、`refresh`）
+- **AND** 該項目未命中 hard block 條件
+- **AND** 使用者執行 `npm run safety:check`
+- **THEN** 系統 SHALL 回報 warning
+- **AND** 指令 SHALL NOT 因該命名直接回傳 exit code `2`
+
+### Requirement: safety check 輸出不得洩漏值
+
+系統 SHALL 在 `safety:check` 輸出中顯示分類、檔案路徑、欄位路徑或 key 名稱，但 SHALL NOT 顯示疑似 secret 值、env 值或完整使用者 HOME 路徑。
+
+#### Scenario: hard block 不顯示 secret 值
+- **WHEN** `safety:check` 偵測到疑似 secret 值
+- **THEN** 輸出 SHALL 指出問題類型與位置
+- **AND** 輸出 SHALL NOT 包含該 secret 原始值
+
+#### Scenario: warning 不顯示 env 值
+- **WHEN** `safety:check` 回報 env key warning
+- **THEN** 輸出 SHALL 顯示 env key 名稱
+- **AND** 輸出 SHALL NOT 顯示 env key 對應值
+
+### Requirement: safety check exit code 表達最高嚴重度
+
+系統 SHALL 依檢查結果的最高嚴重度設定 exit code：無問題為 `0`，只有 warning 為 `1`，任一 hard block 為 `2`。
+
+#### Scenario: 無問題時成功
+- **WHEN** 同步來源沒有 hard block 或 warning
+- **AND** 使用者執行 `npm run safety:check`
+- **THEN** 指令 SHALL 以 exit code `0` 結束
+
+#### Scenario: 只有 warning 時回傳 1
+- **WHEN** 同步來源只有 warning
+- **AND** 使用者執行 `npm run safety:check`
+- **THEN** 指令 SHALL 以 exit code `1` 結束
+
+#### Scenario: hard block 優先於 warning
+- **WHEN** 同步來源同時含有 warning 與 hard block
+- **AND** 使用者執行 `npm run safety:check`
+- **THEN** 指令 SHALL 以 exit code `2` 結束

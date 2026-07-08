@@ -41,7 +41,9 @@ const {
 } = require('../sync.js');
 const fs = require('node:fs');
 const path = require('node:path');
-const { withArgv, withTmpDir } = require('./helpers');
+const os = require('node:os');
+const { spawnSync } = require('node:child_process');
+const { withArgv, withTmpDir, noColorEnv } = require('./helpers');
 
 // =============================================================================
 // 高優先：computeSimpleLineDiff（簡化逐行比對）
@@ -772,51 +774,89 @@ itUnix('createTmpDiffFile：O_EXCL 拒絕跟隨既存 symlink（不覆寫目標�
 });
 
 // =============================================================================
-// env 黑名單混合制：殘餘風險特性化 + 值層防線（env-blacklist change）
-// env 由白名單翻黑名單後，乾淨名 env key 預設同步——本節鎖住「值層防線攔已知前綴」
-// 與「乾淨名+乾淨值機密會漏網進 repo」兩項已承擔行為。
+// safety:check：獨立、唯讀、安全輸出與 exit code
 // =============================================================================
-const path_envbl = require('node:path');
-const fs_envbl = require('node:fs');
 
-test('env 值層防線：乾淨名 env key 但值命中 SECRET_VALUE_PATTERN → to-repo fail-loud', () => {
-  const { loadStrippedSettings } = require('../sync.js');
-  withTmpDir((dir) => {
-    const fp = path_envbl.join(dir, 'settings.json');
-    // FOO_ENDPOINT 乾淨名（不命中 DEVICE_ENV_KEYS 或 SENSITIVE_KEY_PATTERN）→ 不被 strip；
-    // 值為 sk- 前綴 → 值層掃描 SECRET_VALUE_PATTERN 命中
-    fs_envbl.writeFileSync(fp, JSON.stringify({ env: { FOO_ENDPOINT: 'sk-' + 'a'.repeat(20) } }));
-    assert.throws(
-      () => loadStrippedSettings(fp),
-      (e) => e instanceof SyncError && e.code === ERR.SENSITIVE_CONTENT,
-      'to-repo（throw 模式）須因值層防線 fail-loud 中止',
-    );
+const SYNC_JS_FOR_SAFETY = path.join(__dirname, '..', 'sync.js');
+
+function setupSafetySandbox() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-safety-'));
+  const repo = path.join(root, 'repo');
+  fs.mkdirSync(repo);
+  fs.copyFileSync(SYNC_JS_FOR_SAFETY, path.join(repo, 'sync.js'));
+  return { repo, root };
+}
+
+function runSafety(repo) {
+  return spawnSync(process.execPath, [path.join(repo, 'sync.js'), 'safety:check'], {
+    cwd: repo,
+    env: noColorEnv({ HOME: path.join(repo, 'home'), USERPROFILE: path.join(repo, 'home') }),
+    encoding: 'utf8',
   });
+}
+
+function writeSafetyJson(repo, rel, obj) {
+  const filePath = path.join(repo, rel);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(obj, null, 2) + '\n');
+}
+
+function writeSafetyText(repo, rel, text) {
+  const filePath = path.join(repo, rel);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, text);
+}
+
+test('safety:check：無問題時 exit 0，且不掃 test/openspec/README', () => {
+  const { repo, root } = setupSafetySandbox();
+  try {
+    const token = 'sk-' + 'x'.repeat(20);
+    writeSafetyText(repo, 'test/fixture.txt', token);
+    writeSafetyText(repo, 'openspec/changes/example/spec.md', token);
+    writeSafetyText(repo, 'README.md', token);
+    const r = runSafety(repo);
+    assert.equal(r.status, 0, `非同步來源不應觸發 safety:check\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /未發現/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
-test('env 值層防線：同上，diff（skip 模式）標記 sensitiveField 而不中止', () => {
-  const { loadStrippedSettings } = require('../sync.js');
-  withTmpDir((dir) => {
-    const fp = path_envbl.join(dir, 'settings.json');
-    fs_envbl.writeFileSync(fp, JSON.stringify({ env: { FOO_ENDPOINT: 'sk-' + 'a'.repeat(20) } }));
-    const result = loadStrippedSettings(fp, { onSensitive: 'skip' });
-    assert.ok(result.sensitiveField, 'skip 模式須回傳 sensitiveField（供 diff 標記 [!]）');
-    assert.ok(result.sensitiveField.startsWith('env.'), 'sensitiveField 應指向 env 子欄位路徑');
-    assert.ok(!result.sensitiveField.includes('sk-'), 'sensitiveField 只含路徑、不含值');
-  });
+test('safety:check：只有 warning 時 exit 1，列 key 不列 env 值', () => {
+  const { repo, root } = setupSafetySandbox();
+  try {
+    const envValue = 'plain-env-value-marker';
+    writeSafetyJson(repo, 'claude/settings.json', {
+      env: { ANTHROPIC_API_KEY: envValue },
+      keyboardLayout: 'colemak',
+    });
+    const r = runSafety(repo);
+    assert.equal(r.status, 1, `warning 應 exit 1\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /env\.ANTHROPIC_API_KEY/);
+    assert.match(r.stdout, /keyboardLayout/);
+    assert.doesNotMatch(r.stdout, new RegExp(envValue), '不得輸出 env 值');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
-test('env 殘餘風險特性化：乾淨名+乾淨值機密（DB_PASS=hunter2）會漏網進 repo', () => {
-  const { loadStrippedSettings, SENSITIVE_KEY_PATTERN, isDeviceEnvKey } = require('../sync.js');
-  // 前提：DB_PASS 既不命中黑名單也不命中 pattern（否則此特性化前提不成立）
-  assert.ok(!isDeviceEnvKey('DB_PASS'), 'DB_PASS 不在 DEVICE_ENV_KEYS');
-  assert.ok(!SENSITIVE_KEY_PATTERN.test('DB_PASS'), 'DB_PASS 不命中敏感 key pattern');
-  withTmpDir((dir) => {
-    const fp = path_envbl.join(dir, 'settings.json');
-    fs_envbl.writeFileSync(fp, JSON.stringify({ env: { DB_PASS: 'hunter2' }, permissions: ['a'] }));
-    const result = loadStrippedSettings(fp);
-    // 已承擔的邊界弱化：此類機密會進 repo。不斷言「必須洩漏」，僅記錄現況以防無意改變。
-    assert.equal(result.clean.env.DB_PASS, 'hunter2',
-      '乾淨名+乾淨值 env 機密屬已知漏網（詳見 spec 殘餘限制），會同步進 repo');
-  });
+test('safety:check：hard block exit 2，輸出遮罩 secret 與 HOME 路徑', () => {
+  const { repo, root } = setupSafetySandbox();
+  try {
+    const token = 'sk-' + 'z'.repeat(20);
+    writeSafetyJson(repo, 'claude/settings.json', {
+      hooks: { Stop: [{ hooks: [{ command: 'x' }] }] },
+      env: { API_TOKEN: token },
+      statusLine: { command: 'bash /home/alice/.claude/statusline.sh' },
+    });
+    writeSafetyText(repo, 'claude/statusline.sh', '-----BEGIN PRIVATE KEY-----\nabc\n');
+    const r = runSafety(repo);
+    assert.equal(r.status, 2, `hard block 應 exit 2\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /疑似機密值|私鑰片段|絕對 HOME 路徑|不應同步 settings 欄位/);
+    assert.match(r.stdout, /hooks/);
+    assert.doesNotMatch(r.stdout, new RegExp(token), '不得輸出 secret 原值');
+    assert.doesNotMatch(r.stdout, /\/home\/alice/, '不得輸出完整 HOME 路徑');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

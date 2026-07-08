@@ -27,6 +27,9 @@ npm run to-repo
 # repo 設定 → 本機（套用，會先預覽再確認）
 npm run to-local
 
+# 檢查 repo 同步來源是否含高風險內容或需人工審核項目（唯讀、不連網）
+npm run safety:check
+
 # 比較本機 vs repo 的 skills 差異（不自動同步）
 # 本機多裝者會同時列出 (A) 加入 repo 與 (B) 從本機移除 兩種建議指令
 npm run skills:diff
@@ -52,6 +55,7 @@ npm test
 | `status` | `s` |
 | `to-repo` | `tr` |
 | `to-local` | `tl` |
+| `safety:check` | — |
 | `skills:diff` | `sd` |
 | `skills:add` | `sa` |
 | `skills:remove` | `sr` |
@@ -142,15 +146,15 @@ npm run to-local
 | Code | 說明 |
 |------|------|
 | `0` | 成功（diff 模式：無差異） |
-| `1` | diff 模式：有差異（可用於 CI 判斷） |
-| `2` | 錯誤 |
+| `1` | diff 模式：有差異；`safety:check`：只有 warning |
+| `2` | 錯誤；`safety:check`：有 hard block |
 
 ## 注意事項
 
-- `settings.json` 的 **top-level 採黑名單混合制**：預設同步官方 top-level 欄位，僅排除兩類——`DEVICE_SETTINGS_KEYS` 黑名單（裝置偏好 `model`／`effortLevel`／`defaultShell`／`tui`／`autoUpdatesChannel`、平台綁定 `hooks`、憑證 helper `apiKeyHelper`／`awsCredentialExport`／`awsAuthRefresh`／`otelHeadersHelper`）與命中敏感命名 pattern（key／token／secret／credential／password／auth／cert／cookie／session／jwt／helper／refresh，不分大小寫）的 key。被排除者不進 repo、不入 diff；to-local 時保留本機原值。**風險承擔（明文）**：未知的裝置型新欄位會預設同步、可能跨裝置互踩，需人工加入黑名單——發現互踩靠一般 diff 的內容差異，發現 pattern 誤傷靠 diff **預設**列出的「未同步（敏感護欄排除）」key 清單（只列 key 名、不印值）。此行只列**意料之外**的排除——命中 pattern 但未明列於 `DEVICE_SETTINGS_KEYS` 的 key；明列的裝置鍵（`model`／`hooks`／`tui`／`autoUpdatesChannel` 等）是預期排除、不印，避免永久噪音稀釋救命訊號
-- `settings.json` 的 `env` 區塊採**黑名單混合制**（與 top-level 對齊）：env key **預設同步**，僅排除列於 `DEVICE_ENV_KEYS` 黑名單者（`CLAUDE_CODE_USE_POWERSHELL_TOOL`、`ANTHROPIC_CUSTOM_HEADERS`、`HTTP_PROXY`／`HTTPS_PROXY`／`ALL_PROXY`，大小寫不敏感）與命中 `SENSITIVE_KEY_PATTERN`（key／token／secret／…）者；被排除者不進 repo、不入 diff，to-local 時保留本機原值。四層控制：① `DEVICE_ENV_KEYS` 黑名單 → ② key 名 pattern 剝除 → ③ 值層 `SECRET_VALUE_PATTERN` 掃描（to-repo fail-loud）→ ④ diff 預覽對 env 值遮罩為 `***`（純顯示不外洩值）。**已承擔的殘餘風險（明文）**：黑名單無法枚舉機密 key 名，key 名乾淨＋值非已知前綴＋未列黑名單的機密（如 `DB_PASS=hunter2`、`postgres://u:pw@h`）仍會經 to-repo 寫入 repo／git history（永久）；④ 只擋 diff 顯示、擋不了寫入。緩解：機密改由 `apiKeyHelper`／本機憑證檔提供、to-repo 後檢視
-- **值層防線**：收斂結果會被遞迴掃描——巢狀欄位名含敏感字、值命中已知機密前綴（`sk-`／Stripe `sk_live_`／`ghp_`／`AKIA`／Google `AIza`／SendGrid `SG.`／`npm_`／Slack `xox*`／JWT 等）或絕對家目錄路徑（`C:\Users\…`、`/home/…`、`/Users/…`）時觸發。行為依方向而異：**to-repo 實際寫入前中止並報錯**（訊息只含欄位路徑、不含值）；**diff 標記 `[!]` 暫不同步並續列其他項目**；**to-local 不受阻**（僅比對、不寫回 repo）。命中時請改寫該值（如絕對路徑改用 `~/`）或將該欄位加入 `DEVICE_SETTINGS_KEYS`
-- **機密掃描僅涵蓋 `settings.json` 與 `codex/config.toml`**：CLAUDE.md、rules、skills、statusline.sh 等純文字檔為原樣鏡射、不經任何掃描，勿在其中存放金鑰／token
+- `settings.json` 的 **top-level 採黑名單制**：預設同步 top-level 欄位，僅排除 `DEVICE_SETTINGS_KEYS` 明確黑名單（裝置偏好 `model`／`effortLevel`／`defaultShell`／`tui`／`autoUpdatesChannel`、平台綁定 `hooks`、憑證 helper `apiKeyHelper`／`awsCredentialExport`／`awsAuthRefresh`／`otelHeadersHelper`）。敏感命名 pattern（key／token／secret／credential／password／auth／cert／cookie／session／jwt／helper／refresh）**不再**讓 sync 自動剝除或中止；未列黑名單的 key 依一般 settings 差異同步，並由 `npm run safety:check` 以 warning 供人工審核
+- `settings.json` 的 `env` 區塊 **全部依一般同步語意同步**：不再因 `DEVICE_ENV_KEYS` 或敏感命名 pattern 被剝除，也不在 to-local 特別保留本機 env key。`diff`／`status` 顯示層仍會把 env 值遮罩為 `***`，避免差異預覽印出值；但實際 repo 內容是否安全須由 `npm run safety:check` 與人工審核判斷
+- **`npm run safety:check`** 是手動、唯讀、離線檢查：掃描 `claude/`、`codex/` 與 `skills-lock.json`，不掃 `test/`、`openspec/`、README 等非同步來源文件。hard block 包含已知 token 值樣式、私鑰片段、絕對 HOME 路徑、repo `claude/settings.json` 出現 `hooks` 或 credential helper 欄位；warning 包含 `claude/settings.json` 的 env key 清單與結構化設定中命中敏感命名 pattern 的 key path。輸出只列分類、檔案與欄位／key／line，不列 env 值、secret 原值或完整 HOME 路徑
+- **同步流程不保證阻止機密寫入 repo**：`to-repo` 只做明確不同步欄位剝除與資料搬移；CLAUDE.md、rules、skills、statusline.sh 等仍為原樣鏡射。建議流程是 `npm run to-repo` 後、commit 前執行 `npm run safety:check` 與 `git diff`
 - **`hooks` 不跨裝置同步**：hook command 多為平台綁定（PowerShell／終端跳脫序列），在 Windows 與 macOS 無法共用，故各裝置自行維護本機 `hooks`，repo 不攜帶。需在新裝置重建 hook 時手動設定
 - `codex/config.toml` 只同步可攜欄位：`personality`、`web_search`、`tui.status_line`、`features.memories`、`features.goals`、`memories.generate_memories`、`memories.use_memories`、`plugins.*.enabled`
 - `codex/config.toml` 會排除 `model`、`model_reasoning_effort`、`projects.*`、`marketplaces.*`、`windows`、`tui.model_availability_nux` 與未知欄位；to-local 時保留本機未受管理欄位
