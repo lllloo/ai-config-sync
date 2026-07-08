@@ -138,7 +138,6 @@ const INIT_FILE_MAP = [
  */
 const INIT_RULES_TO_REMOVE = [
   'claude/rules/llm-docs.md',
-  'claude/rules/obsidian.md',
   'claude/rules/skill-writing.md',
 ];
 
