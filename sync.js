@@ -1159,7 +1159,8 @@ const SYNC_AREAS = {
  *   - type：'file'|'settings'|'codex-config'|'dir'（型別行為由 diffSyncItem／applySyncItem 分派）
  *   - fixedFlow：true 代表 src 恆為本機端、dest 恆為 repo 端，不隨 direction 交換
  *     （settings.json／config.toml 由 mergeSettingsBetween／mergeCodexConfigToml 依 direction 決定流向）
- * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, type: SyncItem['type'], fixedFlow?: boolean}>}
+ *   - exclude（選填，僅 dir 型）：glob 片段陣列，diffDir／mirrorDir 以 matchExclude 略過對應相對路徑
+ * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[]}>}
  */
 const SYNC_MANIFEST = [
   { area: 'claude', label: 'CLAUDE.md',     type: 'file' },
@@ -1187,7 +1188,8 @@ function resolveSyncArea(area) {
 /**
  * 將一列 manifest 依同步方向 materialize 成 SyncItem。
  * fixedFlow 項目 src/dest 固定（home→repo），其餘依 direction 交換。
- * @param {{area: 'claude'|'codex', label: string, type: SyncItem['type'], fixedFlow?: boolean}} entry
+ * dir 型可選 `exclude`：propagate 為 `excludePatterns`，供 diffDir／mirrorDir 略過（matchExclude）。
+ * @param {{area: 'claude'|'codex', label: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[]}} entry
  * @param {'to-repo'|'to-local'} direction
  * @returns {SyncItem}
  */
@@ -1199,7 +1201,9 @@ function materializeSyncItem(entry, direction) {
   // fixedFlow：src 恆為本機端、dest 恆為 repo 端（由 merge 函式內部依 direction 決定流向）
   const src = entry.fixedFlow || isToRepo ? homePath : repoPath;
   const dest = entry.fixedFlow || isToRepo ? repoPath : homePath;
-  return { label: entry.label, src, dest, type: entry.type, prefix };
+  const item = { label: entry.label, src, dest, type: entry.type, prefix };
+  if (entry.exclude) item.excludePatterns = entry.exclude;
+  return item;
 }
 
 /**

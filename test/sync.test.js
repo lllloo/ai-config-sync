@@ -244,6 +244,15 @@ test('materializeSyncItem：fixedFlow 項目 src/dest 不隨方向交換', () =>
   assert.match(toRepo.dest, /[\\/]claude[\\/]settings\.json$/);
 });
 
+test('materializeSyncItem：dir 型 exclude 欄位 propagate 為 excludePatterns', () => {
+  const withExclude = materializeSyncItem(
+    { area: 'claude', label: 'skills', type: 'dir', exclude: ['*.tmp', 'draft/**'] }, 'to-repo');
+  assert.deepEqual(withExclude.excludePatterns, ['*.tmp', 'draft/**']);
+  // 無 exclude 的項目不帶該欄位（保持 item 精簡、下游 `|| []` fallback）
+  const noExclude = materializeSyncItem({ area: 'claude', label: 'skills', type: 'dir' }, 'to-repo');
+  assert.equal(Object.prototype.hasOwnProperty.call(noExclude, 'excludePatterns'), false);
+});
+
 test('buildSyncItems：manifest 順序保留、fixedFlow 項目雙向 src/dest 一致', () => {
   const labels = SYNC_MANIFEST.map(e => e.label);
   const repoItems = buildSyncItems('to-repo');
