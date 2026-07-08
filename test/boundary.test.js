@@ -855,3 +855,45 @@ test('safety:check：repo config.toml 機密 section（model_providers）→ har
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('safety:check：外部套件文件（claude/agents）含機密/HOME 樣式 → 不觸發 hard block，exit 0', () => {
+  const { repo, root } = setupSafetySandbox();
+  try {
+    // 模擬 opensource-sanitizer.md：文件為說明偵測 regex 而含 token 樣式與 HOME 路徑
+    writeSafetyText(repo, 'claude/agents/pkg/sanitizer.md',
+      'pattern: github_pat_' + 'a'.repeat(24) + '\npattern: /home/alice/.config\n');
+    const r = runSafety(repo);
+    assert.equal(r.status, 0, `套件文件不應觸發 hard block\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /未發現/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('safety:check：codex/agents 與 claude/skills 套件文件同樣豁免 text pattern', () => {
+  const { repo, root } = setupSafetySandbox();
+  try {
+    writeSafetyText(repo, 'codex/agents/pkg/role.toml', 'note = "sk-' + 'x'.repeat(20) + '"\n');
+    writeSafetyText(repo, 'claude/skills/demo/SKILL.md', '範例：/home/bob/secret 與 ghp_' + 'y'.repeat(24) + '\n');
+    const r = runSafety(repo);
+    assert.equal(r.status, 0, `codex/agents 與 claude/skills 應豁免\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /未發現/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('safety:check：設定來源（statusline.sh）含機密樣式 → 仍 hard block exit 2（防過度排除）', () => {
+  const { repo, root } = setupSafetySandbox();
+  try {
+    const token = 'ghp_' + 'w'.repeat(24);
+    writeSafetyText(repo, 'claude/statusline.sh', '#!/bin/bash\necho ' + token + '\n');
+    const r = runSafety(repo);
+    assert.equal(r.status, 2, `設定來源仍應觸發 hard block\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /疑似機密值/);
+    assert.match(r.stdout, /statusline\.sh/);
+    assert.doesNotMatch(r.stdout, new RegExp(token), '不得輸出 secret 原值');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

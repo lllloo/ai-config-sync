@@ -49,6 +49,15 @@ const CODEX_CONFIG_HARD_BLOCK_SECTIONS = ['model_providers', 'mcp_servers'];
 const SAFETY_SCAN_DIRS = ['claude', 'codex'];
 const SAFETY_SCAN_FILES = ['skills-lock.json'];
 
+/**
+ * text pattern 掃描（secret／私鑰／HOME 路徑）排除的外部套件文件目錄前綴
+ * （相對 REPO_ROOT 的 POSIX 前綴）。這些目錄是原樣鏡射的第三方套件文件
+ * （agent／skill 說明），為說明偵測規則本就會含 token／路徑樣式，用機密 pattern
+ * 掃它們天生整類 false positive。排除只作用於 text 掃描；結構化 .json／.toml
+ * 掃描（settings.json／config.toml 的 hard block）不受影響（這些目錄下也無設定檔）。
+ */
+const SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES = ['claude/agents/', 'claude/skills/', 'codex/agents/'];
+
 /** 純函式：回傳第一個命中 pattern 的行號（1-based），無則 null */
 function findFirstMatchingLine(content, pattern) {
   const lines = content.split(/\r?\n/);
@@ -167,10 +176,17 @@ function createSafetyChecker(deps) {
     else if (rel.endsWith('.toml')) scanTomlKeyWarnings(filePath, issues);
   }
 
+  function isTextScanExcluded(filePath) {
+    const rel = toRelativePath(filePath).replace(/\\/g, '/');
+    return SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES.some(prefix => rel.startsWith(prefix));
+  }
+
   function runSafetyChecks() {
     const issues = [];
     for (const filePath of collectSafetyScanFiles()) {
-      scanSafetyTextFile(filePath, issues);
+      // 外部套件文件（agents／skills）只略過 text pattern 掃描；結構化掃描仍跑
+      // （對 .md no-op、對未來 .json／.toml 保留 hard block 偵測）
+      if (!isTextScanExcluded(filePath)) scanSafetyTextFile(filePath, issues);
       scanSafetyStructuredFile(filePath, issues);
     }
     return issues;
@@ -220,4 +236,5 @@ module.exports = {
   CODEX_CONFIG_HARD_BLOCK_SECTIONS,
   SAFETY_SCAN_DIRS,
   SAFETY_SCAN_FILES,
+  SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES,
 };
