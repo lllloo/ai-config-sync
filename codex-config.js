@@ -5,8 +5,14 @@
 //
 // 從 sync.js 抽出的獨立模組：承載 Codex `config.toml` 的 TOML parse／serialize、
 // 可攜欄位判斷、方向相依 merge、load／get 與 apply 進出口，以及專屬常數
-// （CODEX_CONFIG_TOP_KEYS、CODEX_CONFIG_SECTION_KEYS）。對外入口仍是
+// （CODEX_CONFIG_TOP_KEYS、CODEX_CONFIG_DEVICE_SECTION_PREFIXES）。對外入口仍是
 // `node sync.js`（to-repo／to-local／diff／status），本檔不作為獨立 CLI 執行。
+//
+// 過濾策略：section 級黑名單混合制（見 flip-codex-config-to-blocklist/design.md）。
+// 預設同步各 section，僅排除列於 CODEX_CONFIG_DEVICE_SECTION_PREFIXES 者（整段丟棄，
+// safe-by-construction）；兩個精確 carve-out——top-level 維持 CODEX_CONFIG_TOP_KEYS
+// 窄允許清單（缺 Codex 權威 schema，D3）、`plugins.*` 維持 enabled-only（開放 key
+// 空間，D2）。第 2 層由 safety:check 對機密 section hard block 兜底。
 //
 // 邊界原則（見 openspec/changes/extract-codex-config-module/design.md）：
 // - 不反向 require sync.js。純 parse／serialize／merge 無 IO，直接匯出；
@@ -19,25 +25,25 @@
 const fs = require('fs');
 const path = require('path');
 
-/** Codex config.toml 中允許跨裝置同步的 top-level key */
+/**
+ * top-level 維持窄允許清單 carve-out（見 design D3）：Codex top-level 尚有 model／
+ * approval_policy／sandbox_mode 等裝置 key 且隨版本增生，缺權威 schema 無法安全反列，
+ * 故此層刻意不翻黑名單，只放行列舉的可攜 key。
+ */
 const CODEX_CONFIG_TOP_KEYS = ['personality', 'web_search'];
 
-/** Codex config.toml 中允許跨裝置同步的固定 section key */
-const CODEX_CONFIG_SECTION_KEYS = {
-  tui: ['status_line'],
-  features: ['memories', 'goals'],
-  memories: ['generate_memories', 'use_memories'],
-};
-
 /**
- * 已知刻意不同步的 device／機密 section 前綴——僅供「未分類欄位偵測」降噪，
- * 不影響同步放行（放行永遠只由白名單 isPortableCodexConfigKey 決定）。
- * 這些 section 明顯含憑證（model_providers.*.api_key、mcp_servers.*）、本機路徑
- * （projects、profiles）或裝置狀態（history），報出來只會洗版，故不列為待討論。
- * 列漏只會多印一行提示、絕不造成洩漏——安全方向偏「多報」。
+ * Section 級黑名單權威清單（見 design D1）：section 名等於清單項、或以 `<項>.` 為
+ * 前綴者，整段（含所有 key）不同步。內容為機密載體（model_providers.*.api_key、
+ * mcp_servers.*）、本機路徑（projects、profiles）、裝置狀態（history、
+ * shell_environment_policy、tui.model_availability_nux）。邊界落在 section 層、
+ * 整段排除即 safe-by-construction，且 section 邊界粗、跨 Codex 版本穩定。
+ * config.toml 同步採「預設同步 + 此黑名單排除 + top-level/plugins carve-out」，
+ * 漏列新機密 section 的殘留風險由 safety:check 對已知機密 section 的 hard block 兜底。
  */
 const CODEX_CONFIG_DEVICE_SECTION_PREFIXES = [
-  'model_providers', 'mcp_servers', 'projects', 'profiles', 'history', 'shell_environment_policy',
+  'model_providers', 'mcp_servers', 'projects', 'profiles', 'history',
+  'shell_environment_policy', 'tui.model_availability_nux',
 ];
 
 // -----------------------------------------------------------------------------
@@ -45,23 +51,11 @@ const CODEX_CONFIG_DEVICE_SECTION_PREFIXES = [
 // -----------------------------------------------------------------------------
 
 /**
- * 判斷 Codex config.toml key 是否可跨裝置同步
- * @param {string} section - TOML section 名稱，top-level 為空字串
- * @param {string} key - TOML key
- * @returns {boolean}
- */
-function isPortableCodexConfigKey(section, key) {
-  if (section === '') return CODEX_CONFIG_TOP_KEYS.includes(key);
-  if (section.startsWith('plugins.')) return key === 'enabled';
-  return (CODEX_CONFIG_SECTION_KEYS[section] || []).includes(key);
-}
-
-/**
- * 判斷 section 是否屬「已知刻意排除」的 device／機密 section（僅用於未分類偵測降噪）
+ * 判斷 section 是否命中 section 級黑名單（等於清單項或以 `<項>.` 為前綴）→ 整段排除
  * @param {string} section - TOML section 名稱，top-level 為空字串
  * @returns {boolean}
  */
-function isKnownDeviceCodexSection(section) {
+function isDeviceCodexSection(section) {
   if (section === '') return false;
   return CODEX_CONFIG_DEVICE_SECTION_PREFIXES.some(
     prefix => section === prefix || section.startsWith(`${prefix}.`),
@@ -69,31 +63,21 @@ function isKnownDeviceCodexSection(section) {
 }
 
 /**
- * 收集 config.toml 中「既非白名單、也非已知 device section」的未分類欄位 key path。
- * 這些欄位不會被同步（白名單 fail-safe 不變），但值得提示使用者判斷是否納入白名單
- * ——例如 Codex 改版新增的可攜欄位。回傳去重後、依出現順序的 key path 陣列。
- * @param {string} content - config.toml 原始內容
- * @returns {string[]}
+ * 判斷 Codex config.toml key 是否可跨裝置同步（section 黑名單混合制，見 design D1–D3）。
+ * 三分支明列避免漂移：
+ * - section 命中黑名單 → 整段排除
+ * - top-level（section === ''）→ 只放行 CODEX_CONFIG_TOP_KEYS 窄允許清單（D3 carve-out）
+ * - `plugins.*` → 只放行 enabled（D2 carve-out，plugin 為開放 key 空間、可能載憑證）
+ * - 其餘 section → 全部 key 放行（含 Codex 未來新增的 section／key）
+ * @param {string} section - TOML section 名稱，top-level 為空字串
+ * @param {string} key - TOML key
+ * @returns {boolean}
  */
-function collectUnclassifiedCodexKeys(content) {
-  const found = [];
-  const seen = new Set();
-  let section = '';
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const sectionMatch = line.match(/^\[([^\]]+)\]\s*(?:#.*)?$/);
-    if (sectionMatch) { section = sectionMatch[1].trim(); continue; }
-    const keyMatch = line.match(/^([A-Za-z0-9_-]+)\s*=/);
-    if (!keyMatch) continue;
-    const key = keyMatch[1];
-    if (isPortableCodexConfigKey(section, key) || isKnownDeviceCodexSection(section)) continue;
-    const keyPath = section ? `${section}.${key}` : key;
-    if (seen.has(keyPath)) continue;
-    seen.add(keyPath);
-    found.push(keyPath);
-  }
-  return found;
+function isPortableCodexConfigKey(section, key) {
+  if (isDeviceCodexSection(section)) return false;
+  if (section === '') return CODEX_CONFIG_TOP_KEYS.includes(key);
+  if (section.startsWith('plugins.')) return key === 'enabled';
+  return true;
 }
 
 /**
@@ -135,7 +119,8 @@ function parsePortableCodexConfig(content) {
 }
 
 /**
- * 取得 section 中依固定順序輸出的 key
+ * 取得 section 輸出的 key 順序：top-level／plugins 用 carve-out 固定順序，其餘 section
+ * 用 parse 時的插入順序（即來源檔內順序），維持輸出穩定
  * @param {Map<string, Map<string, string>>} data
  * @param {string} section
  * @returns {string[]}
@@ -143,22 +128,23 @@ function parsePortableCodexConfig(content) {
 function getCodexConfigKeys(data, section) {
   if (section === '') return CODEX_CONFIG_TOP_KEYS;
   if (section.startsWith('plugins.')) return ['enabled'];
-  return CODEX_CONFIG_SECTION_KEYS[section] || [];
+  const values = data.get(section);
+  return values ? [...values.keys()] : [];
 }
 
 /**
- * 將可攜 Codex config map 序列化為穩定 TOML
+ * 將可攜 Codex config map 序列化為穩定 TOML：top-level 先出（固定 key 順序），
+ * 其餘非黑名單 section 依插入順序（來源檔順序）輸出
  * @param {Map<string, Map<string, string>>} data
  * @returns {string}
  */
 function serializePortableCodexConfig(data) {
   const lines = [];
   pushCodexConfigTopLevel(lines, data);
-  for (const section of Object.keys(CODEX_CONFIG_SECTION_KEYS)) {
+  for (const section of data.keys()) {
+    if (section === '') continue;
     pushCodexConfigSection(lines, data, section);
   }
-  const plugins = [...data.keys()].filter(s => s.startsWith('plugins.')).sort();
-  for (const section of plugins) pushCodexConfigSection(lines, data, section);
   return lines.length ? `${lines.join('\n')}\n` : '';
 }
 
@@ -285,11 +271,10 @@ function pushRemainingCodexConfigValues(output, remaining, section) {
  */
 function appendRemainingCodexConfigSections(output, remaining) {
   pushRemainingCodexConfigValues(output, remaining, '');
-  for (const section of Object.keys(CODEX_CONFIG_SECTION_KEYS)) {
+  for (const section of [...remaining.keys()]) {
+    if (section === '') continue;
     appendRemainingCodexConfigSection(output, remaining, section);
   }
-  const plugins = [...remaining.keys()].filter(s => s.startsWith('plugins.')).sort();
-  for (const section of plugins) appendRemainingCodexConfigSection(output, remaining, section);
 }
 
 /**
@@ -351,7 +336,7 @@ function createCodexConfigHandler(deps) {
   }
 
   /**
-   * 合併 Codex config.toml（只同步 allowlist 欄位）
+   * 合併 Codex config.toml（section 黑名單混合制過濾同步）
    * @param {'to-repo'|'to-local'} direction - 同步方向
    * @param {boolean} [dryRun=false] - 是否為 dry-run 模式
    * @returns {boolean} 是否有實際變更
@@ -410,12 +395,10 @@ function createCodexConfigHandler(deps) {
 
 module.exports = {
   CODEX_CONFIG_TOP_KEYS,
-  CODEX_CONFIG_SECTION_KEYS,
   CODEX_CONFIG_DEVICE_SECTION_PREFIXES,
+  isDeviceCodexSection,
   parsePortableCodexConfig,
   serializePortableCodexConfig,
   mergePortableCodexConfig,
-  isKnownDeviceCodexSection,
-  collectUnclassifiedCodexKeys,
   createCodexConfigHandler,
 };

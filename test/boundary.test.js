@@ -839,3 +839,19 @@ test('safety:check：hard block exit 2，輸出遮罩 secret 與 HOME 路徑', (
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('safety:check：repo config.toml 機密 section（model_providers）→ hard block exit 2，只印 section 路徑', () => {
+  const { repo, root } = setupSafetySandbox();
+  try {
+    const valueMarker = 'provider-value-marker';
+    writeSafetyText(repo, 'codex/config.toml',
+      `personality = "x"\n\n[model_providers.openai]\nbase_url = "${valueMarker}"\n`);
+    const r = runSafety(repo);
+    assert.equal(r.status, 2, `機密 section 應 exit 2\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /不應同步 codex 機密 section/);
+    assert.match(r.stdout, /model_providers\.openai/, '應指出 section 路徑');
+    assert.doesNotMatch(r.stdout, new RegExp(valueMarker), '不得輸出 section 內的值');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

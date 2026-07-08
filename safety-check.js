@@ -38,6 +38,13 @@ const PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
 /** repo settings.json 內出現即為 hard block 的 top-level 欄位 */
 const SETTINGS_HARD_BLOCK_KEYS = ['hooks', 'apiKeyHelper', 'awsCredentialExport', 'awsAuthRefresh', 'otelHeadersHelper'];
 
+/**
+ * repo codex config.toml 內出現即為 hard block 的機密載體 section 前綴（見 design D4）。
+ * 同步層已由 codex-config 的 section 黑名單剝除，此為獨立第 2 層——防手動編輯 repo
+ * 或黑名單漏列。比照 SETTINGS_HARD_BLOCK_KEYS 對 settings.json hooks/credential helper。
+ */
+const CODEX_CONFIG_HARD_BLOCK_SECTIONS = ['model_providers', 'mcp_servers'];
+
 /** safety:check 僅掃同步來源與 skills manifest，不掃 test/openspec/README 等文件 */
 const SAFETY_SCAN_DIRS = ['claude', 'codex'];
 const SAFETY_SCAN_FILES = ['skills-lock.json'];
@@ -133,12 +140,24 @@ function createSafetyChecker(deps) {
     for (const raw of content.split(/\r?\n/)) {
       const line = raw.trim();
       const header = line.match(/^\[([^\]]+)\]$/);
-      if (header) { section = header[1]; continue; }
+      if (header) {
+        section = header[1];
+        if (isCodexSecretSection(section)) {
+          addSafetyIssue(issues, 'hard', '不應同步 codex 機密 section', filePath, section);
+        }
+        continue;
+      }
       const pair = line.match(/^([A-Za-z0-9_.-]+)\s*=/);
       if (!pair) continue;
       const keyPath = section ? `${section}.${pair[1]}` : pair[1];
       if (SENSITIVE_KEY_PATTERN.test(keyPath)) addSafetyIssue(issues, 'warning', '敏感命名 key path', filePath, keyPath);
     }
+  }
+
+  function isCodexSecretSection(section) {
+    return CODEX_CONFIG_HARD_BLOCK_SECTIONS.some(
+      prefix => section === prefix || section.startsWith(`${prefix}.`),
+    );
   }
 
   function scanSafetyStructuredFile(filePath, issues) {
@@ -198,6 +217,7 @@ module.exports = {
   HOME_PATH_PATTERN,
   PRIVATE_KEY_PATTERN,
   SETTINGS_HARD_BLOCK_KEYS,
+  CODEX_CONFIG_HARD_BLOCK_SECTIONS,
   SAFETY_SCAN_DIRS,
   SAFETY_SCAN_FILES,
 };
