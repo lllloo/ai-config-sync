@@ -80,6 +80,8 @@ const {
   CODEX_CONFIG_TOP_KEYS,
   CODEX_CONFIG_DEVICE_SECTION_PREFIXES,
   isDeviceCodexSection,
+  matchCodexHeader,
+  readCodexStatements,
   parsePortableCodexConfig,
   serializePortableCodexConfig,
   mergePortableCodexConfig,
@@ -1604,7 +1606,7 @@ function safetyChecker() {
   if (!_safetyChecker) {
     _safetyChecker = safetyCheckModule.createSafetyChecker({
       REPO_ROOT, getFiles, readFileSafe, readJson, toRelativePath, maskHome, col,
-      EXIT_OK, EXIT_DIFF, EXIT_ERROR,
+      EXIT_OK, EXIT_DIFF, EXIT_ERROR, readCodexStatements,
     });
   }
   return _safetyChecker;

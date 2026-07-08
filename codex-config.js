@@ -480,6 +480,8 @@ module.exports = {
   CODEX_CONFIG_TOP_KEYS,
   CODEX_CONFIG_DEVICE_SECTION_PREFIXES,
   isDeviceCodexSection,
+  matchCodexHeader,
+  readCodexStatements,
   parsePortableCodexConfig,
   serializePortableCodexConfig,
   mergePortableCodexConfig,

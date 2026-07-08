@@ -79,11 +79,12 @@ function findFirstMatchingLine(content, pattern) {
  *   maskHome: (text: string) => string,
  *   col: Record<string, (s: string) => string>,
  *   EXIT_OK: number, EXIT_DIFF: number, EXIT_ERROR: number,
+ *   readCodexStatements: (content: string) => Array<{type:string,name?:string,key?:string}>,
  * }} deps
  * @returns {{ runSafetyCheck: () => number, runSafetyChecks: () => object[], printSafetyReport: (issues: object[]) => void }}
  */
 function createSafetyChecker(deps) {
-  const { REPO_ROOT, getFiles, readFileSafe, readJson, toRelativePath, maskHome, col, EXIT_OK, EXIT_DIFF, EXIT_ERROR } = deps;
+  const { REPO_ROOT, getFiles, readFileSafe, readJson, toRelativePath, maskHome, col, EXIT_OK, EXIT_DIFF, EXIT_ERROR, readCodexStatements } = deps;
 
   function addSafetyIssue(issues, severity, category, filePath, detail = '') {
     issues.push({ severity, category, file: toRelativePath(filePath), detail: maskHome(detail) });
@@ -145,23 +146,21 @@ function createSafetyChecker(deps) {
 
   function scanTomlKeyWarnings(filePath, issues) {
     const content = String(readFileSafe(filePath, '讀取 TOML 安全檢查檔案', 'utf8'));
+    // 直接復用 codex-config 同步端的狀態感知語句讀取器（readCodexStatements）：
+    // 統一 header／kv 判斷、正確處理多行陣列與三引號字串，避免自製逐行 regex 把
+    // 字串內的 `[x]` 樣式誤判為 section header（section 歸屬錯標），並杜絕兩份平行
+    // 解析邏輯漂移。array-of-tables（[[x]]）與一般 table 皆由讀取器辨識。
     let section = '';
-    for (const raw of content.split(/\r?\n/)) {
-      const line = raw.trim();
-      // 與 codex-config 同步端對齊：辨識 array-of-tables（[[x]]）與一般 table（[x]），
-      // 允許尾註解並 trim section 名，避免 `[[model_providers]]`／`[ x ] # 註解`
-      // 等合法 header 變體繞過機密 section hard block。
-      const header = line.match(/^\[\[([^\]]+)\]\]\s*(?:#.*)?$/) || line.match(/^\[([^\]]+)\]\s*(?:#.*)?$/);
-      if (header) {
-        section = header[1].trim();
+    for (const st of readCodexStatements(content)) {
+      if (st.type === 'section') {
+        section = st.name;
         if (isCodexSecretSection(section)) {
           addSafetyIssue(issues, 'hard', '不應同步 codex 機密 section', filePath, section);
         }
         continue;
       }
-      const pair = line.match(/^([A-Za-z0-9_.-]+)\s*=/);
-      if (!pair) continue;
-      const keyPath = section ? `${section}.${pair[1]}` : pair[1];
+      if (st.type !== 'kv') continue;
+      const keyPath = section ? `${section}.${st.key}` : st.key;
       if (SENSITIVE_KEY_PATTERN.test(keyPath)) addSafetyIssue(issues, 'warning', '敏感命名 key path', filePath, keyPath);
     }
   }
