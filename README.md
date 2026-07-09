@@ -4,11 +4,18 @@
 
 **這是一個 GitHub Template**：點 [Use this template](https://github.com/) 建立自己的私有 repo，再執行 `npm run init` 清空作者範例後填入自己的設定。詳見下方「Fork 後初次設定」。
 
-**同步項目**（依工具分三類）：
+**同步項目**（依工具對應）：
 
-- **Claude Code**（`~/.claude/`）：`CLAUDE.md`、`settings.json`（top-level 黑名單過濾版）、`statusline.sh`、全域 agents、全域 skills、全域 rules
-- **Codex**（`~/.codex/`）：`AGENTS.md`、`config.toml`（section 黑名單過濾版）、agents
-- **opencode**（`~/.config/opencode/`）：`opencode.jsonc`（主設定）、`AGENTS.md`（全域指示）
+| 功能 | Claude Code（`~/.claude/`） | Codex（`~/.codex/`） | opencode（`~/.config/opencode/`） | 說明 |
+|------|------------------------------|------------------------|--------------------------------------|------|
+| 全域指示／規則 | `claude/CLAUDE.md` | `codex/AGENTS.md` | `opencode/AGENTS.md` | 全文比對；三者各自獨立，opencode 缺此檔時才 fallback 讀 Claude 的 CLAUDE.md |
+| 主設定檔 | `claude/settings.json` | `codex/config.toml` | `opencode/opencode.jsonc` | Claude／Codex 為過濾版（黑名單排除裝置／機密欄位），opencode 整檔同步（支援 `.json`／`.jsonc` 檔名變體，`.jsonc` 優先） |
+| Statusline | `claude/statusline.sh` | — | — | 全文比對，Codex／opencode 無對應機制 |
+| Agent 定義 | `claude/agents/` | `codex/agents/` | — | 皆以 package 子目錄組織；Codex 為 `.toml` 格式（目前無 agent），opencode 無同步項目 |
+| Command 定義 | `claude/commands/` | — | — | 目錄鏡射，僅 Claude Code 有此同步項目。本 repo 慣例已改用 skill（見下方全域 Skill），不再新增 command，故目前為空目錄；`sync.js` 仍原樣支援此路徑 |
+| 全域 Skill | `claude/skills/` | — | — | 目錄鏡射，僅 Claude Code 有全域 skill 同步。**與 `npx skills`（`skills-lock.json`）是兩套不同機制**：`claude/skills/` 是 repo 自帶、Git 版控的 skill 原始檔，由 to-repo/to-local 直接鏡射；`skills-lock.json` 追蹤的是外部 `npx skills` CLI 安裝的 skill，不受 sync.js 管理，只能用 `npm run skills:diff` 比對後手動執行建議指令。兩者最終都落在 `~/.claude/skills/`，但誰在管完全不同 |
+| 本地 Skill | `.agents/skills/`（經 `.claude/skills` symlink 讀取） | `.agents/skills/`（原生探索，無需 symlink） | — | 跨工具共用同一份實體目錄，不參與 to-repo/to-local 同步 |
+| 規則拆分 | `claude/rules/` | — | — | CLAUDE.md 模組化拆分，支援 frontmatter `paths:` scoping，僅 Claude Code 有此機制 |
 
 > **目錄命名**：
 > - `claude/`（無點）— 要同步到 `~/.claude/` 的全域設定
@@ -47,6 +54,9 @@ npm run skills:remove -- <name>
 
 # 執行單元測試（node:test，零外部相依）
 npm test
+
+# 執行單一測試
+node --test --test-name-pattern="<name>" test/<file>.test.js
 ```
 
 ### 指令別名
@@ -74,7 +84,7 @@ npm test
 | `--no-color` | 關閉色彩輸出（亦支援 `NO_COLOR` 環境變數；`FORCE_COLOR` 可強制開啟） |
 | `--verbose` | 顯示詳細路徑與檔案大小 |
 | `--version` | 顯示版本號（別名 `-v`） |
-| `--help` | 顯示指令說明 |
+| `--help` | 顯示指令說明（別名 `-h`） |
 
 > 不在白名單內的旗標（含 typo 如 `--dryrun`）會直接報錯，不會被靜默忽略——避免打錯字而略過 dry-run 預覽真寫入。
 
@@ -123,26 +133,21 @@ npm run to-local
 
 ## 檔案說明
 
+> 各同步項目（`claude/`、`codex/`、`opencode/` 下的檔案）對應關係見上方「同步項目」表；此處僅列工具本體與範本檔。
+
 | 檔案 | 說明 |
 |------|------|
 | `sync.js` | 主 CLI 入口，實作同步／diff／skills／init 指令邏輯（無外部相依） |
 | `safety-check.js` | `safety:check` 唯讀掃描模組，由 `sync.js` 注入共用工具（不獨立執行、不反向 require） |
 | `codex-config.js` | Codex `config.toml` 過濾同步模組（TOML parse／serialize／merge 純函式與常數、load／get／apply 進出口），由 `sync.js` 注入共用工具（不獨立執行、不反向 require；diff 渲染留在 `sync.js`） |
 | `test/sync.test.js` | 同步邏輯純函式單元測試（使用 Node.js 內建 `node:test`） |
-| `test/settings.test.js` | settings.json 相關純函式單元測試 |
+| `test/settings.test.js` | settings.json 相關純函式與 `mergeSettingsBetween` 同步心臟測試 |
 | `test/codex-config.test.js` | Codex config.toml 過濾同步測試 |
+| `test/diff-integration.test.js` | diff 整合測試 |
+| `test/apply-integration.test.js` | 沙箱化 to-local/to-repo 端到端 apply 測試 |
+| `test/boundary.test.js` | 邊界情境與安全防線測試（含 `safety:check` sandbox） |
+| `test/helpers.js` | 各測試檔共用的 helper |
 | `package.json` | 定義所有 npm 指令 |
-| `claude/CLAUDE.md` | 對應 `~/.claude/CLAUDE.md` |
-| `claude/settings.json` | 對應 `~/.claude/settings.json` |
-| `claude/statusline.sh` | 對應 `~/.claude/statusline.sh` |
-| `claude/agents/` | 對應 `~/.claude/agents/`（以 package 子目錄組織） |
-| `claude/skills/` | 對應 `~/.claude/skills/` |
-| `claude/rules/` | 對應 `~/.claude/rules/`（CLAUDE.md 的模組化拆分，支援 frontmatter `paths:` 做 path-specific scoping） |
-| `codex/AGENTS.md` | 對應 `~/.codex/AGENTS.md`（Codex 全域指示，跨專案規則） |
-| `codex/config.toml` | 對應 `~/.codex/config.toml` 的可攜欄位（過濾版） |
-| `codex/agents/` | 對應 `~/.codex/agents/`（以 package 子目錄組織，`.toml` 格式；目前無 agent） |
-| `opencode/opencode.jsonc` | 對應 `~/.config/opencode/opencode.jsonc`（opencode 全域主設定，整檔同步；支援 `.json`／`.jsonc` 檔名變體，`.jsonc` 優先） |
-| `opencode/AGENTS.md` | 對應 `~/.config/opencode/AGENTS.md`（opencode 全域指示，獨立於 Claude 的 `CLAUDE.md`） |
 | `skills-lock.json` | 全域 skills 清單（跨裝置 source of truth） |
 | `claude/CLAUDE.example.md` | Fork 後 `npm run init` 用的空骨架範本 |
 | `claude/settings.example.json` | 同上，設定檔範本（僅基本 permissions） |
@@ -174,6 +179,7 @@ npm run to-local
 - **opencode 採 XDG 佈局**：設定家為 `~/.config/opencode`（非 `~/.opencode`），機密（`auth.json`）與資料庫（`opencode.db`）落在 `~/.local/share`／`~/.cache`／`~/.local/state`，與設定家分屬不同根目錄，故天生不在同步射程；設定家內的執行期產物（`node_modules/`、`package.json`、`package-lock.json`、`plugins/`）因未列入同步清單，也不會被同步
 - **opencode 主設定檔名變體**：opencode 同時接受 `opencode.json` 與 `opencode.jsonc`；同步時以兩端實際存在者為 canonical `label`（`.jsonc` 優先、皆不存在採預設 `opencode.jsonc`），repo 端恆為單一檔名。**雙變體 orphan 提醒**：若某裝置本機原為 `opencode.json` 而 canonical 解析為 `.jsonc`，`to-local` 會寫入 `.jsonc`，該裝置可能同時留存 `.json` 與 `.jsonc`——請手動刪除非 canonical 的舊檔，避免 opencode 讀到過期設定
 - `.agents/skills/` 是本地 skill 實體目錄，已納入版控；Claude Code 靠 `.claude/skills` symlink 讀取，Codex 原生把 `.agents/skills`（專案層）與 `~/.agents/skills`（全域層）納入探索路徑、無需 symlink
+- **Windows clone 注意**：`.claude/skills` 這個 git symlink 在 Windows 需開啟「開發者模式」（設定 → 系統 → 開發人員選項）或以管理員權限 clone，否則會 fallback 成內容為路徑字串的純文字檔，導致 Claude Code 找不到 skill。Codex 不受影響，因為它直接讀 `.agents/skills` 實體目錄
 - Claude agents 儲存於 `claude/agents/`，以 package 子目錄分組（目前為 `everything-claude-code/`）；Codex agents 儲存於 `codex/agents/`，同樣以 package 子目錄分組（目前無 agent），Codex CLI 會遞迴掃描子目錄
 - Skills 不在自動同步範圍內，用 `npm run skills:diff` 查看差異；本機多裝者會列出 `npm run skills:add`（加入 repo）與 `npx skills remove`（從本機移除）兩種建議
 - 所有檔案寫入（JSON、文字、目錄鏡射）皆透過底層 `writeFileSafe` 使用 atomic write（先寫同目錄暫存檔再 rename），避免中途斷電／中斷導致檔案損壞
