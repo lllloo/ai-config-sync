@@ -39,10 +39,9 @@ const {
   DEVICE_SETTINGS_KEYS,
 } = require('../sync.js');
 const {
-  CODEX_CONFIG_TOP_KEYS,
-  CODEX_CONFIG_DEVICE_SECTION_PREFIXES,
-} = require('../codex-config.js');
-const { CODEX_CONFIG_DEVICE_WARN_SECTIONS } = require('../safety-check.js');
+  CODEX_CONFIG_HARD_BLOCK_SECTIONS,
+  CODEX_CONFIG_DEVICE_WARN_SECTIONS,
+} = require('../safety-check.js');
 const { withArgv, withTmpDir, withTmpFile } = require('./helpers');
 
 // -----------------------------------------------------------------------------
@@ -355,7 +354,7 @@ test('drift-guard：新增 opencode area 後 claude／codex 既有項目 materia
     const codexLabels = byArea('codex/').map(i => i.label);
     assert.deepEqual(claudeLabels,
       ['CLAUDE.md', 'settings.json', 'statusline.sh', 'agents', 'commands', 'skills', 'rules']);
-    assert.deepEqual(codexLabels, ['AGENTS.md', 'config.toml']);
+    assert.deepEqual(codexLabels, ['AGENTS.md']);
     // 每個非 opencode 項目的 src/dest 皆不含 .config/opencode 路徑
     for (const it of [...byArea('claude/'), ...byArea('codex/')]) {
       assert.doesNotMatch(it.src, /[\\/]\.config[\\/]opencode[\\/]/);
@@ -479,19 +478,21 @@ test('README drift-guard：DEVICE_SETTINGS_KEYS 黑名單欄位皆載於 README'
   }
 });
 
-test('README drift-guard：codex section 黑名單與 top-level 允許清單皆載於 README', () => {
-  for (const prefix of CODEX_CONFIG_DEVICE_SECTION_PREFIXES) {
-    assert.ok(README.includes(`\`${prefix}`), `README 未載明 codex 黑名單 section：${prefix}`);
+test('README drift-guard：codex 機密／裝置狀態 section 清單皆載於 README', () => {
+  for (const prefix of CODEX_CONFIG_HARD_BLOCK_SECTIONS) {
+    assert.ok(README.includes(`\`${prefix}`), `README 未載明 codex 機密 section：${prefix}`);
   }
-  for (const key of CODEX_CONFIG_TOP_KEYS) {
-    assert.ok(README.includes(`\`${key}\``), `README 未載明 codex top-level 允許 key：${key}`);
-  }
-});
-
-test('README drift-guard：codex 裝置狀態 warning section 清單皆載於 README', () => {
   for (const prefix of CODEX_CONFIG_DEVICE_WARN_SECTIONS) {
     assert.ok(README.includes(`\`${prefix}`), `README 未載明 codex 裝置狀態 warning section：${prefix}`);
   }
+});
+
+// codex config.toml 已不再同步：SYNC_MANIFEST 不得再出現該列（回歸鎖）
+test('drift-guard：SYNC_MANIFEST 不含 codex config.toml', () => {
+  assert.equal(SYNC_MANIFEST.some(e => e.label === 'config.toml'), false,
+    'codex config.toml 已移除同步，不應重新出現在 SYNC_MANIFEST');
+  assert.equal(SYNC_MANIFEST.some(e => e.type === 'codex-config'), false,
+    'codex-config 型別已移除');
 });
 
 // -----------------------------------------------------------------------------

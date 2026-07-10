@@ -20,12 +20,12 @@ const { spawnSync } = require('node:child_process');
 const { noColorEnv } = require('./helpers.js');
 const { COMMANDS } = require('../sync.js');
 
-// sync.js require('./safety-check.js') 與 './codex-config.js'，任何 `node sync.js`
-// 指令缺任一檔即崩，故三檔同抄。
-const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'codex-config.js'];
+// sync.js require('./safety-check.js')，後者 require('./toml-reader.js')，任何
+// `node sync.js` 指令缺任一檔即崩，故三檔同抄。
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js'];
 
 /**
- * 建立沙箱：repo（含 sync.js + safety-check.js + codex-config.js 副本、git init）與 home。
+ * 建立沙箱：repo（含 sync.js + safety-check.js + toml-reader.js 副本、git init）與 home。
  * @returns {{repo: string, home: string}}
  */
 function setupSandbox() {
@@ -293,9 +293,11 @@ test('diff：本機與 repo 完全一致 → exit 0', () => {
 });
 
 // -----------------------------------------------------------------------------
-// Codex 項目端到端：direction-aware swap + config.toml 白名單過濾（此前僅有純函式測試）
+// Codex 項目端到端：AGENTS.md direction-aware swap
+// config.toml 已不同步（改由 README 列建議設定、使用者手動套用），下方兩個
+// 回歸測試把「不碰 config.toml」鎖住：本機檔不得被讀進 repo、repo 檔不得被套回本機。
 // -----------------------------------------------------------------------------
-test('to-repo：codex/AGENTS.md 寫入 repo，config.toml 僅可攜欄位進 repo', () => {
+test('to-repo：codex/AGENTS.md 寫入 repo；本機 config.toml 不被同步', () => {
   const { repo, home, root } = setupSandbox();
   try {
     writeText(path.join(home, '.codex', 'AGENTS.md'), 'CODEX-AGENTS');
@@ -306,19 +308,19 @@ test('to-repo：codex/AGENTS.md 寫入 repo，config.toml 僅可攜欄位進 rep
     assert.equal(r.status, 0, `to-repo 應 exit 0\n${r.stdout}\n${r.stderr}`);
     assert.equal(fs.readFileSync(path.join(repo, 'codex', 'AGENTS.md'), 'utf8'),
       'CODEX-AGENTS', 'codex/AGENTS.md 應寫入 repo');
-    const toml = fs.readFileSync(path.join(repo, 'codex', 'config.toml'), 'utf8');
-    assert.match(toml, /personality = "friendly"/, '可攜 top-level 欄位應進 repo');
-    assert.match(toml, /status_line = "on"/, '可攜 section 欄位應進 repo');
-    assert.ok(!toml.includes('model'), '非白名單欄位（裝置特定）不得進 repo');
+    assert.equal(fs.existsSync(path.join(repo, 'codex', 'config.toml')), false,
+      '本機 config.toml 不得被同步進 repo');
+    assert.doesNotMatch(r.stdout, /config\.toml/, '輸出不應再提及 config.toml');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('to-local --yes：codex 內容套用到本機，config.toml 保留本機未受管理欄位', () => {
+test('to-local --yes：codex/AGENTS.md 套用到本機；本機 config.toml 原封不動', () => {
   const { repo, home, root } = setupSandbox();
   try {
     writeText(path.join(repo, 'codex', 'AGENTS.md'), 'CODEX-B');
+    // repo 若殘留 config.toml（人工放置），不得被套用到本機
     writeText(path.join(repo, 'codex', 'config.toml'), 'personality = "bold"\n');
     writeText(path.join(home, '.codex', 'config.toml'), 'model = "o3"\n');
 
@@ -326,51 +328,8 @@ test('to-local --yes：codex 內容套用到本機，config.toml 保留本機未
     assert.equal(r.status, 0, `to-local 應 exit 0\n${r.stdout}\n${r.stderr}`);
     assert.equal(fs.readFileSync(path.join(home, '.codex', 'AGENTS.md'), 'utf8'),
       'CODEX-B', 'codex/AGENTS.md 應套用到本機');
-    const toml = fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8');
-    assert.match(toml, /personality = "bold"/, '可攜欄位應從 repo 帶入');
-    assert.match(toml, /model = "o3"/, '本機未受管理欄位（model）須保留');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// 回歸：本機 config.toml 僅含裝置／黑名單欄位（portable === ''）、repo 尚無此檔時，
-// diff 不得誤報「將新增」，且 apply 不得建立空檔——diff 預覽須與 mergeCodexConfigToRepo
-// 的空字串保護（codex-config.js）對齊，否則 npm run diff 會永久回報假差異卡住 CI。
-test('to-repo：本機 config.toml 只有黑名單欄位且 repo 無檔 → diff 不報新增、apply 不建檔', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    // model 為裝置 key、[model_providers.x] 為黑名單 section → 過濾後 portable 為空字串
-    writeText(path.join(home, '.codex', 'config.toml'),
-      'model = "o3"\n\n[model_providers.openai]\napi_key = "sk-DEVICE"\n');
-
-    const d = run(repo, home, ['diff']);
-    // 修復前 config.toml 會被標為 [+]（新增）；修復後應標為 [✓]（一致），與 apply 不建檔對齊
-    assert.match(d.stdout, /\[✓\]\s*codex\/config\.toml/,
-      'repo 無檔且本機無可攜欄位時，diff 應把 codex/config.toml 視為一致，而非將新增');
-
-    const r = run(repo, home, ['to-repo']);
-    assert.equal(r.status <= 1, true, `to-repo 應正常結束\n${r.stdout}\n${r.stderr}`);
-    assert.equal(fs.existsSync(path.join(repo, 'codex', 'config.toml')), false,
-      'apply 不得建立空的 codex/config.toml');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// 回歸：codex config.toml 的 to-local 預覽，本機與 merged 僅檔尾換行（CRLF vs LF）
-// 差異時應標為 eol（將更新（僅檔尾換行））而非 changed，避免 EOL 噪音被誤報為內容變更。
-test('to-local 預覽：codex config.toml 僅 CRLF/LF 差異 → 標為 eol 而非 changed', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'codex', 'config.toml'), 'personality = "x"\n');
-    // 本機為相同可攜內容但 CRLF；merged 產出 LF → 僅 EOL 差異
-    writeText(path.join(home, '.codex', 'config.toml'), 'personality = "x"\r\n');
-
-    const d = run(repo, home, ['to-local', '--dry-run']);
-    assert.match(d.stdout, /\[≈\]\s*codex\/config\.toml/, '僅 EOL 差異應標為 eol（≈）');
-    assert.match(d.stdout, /codex\/config\.toml.*僅檔尾換行/, '應標示「將更新（僅檔尾換行）」');
-    assert.doesNotMatch(d.stdout, /\[~\]\s*codex\/config\.toml/, '不得標為 changed（~）');
+    assert.equal(fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8'),
+      'model = "o3"\n', '本機 config.toml 須原封不動（不被 repo 內容覆寫或合併）');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

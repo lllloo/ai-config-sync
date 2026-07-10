@@ -16,14 +16,18 @@
 //   CODEX_CONFIG_HARD_BLOCK_SECTIONS、掃描範圍）由本檔持有並匯出，測試直接
 //   require 本模組（sync.js 不 re-export）。
 //
-// TOML 解析復用 codex-config 同步端的 readCodexStatements（由 sync.js 經 deps
-// 注入）：不自製逐行 regex，統一 header／kv 判斷並具備跨行狀態感知（多行陣列、
-// """／''' 三引號字串併入續行）——既辨識 array-of-tables（[[x]]）／尾註解／內部
-// 空白等合法 header 變體，也杜絕字串內的 [x] 樣式被誤判為 section header 而錯標
-// key 歸屬；同步端與 safety 端共用單一解析邏輯，杜絕兩份平行 regex 漂移。
+// TOML 解析直接 require toml-reader.js 的 readTomlStatements（純函式、零 IO，
+// 不經 deps 注入；非 sync.js 故不違反反向 require 禁令）：不自製逐行 regex，
+// 統一 header／kv 判斷並具備跨行狀態感知（多行陣列、"""／''' 三引號字串併入
+// 續行）——既辨識 array-of-tables（[[x]]）／尾註解／內部空白等合法 header 變體，
+// 也杜絕字串內的 [x] 樣式被誤判為 section header 而錯標 key 歸屬。
 // scanTomlKeyWarnings 除敏感命名 key 的 warning 外，另對命中
 // CODEX_CONFIG_HARD_BLOCK_SECTIONS 的 section header 回報 hard block
 // （只印 section 路徑、不印值）。
+//
+// codex config.toml 已不再同步（改由 README 列建議設定、使用者手動套用），
+// 本檔的 .toml 掃描保留為純防禦性覆蓋：repo 內若出現任何 .toml（人工新增或
+// 未來新同步項），機密 section 與敏感命名 key 仍被攔下。
 //
 // text pattern 掃描（scanSafetyTextFile：secret／私鑰／HOME 路徑）於
 // runSafetyChecks 逐檔迴圈中對命中 SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES 的檔略過
@@ -34,6 +38,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { readTomlStatements } = require('./toml-reader.js');
 
 /** 敏感命名 review pattern：僅供 safety:check warning，不參與同步剝除。 */
 const SENSITIVE_KEY_PATTERN = /(key|token|secret|credential|password|auth|cert|cookie|session|jwt|helper|refresh)/i;
@@ -56,16 +61,15 @@ const PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
 const SETTINGS_HARD_BLOCK_KEYS = ['hooks', 'apiKeyHelper', 'awsCredentialExport', 'awsAuthRefresh', 'otelHeadersHelper'];
 
 /**
- * repo codex config.toml 內出現即為 hard block 的機密載體 section 前綴（見 design D4）。
- * 同步層已由 codex-config 的 section 黑名單剝除，此為獨立第 2 層——防手動編輯 repo
- * 或黑名單漏列。比照 SETTINGS_HARD_BLOCK_KEYS 對 settings.json hooks/credential helper。
+ * repo `.toml` 內出現即為 hard block 的機密載體 section 前綴。config.toml 已不再
+ * 同步（沒有同步層會先剝除），此為唯一防線——防人工把含 API key／MCP 憑證的
+ * config.toml 放進 repo。比照 SETTINGS_HARD_BLOCK_KEYS 對 settings.json 的守備。
  */
 const CODEX_CONFIG_HARD_BLOCK_SECTIONS = ['model_providers', 'mcp_servers'];
 
 /**
- * repo codex config.toml 內出現即為 warning 的裝置狀態 section 前綴。這些 section
- * 已自 codex-config 的同步黑名單移除（不預防性列名），若日後在本機出現會照常
- * 同步進 repo；此 warning 讓「出現」可見，供人工決定是否補回同步黑名單。
+ * repo `.toml` 內出現即為 warning 的裝置狀態 section 前綴：這些 section 綁定單一
+ * 裝置（設定檔路徑、歷史、shell 環境），放進 repo 多半是誤加，出現時提示人工確認。
  */
 const CODEX_CONFIG_DEVICE_WARN_SECTIONS = ['profiles', 'history', 'shell_environment_policy'];
 
@@ -103,12 +107,11 @@ function findFirstMatchingLine(content, pattern) {
  *   maskHome: (text: string) => string,
  *   col: Record<string, (s: string) => string>,
  *   EXIT_OK: number, EXIT_DIFF: number, EXIT_ERROR: number,
- *   readCodexStatements: (content: string) => Array<{type:string,name?:string,key?:string}>,
  * }} deps
  * @returns {{ runSafetyCheck: () => number, runSafetyChecks: () => object[], printSafetyReport: (issues: object[]) => void }}
  */
 function createSafetyChecker(deps) {
-  const { REPO_ROOT, getFiles, readFileSafe, readJson, toRelativePath, maskHome, col, EXIT_OK, EXIT_DIFF, EXIT_ERROR, readCodexStatements } = deps;
+  const { REPO_ROOT, getFiles, readFileSafe, readJson, toRelativePath, maskHome, col, EXIT_OK, EXIT_DIFF, EXIT_ERROR } = deps;
 
   function addSafetyIssue(issues, severity, category, filePath, detail = '') {
     issues.push({ severity, category, file: toRelativePath(filePath), detail: maskHome(detail) });
@@ -170,13 +173,21 @@ function createSafetyChecker(deps) {
 
   function scanTomlKeyWarnings(filePath, issues) {
     const content = String(readFileSafe(filePath, '讀取 TOML 安全檢查檔案', 'utf8'));
-    // 直接復用 codex-config 同步端的狀態感知語句讀取器（readCodexStatements）：
-    // 統一 header／kv 判斷、正確處理多行陣列與三引號字串，避免自製逐行 regex 把
-    // 字串內的 `[x]` 樣式誤判為 section header（section 歸屬錯標），並杜絕兩份平行
-    // 解析邏輯漂移。array-of-tables（[[x]]）與一般 table 皆由讀取器辨識。
+    // 使用 toml-reader 的狀態感知語句讀取器：統一 header／kv 判斷、正確處理多行
+    // 陣列、三引號字串與含 `]` 的引號 section 名，避免自製逐行 regex 把字串內的
+    // `[x]` 樣式誤判為 section header（section 歸屬錯標）。
+    //
+    // malformed header（name === null）一律 hard block 並清空 section：section
+    // 名不可信時，機密 section 判斷失去依據，寧可 fail closed 讓人工檢視，也不
+    // 沿用前一個 section 名（那會讓機密 section 的 hard block 靜默降級成 warning）。
     let section = '';
-    for (const st of readCodexStatements(content)) {
+    for (const st of readTomlStatements(content)) {
       if (st.type === 'section') {
+        if (st.name === null) {
+          addSafetyIssue(issues, 'hard', '無法解析的 TOML section header', filePath, `line ${st.line}`);
+          section = '';
+          continue;
+        }
         section = st.name;
         if (isCodexSecretSection(section)) {
           addSafetyIssue(issues, 'hard', '不應同步 codex 機密 section', filePath, section);

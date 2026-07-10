@@ -2,7 +2,7 @@
 
 // =============================================================================
 // 整合測試：沙箱化 repo + HOME，透過 spawn 子程序驗證 runDiff（to-repo 方向）
-// 把 sync.js + safety-check.js + codex-config.js 複製進 tmp 當 repo，並自控 repo
+// 把 sync.js + safety-check.js + toml-reader.js 複製進 tmp 當 repo，並自控 repo
 // 內容，使斷言不依賴作者真實 repo 的 agents／settings 資料（避免資料變動即 fail）。
 //
 // 鎖住：
@@ -18,7 +18,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { noColorEnv } = require('./helpers.js');
 
-const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'codex-config.js'];
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js'];
 
 // 沙箱 repo 的基準可攜 settings：repo 與本機共用此底，本機再疊 extra，
 // 使 settings 明細差異只落在測試指定的 key 上。

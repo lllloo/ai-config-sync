@@ -20,7 +20,7 @@ TBD - created by archiving change decouple-safety-check. Update Purpose after ar
 
 系統 SHALL 掃描 repo 中會被同步或描述同步狀態的來源，包括 `claude/`、`codex/`、`opencode/` 與 `skills-lock.json`。系統 SHALL NOT 預設掃描 `test/`、`openspec/`、README 或其他純文件，以避免測試資料與範例造成噪音。
 
-機密值／私鑰／絕對 HOME 路徑的 **text pattern 掃描** SHALL 只作用於本 repo 維護的設定同步來源，並 SHALL 排除原樣鏡射的外部套件文件目錄（`claude/agents/`、`claude/skills/`），以避免這些「為說明而含 token／路徑樣式」的第三方文件造成整類 false positive。結構化 `.json`／`.toml` 掃描（含 `settings.json` 與 `codex/config.toml` 的 hard block 判斷）SHALL NOT 受此排除影響。
+機密值／私鑰／絕對 HOME 路徑的 **text pattern 掃描** SHALL 只作用於本 repo 維護的設定同步來源，並 SHALL 排除原樣鏡射的外部套件文件目錄（`claude/agents/`、`claude/skills/`），以避免這些「為說明而含 token／路徑樣式」的第三方文件造成整類 false positive。結構化 `.json`／`.toml` 掃描（含 `settings.json` 與 repo 內任何 `.toml` 的 hard block 判斷）SHALL NOT 受此排除影響。
 
 #### Scenario: 掃描 Claude 與 Codex 同步來源
 - **WHEN** 使用者執行 `npm run safety:check`
@@ -51,7 +51,7 @@ TBD - created by archiving change decouple-safety-check. Update Purpose after ar
 
 ### Requirement: safety check 回報 hard block
 
-系統 SHALL 對明顯高風險內容回報 hard block。hard block 至少包含：已知 token 值樣式、私鑰片段、絕對 HOME 路徑、`claude/settings.json` 內出現 `hooks` 或 credential helper 欄位、以及 repo `codex/config.toml` 內出現機密載體 section（`model_providers.*`、`mcp_servers.*`）。若有任一 hard block，指令 SHALL 以 exit code `2` 結束。
+系統 SHALL 對明顯高風險內容回報 hard block。hard block 至少包含：已知 token 值樣式、私鑰片段、絕對 HOME 路徑、`claude/settings.json` 內出現 `hooks` 或 credential helper 欄位、以及 repo 內任何 `.toml` 出現機密載體 section（`model_providers.*`、`mcp_servers.*`）。若有任一 hard block，指令 SHALL 以 exit code `2` 結束。
 
 #### Scenario: 偵測已知 token 值
 - **WHEN** 同步來源含有符合已知 secret value pattern 的字串（如 `sk-`、`ghp_`、`AKIA`、`AIza` 或 JWT 前綴）
@@ -65,8 +65,8 @@ TBD - created by archiving change decouple-safety-check. Update Purpose after ar
 - **THEN** 系統 SHALL 回報 hard block
 - **AND** 輸出 SHALL 指出欄位路徑但 SHALL NOT 顯示欄位值
 
-#### Scenario: 偵測不應同步的 codex config 機密 section
-- **WHEN** repo 的 `codex/config.toml` 含有 `model_providers.*` 或 `mcp_servers.*` section
+#### Scenario: 偵測 repo 內 `.toml` 的機密 section
+- **WHEN** repo 內任何 `.toml` 檔含有 `model_providers.*` 或 `mcp_servers.*` section
 - **AND** 使用者執行 `npm run safety:check`
 - **THEN** 系統 SHALL 回報 hard block
 - **AND** 輸出 SHALL 指出 section 路徑但 SHALL NOT 顯示其值
@@ -80,7 +80,7 @@ TBD - created by archiving change decouple-safety-check. Update Purpose after ar
 
 ### Requirement: safety check 回報人工審核 warning
 
-系統 SHALL 對需人工審核但不應自動阻斷同步的項目回報 warning。warning 至少包含：`claude/settings.json` 中存在 `env` key、key path 命中敏感命名 review pattern 的項目，以及 repo `codex/config.toml` 出現未列同步黑名單的裝置狀態 section（`profiles.*`、`history`、`shell_environment_policy`）。若沒有 hard block 但有 warning，指令 SHALL 以 exit code `1` 結束。
+系統 SHALL 對需人工審核但不應自動阻斷同步的項目回報 warning。warning 至少包含：`claude/settings.json` 中存在 `env` key、key path 命中敏感命名 review pattern 的項目，以及 repo 內任何 `.toml` 出現裝置狀態 section（`profiles.*`、`history`、`shell_environment_policy`）。若沒有 hard block 但有 warning，指令 SHALL 以 exit code `1` 結束。
 
 #### Scenario: env key 需要人工審核
 - **WHEN** repo 的 `claude/settings.json` 含有 `env` 物件
