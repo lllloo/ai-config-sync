@@ -62,6 +62,13 @@ const SETTINGS_HARD_BLOCK_KEYS = ['hooks', 'apiKeyHelper', 'awsCredentialExport'
  */
 const CODEX_CONFIG_HARD_BLOCK_SECTIONS = ['model_providers', 'mcp_servers'];
 
+/**
+ * repo codex config.toml 內出現即為 warning 的裝置狀態 section 前綴。這些 section
+ * 已自 codex-config 的同步黑名單移除（不預防性列名），若日後在本機出現會照常
+ * 同步進 repo；此 warning 讓「出現」可見，供人工決定是否補回同步黑名單。
+ */
+const CODEX_CONFIG_DEVICE_WARN_SECTIONS = ['profiles', 'history', 'shell_environment_policy'];
+
 /** safety:check 僅掃同步來源與 skills manifest，不掃 test/openspec/README 等文件 */
 const SAFETY_SCAN_DIRS = ['claude', 'codex', 'opencode'];
 const SAFETY_SCAN_FILES = ['skills-lock.json'];
@@ -73,7 +80,7 @@ const SAFETY_SCAN_FILES = ['skills-lock.json'];
  * 掃它們天生整類 false positive。排除只作用於 text 掃描；結構化 .json／.toml
  * 掃描（settings.json／config.toml 的 hard block）不受影響（這些目錄下也無設定檔）。
  */
-const SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES = ['claude/agents/', 'claude/skills/', 'codex/agents/'];
+const SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES = ['claude/agents/', 'claude/skills/'];
 
 /** 純函式：回傳第一個命中 pattern 的行號（1-based），無則 null */
 function findFirstMatchingLine(content, pattern) {
@@ -173,6 +180,8 @@ function createSafetyChecker(deps) {
         section = st.name;
         if (isCodexSecretSection(section)) {
           addSafetyIssue(issues, 'hard', '不應同步 codex 機密 section', filePath, section);
+        } else if (isCodexDeviceWarnSection(section)) {
+          addSafetyIssue(issues, 'warning', 'codex 裝置狀態 section 需人工審核', filePath, section);
         }
         continue;
       }
@@ -184,6 +193,12 @@ function createSafetyChecker(deps) {
 
   function isCodexSecretSection(section) {
     return CODEX_CONFIG_HARD_BLOCK_SECTIONS.some(
+      prefix => section === prefix || section.startsWith(`${prefix}.`),
+    );
+  }
+
+  function isCodexDeviceWarnSection(section) {
+    return CODEX_CONFIG_DEVICE_WARN_SECTIONS.some(
       prefix => section === prefix || section.startsWith(`${prefix}.`),
     );
   }
@@ -253,6 +268,7 @@ module.exports = {
   PRIVATE_KEY_PATTERN,
   SETTINGS_HARD_BLOCK_KEYS,
   CODEX_CONFIG_HARD_BLOCK_SECTIONS,
+  CODEX_CONFIG_DEVICE_WARN_SECTIONS,
   SAFETY_SCAN_DIRS,
   SAFETY_SCAN_FILES,
   SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES,

@@ -56,16 +56,21 @@ const CODEX_CONFIG_TOP_KEYS = ['personality', 'web_search'];
 
 /**
  * Section 級黑名單權威清單（見 design D1）：section 名等於清單項、或以 `<項>.` 為
- * 前綴者，整段（含所有 key）不同步。內容為機密載體（model_providers.*.api_key、
- * mcp_servers.*）、本機路徑（projects、profiles）、裝置狀態（history、
- * shell_environment_policy、tui.model_availability_nux）。邊界落在 section 層、
- * 整段排除即 safe-by-construction，且 section 邊界粗、跨 Codex 版本穩定。
- * config.toml 同步採「預設同步 + 此黑名單排除 + top-level/plugins carve-out」，
- * 漏列新機密 section 的殘留風險由 safety:check 對已知機密 section 的 hard block 兜底。
+ * 前綴者，整段（含所有 key）不同步。邊界落在 section 層、整段排除即
+ * safe-by-construction，且 section 邊界粗、跨 Codex 版本穩定。
+ *
+ * 列名原則：只列「本機實際存在」（projects、tui.model_availability_nux）與
+ * 「機密載體」（model_providers、mcp_servers）兩類，不做其他預防性列名。
+ * 機密載體即使本機尚無也必須列：黑名單同時承擔 to-local 的本機保留語意，
+ * 若移除，本機一旦出現 MCP 設定會被 to-repo 寫進 repo 工作區（safety:check
+ * hard block 只擋 commit），且 repo 永遠沒有這段 → 每次 to-local 都會整段刪掉
+ * 本機 MCP 設定，形成破壞性迴圈。裝置狀態 section（profiles／history／
+ * shell_environment_policy）則不預防性列名——日後若出現會照常同步，由
+ * safety:check 的裝置狀態 warning（CODEX_CONFIG_DEVICE_WARN_SECTIONS）標示，
+ * 發現再補列。
  */
 const CODEX_CONFIG_DEVICE_SECTION_PREFIXES = [
-  'model_providers', 'mcp_servers', 'projects', 'profiles', 'history',
-  'shell_environment_policy', 'tui.model_availability_nux',
+  'model_providers', 'mcp_servers', 'projects', 'tui.model_availability_nux',
 ];
 
 // -----------------------------------------------------------------------------

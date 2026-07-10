@@ -20,7 +20,7 @@ TBD - created by archiving change decouple-safety-check. Update Purpose after ar
 
 系統 SHALL 掃描 repo 中會被同步或描述同步狀態的來源，包括 `claude/`、`codex/`、`opencode/` 與 `skills-lock.json`。系統 SHALL NOT 預設掃描 `test/`、`openspec/`、README 或其他純文件，以避免測試資料與範例造成噪音。
 
-機密值／私鑰／絕對 HOME 路徑的 **text pattern 掃描** SHALL 只作用於本 repo 維護的設定同步來源，並 SHALL 排除原樣鏡射的外部套件文件目錄（`claude/agents/`、`claude/skills/`、`codex/agents/`），以避免這些「為說明而含 token／路徑樣式」的第三方文件造成整類 false positive。結構化 `.json`／`.toml` 掃描（含 `settings.json` 與 `codex/config.toml` 的 hard block 判斷）SHALL NOT 受此排除影響。
+機密值／私鑰／絕對 HOME 路徑的 **text pattern 掃描** SHALL 只作用於本 repo 維護的設定同步來源，並 SHALL 排除原樣鏡射的外部套件文件目錄（`claude/agents/`、`claude/skills/`），以避免這些「為說明而含 token／路徑樣式」的第三方文件造成整類 false positive。結構化 `.json`／`.toml` 掃描（含 `settings.json` 與 `codex/config.toml` 的 hard block 判斷）SHALL NOT 受此排除影響。
 
 #### Scenario: 掃描 Claude 與 Codex 同步來源
 - **WHEN** 使用者執行 `npm run safety:check`
@@ -39,7 +39,7 @@ TBD - created by archiving change decouple-safety-check. Update Purpose after ar
 - **THEN** 系統 SHALL NOT 因這些非同步來源範例回報問題
 
 #### Scenario: 外部套件文件不觸發 text pattern hard block
-- **WHEN** `claude/agents/`、`claude/skills/` 或 `codex/agents/` 下的文件含有機密值樣式、私鑰片段或絕對 HOME 路徑（如描述偵測 regex 的說明文字）
+- **WHEN** `claude/agents/` 或 `claude/skills/` 下的文件含有機密值樣式、私鑰片段或絕對 HOME 路徑（如描述偵測 regex 的說明文字）
 - **AND** 使用者執行 `npm run safety:check`
 - **THEN** 系統 SHALL NOT 因這些套件文件的 text pattern 命中回報 hard block
 
@@ -80,7 +80,7 @@ TBD - created by archiving change decouple-safety-check. Update Purpose after ar
 
 ### Requirement: safety check 回報人工審核 warning
 
-系統 SHALL 對需人工審核但不應自動阻斷同步的項目回報 warning。warning 至少包含：`claude/settings.json` 中存在 `env` key，以及 key path 命中敏感命名 review pattern 的項目。若沒有 hard block 但有 warning，指令 SHALL 以 exit code `1` 結束。
+系統 SHALL 對需人工審核但不應自動阻斷同步的項目回報 warning。warning 至少包含：`claude/settings.json` 中存在 `env` key、key path 命中敏感命名 review pattern 的項目，以及 repo `codex/config.toml` 出現未列同步黑名單的裝置狀態 section（`profiles.*`、`history`、`shell_environment_policy`）。若沒有 hard block 但有 warning，指令 SHALL 以 exit code `1` 結束。
 
 #### Scenario: env key 需要人工審核
 - **WHEN** repo 的 `claude/settings.json` 含有 `env` 物件

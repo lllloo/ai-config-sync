@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 目錄命名（重要）
 
 - **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、statusline.sh、agents、commands、skills、rules），由 `sync.js` 管理。
-- **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（AGENTS.md、config.toml 過濾欄位、agents `.toml`），由 `sync.js` 管理。
+- **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（AGENTS.md、config.toml 過濾欄位），由 `sync.js` 管理。
 - **`opencode/`**（無點）— 要同步到 `~/.config/opencode/` 的全域設定（`opencode.jsonc` 主設定、`AGENTS.md` 全域指示），由 `sync.js` 管理。opencode 採 XDG 佈局，設定家在 `~/.config/opencode`（非 `~/.opencode`）。
 - **`.claude/`**（有點）— 本 repo 專用的 Claude Code 本地設定（`settings.json` 等），**不參與同步、不映射到 `~/.claude/`**。`.claude/skills` 是 symlink 指向 `../.agents/skills`。
 - **Codex 本地 skill** — **不需建 `.codex/skills`**。Codex CLI 會自動探索 `.agents/skills`：專案層由 `repo_agents_skill_roots` 從 project root 逐層掃 `<dir>/.agents/skills`，全域層掃 `~/.agents/skills`（原始碼 `codex-rs/core-skills/src/loader.rs` 的 `skill_roots()`）。故本 repo 的 `.agents/skills` 對 Codex 直接生效，無需 symlink。
@@ -56,7 +56,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `claude/rules/` | `~/.claude/rules/` | 模組化全域規則（CLAUDE.md 的拆分檔），支援 frontmatter `paths:` 做 path-specific scoping |
 | `codex/AGENTS.md` | `~/.codex/AGENTS.md` | Codex 全域指示（跨專案規則），全文比對 |
 | `codex/config.toml` | `~/.codex/config.toml` | **section 級黑名單混合制**：預設同步各 section（含未知新 section／新 key），僅整段排除 `CODEX_CONFIG_DEVICE_SECTION_PREFIXES` 黑名單；top-level（`CODEX_CONFIG_TOP_KEYS`）與 `plugins.*`（`enabled`-only）為維持窄允許清單的兩個精確 carve-out。三分支集中在 `isPortableCodexConfigKey` 單一 predicate；第 2 層由 `safety:check` 對機密 section hard block 兜底；to-local 保留本機被排除 section。清單見 `codex-config.js` 常數與 README（有 drift-guard 測試把關），策略取捨見該檔檔頭註解 |
-| `codex/agents/` | `~/.codex/agents/` | Codex `.toml` agents，以 package 子目錄組織；Codex CLI 遞迴掃描子目錄載入（目前無 agent） |
 | `opencode/opencode.jsonc` | `~/.config/opencode/opencode.jsonc` | opencode 全域主設定，整檔 `file` 型同步。**XDG 佈局**：homeBase 為 `~/.config/opencode`。**檔名變體**：`.jsonc`／`.json` 由 manifest `variants` 欄位解析出兩端一致的 canonical label（`.jsonc` 優先），杜絕重複檔；機制見 `SYNC_MANIFEST`／`resolveVariantLabel` 註解 |
 | `opencode/AGENTS.md` | `~/.config/opencode/AGENTS.md` | opencode 全域指示，`file` 型整檔同步，獨立於 Claude 的 `CLAUDE.md`（opencode 缺此檔時會 fallback 讀 `~/.claude/CLAUDE.md`，維護獨立一份可與 Claude 分歧） |
 
@@ -94,8 +93,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **函式行數守則**：新增或重構後若某函式 > 60 行，需拆分。同步項目的宣告式資料改由 `SYNC_MANIFEST`／`SYNC_AREAS` 常數承載，`buildSyncItems`／`materializeSyncItem` 皆為小函式，無超行例外。
 - **禁止新增外部相依**：所有功能必須使用 Node.js 內建模組，不得 `npm install` 任何套件。
 - **settings.json top-level 採黑名單制**（`DEVICE_SETTINGS_KEYS`）：預設同步官方 top-level 欄位，僅排除黑名單列舉。敏感命名 key 不再被同步剝除或中止，改由 `safety:check` warning 供人工審核；`env` 區塊全部依一般同步語意同步，diff／status 不印任何設定內容。strip／preserve 由 `partitionSettingsTopLevel` 同源保證互補；增減黑名單欄位須改 `DEVICE_SETTINGS_KEYS` 常數與 README（drift-guard 測試把關）。
-- **codex config.toml 採 section 級黑名單混合制**（`CODEX_CONFIG_DEVICE_SECTION_PREFIXES`）：見同步項目表與 `codex-config.js` 檔頭。**增減黑名單 section 須改常數與 README（drift-guard 測試把關）**；若新機密載體 section 出現，另須同步 `safety-check.js` 的 `CODEX_CONFIG_HARD_BLOCK_SECTIONS`。**top-level 翻黑名單的前置條件**：先盤出 Codex top-level 裝置 key 全集（`model`／`approval_policy`／`sandbox_mode` 等），另開 change 決策，不做半吊子翻轉。
-- **安全審核由 `npm run safety:check` 承擔**：唯讀、離線掃描 `claude/`、`codex/`、`opencode/`、`skills-lock.json`，不掃 `test/`、`openspec/`、README 等非同步來源文件。hard block（exit 2）：secret value pattern、私鑰片段、絕對 HOME 路徑、repo settings.json 出現 `hooks`／credential helper、repo config.toml 出現機密載體 section；warning（exit 1）：settings.json env key 清單與敏感命名 key path；clean exit 0。輸出只列分類與位置，不輸出值。text 掃描排除外部套件文件目錄（取捨與分層見 `safety-check.js` 檔頭）；增減排除目錄須改常數與 README。
+- **codex config.toml 採 section 級黑名單混合制**（`CODEX_CONFIG_DEVICE_SECTION_PREFIXES`）：見同步項目表與 `codex-config.js` 檔頭。**列名原則：只列本機實存與機密載體，不預防性列名**——機密載體（`model_providers`／`mcp_servers`）即使本機尚無也必須列（黑名單兼任 to-local 保留語意，移除會形成破壞性刪除迴圈，見 `codex-config.js` 檔頭）；裝置狀態 section（`profiles`／`history`／`shell_environment_policy`）不預列，由 `safety-check.js` 的 `CODEX_CONFIG_DEVICE_WARN_SECTIONS` warning 標示出現、發現再補列。**增減黑名單 section 須改常數與 README（drift-guard 測試把關）**；若新機密載體 section 出現，另須同步 `safety-check.js` 的 `CODEX_CONFIG_HARD_BLOCK_SECTIONS`。**top-level 翻黑名單的前置條件**：先盤出 Codex top-level 裝置 key 全集（`model`／`approval_policy`／`sandbox_mode` 等），另開 change 決策，不做半吊子翻轉。
+- **安全審核由 `npm run safety:check` 承擔**：唯讀、離線掃描 `claude/`、`codex/`、`opencode/`、`skills-lock.json`，不掃 `test/`、`openspec/`、README 等非同步來源文件。hard block（exit 2）：secret value pattern、私鑰片段、絕對 HOME 路徑、repo settings.json 出現 `hooks`／credential helper、repo config.toml 出現機密載體 section；warning（exit 1）：settings.json env key 清單、敏感命名 key path、repo config.toml 出現裝置狀態 section（`CODEX_CONFIG_DEVICE_WARN_SECTIONS`）；clean exit 0。輸出只列分類與位置，不輸出值。text 掃描排除外部套件文件目錄（取捨與分層見 `safety-check.js` 檔頭）；增減排除目錄須改常數與 README。
 - **構建規則**（來自全域 CLAUDE.md）：禁擅自執行 `npm run build`。
 - **嚴禁洩漏敏感資訊到輸出**：`diff`／`status` 不得顯示 env 值，`safety:check` 不得顯示 secret 原值或完整 HOME 路徑。同步流程本身不再宣稱能阻止所有機密寫入 repo；`file`／`dir` 型項目仍原樣同步，commit 前須執行 `npm run safety:check` 與人工審核。
 - **部分失敗可見度**：apply 中途拋例外時，`mirrorDir` 把已完成變更附掛到 `SyncError.context.partialChanges`，`applySyncItems` 補印、`warnPartialApply` 警告「已寫入 N 筆變更」——與 `handleSignal` 的訊號中斷警告互補，已寫入的檔案不得零可見度。操作歷史由 git 承載，不另寫 log 檔。
@@ -133,11 +132,9 @@ Skills 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具
 gh api repos/affaan-m/everything-claude-code/contents/agents/<name>.md --jq '.content' | base64 -d > claude/agents/everything-claude-code/<name>.md
 ```
 
-### Codex（`codex/agents/`）
+### Codex
 
-以 package 子目錄組織（對稱於 `claude/agents/`）。Codex CLI 透過 `collect_agent_role_files` 遞迴掃描 `~/.codex/agents/` 下所有層級的 `.toml`（[原始碼參考](https://github.com/openai/codex/blob/main/codex-rs/core/src/config/agent_roles.rs)），agent 識別以 TOML 內 `name` 欄位為準，與檔名/路徑無關。
-
-**目前 `codex/agents/` 無任何 agent**（原唯一上游 `VoltAgent/awesome-codex-subagents` 已隨 claude 端 awesome 一併下架）。日後若要新增，原則為只抓 Claude 端已有同名 agent 的對應 `.toml`（避免 codex 與 claude agents 失同步）。
+**目前無任何 Codex agent，`codex/agents/` 未列 `SYNC_MANIFEST`**（原唯一上游 `VoltAgent/awesome-codex-subagents` 已隨 claude 端 awesome 一併下架；目錄與同步項目已移除，不做預防性保留）。日後若要新增：在 `SYNC_MANIFEST` 加回 `{ area: 'codex', label: 'agents', type: 'dir' }` 一列，以 package 子目錄組織（對稱於 `claude/agents/`），且原則為只抓 Claude 端已有同名 agent 的對應 `.toml`（避免 codex 與 claude agents 失同步）。Codex CLI 透過 `collect_agent_role_files` 遞迴掃描 `~/.codex/agents/` 下所有層級的 `.toml`（[原始碼參考](https://github.com/openai/codex/blob/main/codex-rs/core/src/config/agent_roles.rs)），agent 識別以 TOML 內 `name` 欄位為準，與檔名/路徑無關。
 
 ## 注意事項
 

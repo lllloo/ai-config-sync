@@ -5,7 +5,7 @@ TBD - created by syncing change flip-codex-config-to-blocklist. Update Purpose a
 ## Requirements
 ### Requirement: config.toml section 採黑名單混合制同步
 
-系統 SHALL 預設同步 `config.toml` 的各 section，僅排除 section 名等於 section 黑名單項或以「`<黑名單項>.`」為前綴者。section 黑名單至少包含 `model_providers`、`mcp_servers`、`projects`、`profiles`、`history`、`shell_environment_policy`、`tui.model_availability_nux`。被排除的 section SHALL 整段（含其所有 key）不進入 repo。未列於黑名單、亦非 carve-out 特例的 section／key SHALL 依一般同步語意同步（含 Codex 未來新增的 section／key）。
+系統 SHALL 預設同步 `config.toml` 的各 section，僅排除 section 名等於 section 黑名單項或以「`<黑名單項>.`」為前綴者。section 黑名單至少包含 `model_providers`、`mcp_servers`（機密載體，兼任 to-local 保留語意、即使本機尚無也必須列）與 `projects`、`tui.model_availability_nux`（本機實存的本機路徑／裝置狀態）；其他裝置狀態 section（`profiles`、`history`、`shell_environment_policy`）SHALL NOT 預防性列名，其出現由 safety check warning 標示。被排除的 section SHALL 整段（含其所有 key）不進入 repo。未列於黑名單、亦非 carve-out 特例的 section／key SHALL 依一般同步語意同步（含 Codex 未來新增的 section／key）。
 
 #### Scenario: to-repo 同步未列黑名單的 section
 - **WHEN** 執行 `npm run to-repo`

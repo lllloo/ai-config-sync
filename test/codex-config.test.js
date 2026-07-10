@@ -162,7 +162,11 @@ test('isDeviceCodexSection：黑名單 section 前綴與子 section 命中、一
   assert.equal(isDeviceCodexSection('features'), false);
   assert.equal(isDeviceCodexSection(''), false);
   // 前綴須為完整 section 段，不可誤命中同字首的不相關 section
-  assert.equal(isDeviceCodexSection('historyx'), false);
+  assert.equal(isDeviceCodexSection('projectsx'), false);
+  // 裝置狀態 section 不預防性列名（由 safety:check warning 兜底）
+  assert.equal(isDeviceCodexSection('history'), false);
+  assert.equal(isDeviceCodexSection('profiles'), false);
+  assert.equal(isDeviceCodexSection('shell_environment_policy'), false);
 });
 
 test('mergePortableCodexConfig：to-local 保留本機黑名單 section 與未受管理欄位', () => {

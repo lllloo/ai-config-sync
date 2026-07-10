@@ -42,6 +42,7 @@ const {
   CODEX_CONFIG_TOP_KEYS,
   CODEX_CONFIG_DEVICE_SECTION_PREFIXES,
 } = require('../codex-config.js');
+const { CODEX_CONFIG_DEVICE_WARN_SECTIONS } = require('../safety-check.js');
 const { withArgv, withTmpDir, withTmpFile } = require('./helpers');
 
 // -----------------------------------------------------------------------------
@@ -354,7 +355,7 @@ test('drift-guard：新增 opencode area 後 claude／codex 既有項目 materia
     const codexLabels = byArea('codex/').map(i => i.label);
     assert.deepEqual(claudeLabels,
       ['CLAUDE.md', 'settings.json', 'statusline.sh', 'agents', 'commands', 'skills', 'rules']);
-    assert.deepEqual(codexLabels, ['AGENTS.md', 'config.toml', 'agents']);
+    assert.deepEqual(codexLabels, ['AGENTS.md', 'config.toml']);
     // 每個非 opencode 項目的 src/dest 皆不含 .config/opencode 路徑
     for (const it of [...byArea('claude/'), ...byArea('codex/')]) {
       assert.doesNotMatch(it.src, /[\\/]\.config[\\/]opencode[\\/]/);
@@ -484,6 +485,12 @@ test('README drift-guard：codex section 黑名單與 top-level 允許清單皆�
   }
   for (const key of CODEX_CONFIG_TOP_KEYS) {
     assert.ok(README.includes(`\`${key}\``), `README 未載明 codex top-level 允許 key：${key}`);
+  }
+});
+
+test('README drift-guard：codex 裝置狀態 warning section 清單皆載於 README', () => {
+  for (const prefix of CODEX_CONFIG_DEVICE_WARN_SECTIONS) {
+    assert.ok(README.includes(`\`${prefix}`), `README 未載明 codex 裝置狀態 warning section：${prefix}`);
   }
 });
 

@@ -1010,7 +1010,6 @@ const SYNC_MANIFEST = [
   { area: 'claude', label: 'rules',         type: 'dir' },
   { area: 'codex',  label: 'AGENTS.md',     type: 'file' },
   { area: 'codex',  label: 'config.toml',   type: 'codex-config', fixedFlow: true },
-  { area: 'codex',  label: 'agents',        type: 'dir' },
   { area: 'opencode', label: 'opencode.jsonc', type: 'file', variants: ['opencode.jsonc', 'opencode.json'] },
   { area: 'opencode', label: 'AGENTS.md',      type: 'file' },
 ];
