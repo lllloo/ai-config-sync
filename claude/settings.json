@@ -13,6 +13,13 @@
     ],
     "defaultMode": "auto"
   },
+  "skillOverrides": {
+    "frontend-design": "off",
+    "obsidian-bases": "off",
+    "obsidian-cli": "off",
+    "obsidian-markdown": "off",
+    "vue-best-practices": "off"
+  },
   "statusLine": {
     "type": "command",
     "command": "bash ~/.claude/statusline.sh"
@@ -29,12 +36,5 @@
     }
   },
   "language": "繁體中文",
-  "skipDangerousModePermissionPrompt": true,
-  "skillOverrides": {
-    "frontend-design": "off",
-    "obsidian-bases": "off",
-    "obsidian-cli": "off",
-    "obsidian-markdown": "off",
-    "vue-best-practices": "off"
-  }
+  "skipDangerousModePermissionPrompt": true
 }
