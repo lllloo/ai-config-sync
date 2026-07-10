@@ -36,7 +36,12 @@ const {
   ERR,
   COMMANDS,
   COMMAND_ALIASES,
+  DEVICE_SETTINGS_KEYS,
 } = require('../sync.js');
+const {
+  CODEX_CONFIG_TOP_KEYS,
+  CODEX_CONFIG_DEVICE_SECTION_PREFIXES,
+} = require('../codex-config.js');
 const { withArgv, withTmpDir, withTmpFile } = require('./helpers');
 
 // -----------------------------------------------------------------------------
@@ -436,6 +441,50 @@ test('COMMANDS：safety:check 指令存在且無別名', () => {
   assert.ok(COMMANDS['safety:check'], 'COMMANDS 應含 safety:check');
   assert.equal(COMMANDS['safety:check'].alias, null, 'safety:check 無別名');
   assert.ok(COMMANDS['safety:check'].desc, 'safety:check 應有 desc');
+});
+
+// -----------------------------------------------------------------------------
+// README drift-guard：修改守則要求「改指令／黑名單須同步 README」，此鏈原本
+// 只靠人工守則、零測試把關（git log 反覆出現事後補 docs 的 commit）。
+// 此組測試把同步鏈變成紅燈：常數增減而 README／package.json 未跟上即 fail。
+// 只斷言「有載明」（字面出現），不斷言周邊敘述——避免測試綁死文案措辭。
+// -----------------------------------------------------------------------------
+const README = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
+
+test('README drift-guard：指令別名表涵蓋 COMMANDS 全部指令與別名', () => {
+  for (const [cmd, def] of Object.entries(COMMANDS)) {
+    if (cmd === 'help') continue; // help 為 CLI 自述指令，README 不列表
+    const row = `| \`${cmd}\` | ${def.alias ? `\`${def.alias}\`` : '—'} |`;
+    assert.ok(README.includes(row), `README 指令別名表缺列或別名不同步：${row}`);
+  }
+});
+
+test('README drift-guard：package.json scripts 與 COMMANDS 雙向一致', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  for (const cmd of Object.keys(COMMANDS)) {
+    if (cmd === 'help') continue; // help 走 node sync.js help／--help，不設 npm script
+    assert.equal(pkg.scripts[cmd], `node sync.js ${cmd}`,
+      `package.json scripts 缺 "${cmd}" 或未指向 node sync.js ${cmd}`);
+  }
+  for (const [name, script] of Object.entries(pkg.scripts)) {
+    const m = script.match(/^node sync\.js (\S+)$/);
+    if (m) assert.ok(COMMANDS[m[1]], `npm script "${name}" 指向未登錄指令：${m[1]}`);
+  }
+});
+
+test('README drift-guard：DEVICE_SETTINGS_KEYS 黑名單欄位皆載於 README', () => {
+  for (const key of DEVICE_SETTINGS_KEYS) {
+    assert.ok(README.includes(`\`${key}\``), `README 未載明 settings 黑名單欄位：${key}`);
+  }
+});
+
+test('README drift-guard：codex section 黑名單與 top-level 允許清單皆載於 README', () => {
+  for (const prefix of CODEX_CONFIG_DEVICE_SECTION_PREFIXES) {
+    assert.ok(README.includes(`\`${prefix}`), `README 未載明 codex 黑名單 section：${prefix}`);
+  }
+  for (const key of CODEX_CONFIG_TOP_KEYS) {
+    assert.ok(README.includes(`\`${key}\``), `README 未載明 codex top-level 允許 key：${key}`);
+  }
 });
 
 // -----------------------------------------------------------------------------
