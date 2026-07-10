@@ -51,42 +51,12 @@ const DEVICE_SETTINGS_KEYS = [
 ];
 
 /**
- * safety:check 專屬常數由 safety-check.js 持有，於此 re-export，供既有測試
- * （settings.test.js 引用 SENSITIVE_KEY_PATTERN）與 module.exports 沿用，避免漂移。
+ * Codex config 常數與純函式由 codex-config.js 持有（測試直接 require 該模組）；
+ * 此處只取 sync.js 本體實際使用的符號。load／get／apply 進出口經
+ * codexConfigHandler() lazy singleton 注入共用工具建立。
  */
 const {
-  SENSITIVE_KEY_PATTERN,
-  SECRET_VALUE_PATTERN,
-  HOME_PATH_PATTERN,
-  PRIVATE_KEY_PATTERN,
-  SETTINGS_HARD_BLOCK_KEYS,
-  CODEX_CONFIG_HARD_BLOCK_SECTIONS,
-} = safetyCheckModule;
-
-/**
- * 既有 env review 清單：保留常數與 helper 供文件／測試參考。
- * 同步流程不再依此清單剝除或保留 env key；safety:check 會列出所有 env key 供人工審核。
- */
-const DEVICE_ENV_KEYS = [
-  'CLAUDE_CODE_USE_POWERSHELL_TOOL',
-  'ANTHROPIC_CUSTOM_HEADERS',
-  'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY',
-];
-
-/**
- * Codex config 專屬常數與純轉換函式由 codex-config.js 持有，於此 re-export，
- * 供既有測試（codex-config.test.js 引用 parse／serialize／merge 純函式）與
- * module.exports 沿用，避免漂移。load／get／apply 進出口經 codexConfigHandler()
- * lazy singleton 注入共用工具建立。
- */
-const {
-  CODEX_CONFIG_TOP_KEYS,
-  CODEX_CONFIG_DEVICE_SECTION_PREFIXES,
-  isDeviceCodexSection,
-  matchCodexHeader,
   readCodexStatements,
-  parsePortableCodexConfig,
-  serializePortableCodexConfig,
   mergePortableCodexConfig,
 } = codexConfigModule;
 
@@ -542,58 +512,20 @@ function readFileSafe(filePath, op = '讀取檔案', encoding) {
 }
 
 /**
- * 建立 diff 用暫存檔（os.tmpdir()）：以隨機檔名 + O_EXCL（flag 'wx'）建立，限本人可讀
- * （mode 0600）。隨機名 + O_EXCL 防止共用 /tmp 多使用者環境下被預埋同名 symlink 截斷／
- * 覆寫受害者檔（CWE-377/59），O_EXCL 亦拒絕跟隨既存 symlink。回傳完整路徑（已註冊待清理）。
- * @param {string} suffix - 副檔名（不含點），如 'json'、'toml'
- * @param {string|Buffer} content - 要寫入的內容
- * @returns {string} 暫存檔絕對路徑
- */
-function createTmpDiffFile(suffix, content) {
-  const name = `ai-config-sync-${crypto.randomBytes(9).toString('hex')}.${suffix}`;
-  const tmpPath = path.join(os.tmpdir(), name);
-  registerTempFile(tmpPath);
-  try {
-    fs.writeFileSync(tmpPath, content, { mode: 0o600, flag: 'wx' });
-  } catch (e) {
-    throw toSyncFsError(e, tmpPath, '寫入暫存差異檔');
-  }
-  return tmpPath;
-}
-
-/**
  * 複製單一檔案，回傳是否有實際寫入（或在 dry-run 下是否「將會」寫入）
- * 注意：dry-run 模式下無論 force 為何，都必須比對檔案內容，
- * 只有內容真的不同時才回傳 true
+ * 內容相同即不寫入；dry-run 只判斷不寫入
  * @param {string} src - 來源路徑
  * @param {string} dest - 目的路徑
- * @param {boolean} [force=false] - 是否強制覆寫（僅在非 dry-run 時生效）
  * @param {boolean} [dryRun=false] - 若為 true 則只判斷不寫入
  * @returns {boolean} 是否有寫入（或將會寫入）
  */
-function copyFile(src, dest, force = false, dryRun = false) {
+function copyFile(src, dest, dryRun = false) {
   if (!fs.existsSync(src)) return false;
   checkReadAccess(src);
-  let srcContent;
-  try { srcContent = fs.readFileSync(src); }
-  catch (e) { throw toSyncFsError(e, src, '讀取'); }
-
-  // dry-run 時一律比對內容，不受 force 影響
-  if (dryRun) {
-    if (!fs.existsSync(dest)) return true;
-    try { return !srcContent.equals(fs.readFileSync(dest)); }
-    catch (e) { throw toSyncFsError(e, dest, '讀取'); }
-  }
-
-  // 非 dry-run：force 或內容不同才寫入
-  if (!force && fs.existsSync(dest)) {
-    let destContent;
-    try { destContent = fs.readFileSync(dest); }
-    catch (e) { throw toSyncFsError(e, dest, '讀取'); }
-    if (srcContent.equals(destContent)) return false;
-  }
-  writeFileSafe(dest, srcContent, '寫入');
-  return true;
+  const srcContent = readFileSafe(src, '讀取');
+  const needsWrite = !fs.existsSync(dest) || !srcContent.equals(readFileSafe(dest, '讀取'));
+  if (needsWrite && !dryRun) writeFileSafe(dest, srcContent, '寫入');
+  return needsWrite;
 }
 
 /**
@@ -687,15 +619,14 @@ function matchExclude(rel, pattern) {
 
 /**
  * 整目錄鏡像：以 src 為準同步到 dest，dest 多餘的刪掉
- * 注意：dry-run 模式下一律比對內容，不受 force 影響
+ * 逐檔寫入判斷委派 copyFile（單一 needsWrite 判斷來源）
  * @param {string} src - 來源目錄
  * @param {string} dest - 目的目錄
  * @param {string[]} [excludePatterns=[]] - 排除模式列表
- * @param {boolean} [force=false] - 是否強制覆寫（僅在非 dry-run 時生效）
  * @param {boolean} [dryRun=false] - 若為 true 則只判斷不寫入
  * @returns {Array<{rel: string, action: string}>} 變更清單
  */
-function mirrorDir(src, dest, excludePatterns = [], force = false, dryRun = false) {
+function mirrorDir(src, dest, excludePatterns = [], dryRun = false) {
   const changed = [];
   if (!fs.existsSync(src)) return changed;
   if (!dryRun) ensureDir(dest);
@@ -708,16 +639,8 @@ function mirrorDir(src, dest, excludePatterns = [], force = false, dryRun = fals
     for (const rel of srcFiles) {
       const srcFile = path.join(src, rel);
       const destFile = path.join(dest, rel);
-      const srcContent = readFileSafe(srcFile, '讀取來源檔案');
       const destExists = fs.existsSync(destFile);
-
-      // dry-run 時一律比對內容，不受 force 影響
-      const needsWrite = dryRun
-        ? (!destExists || !srcContent.equals(readFileSafe(destFile, '讀取目的檔案')))
-        : (force || !destExists || !srcContent.equals(readFileSafe(destFile, '讀取目的檔案')));
-
-      if (needsWrite) {
-        if (!dryRun) writeFileSafe(destFile, srcContent, '寫入檔案');
+      if (copyFile(srcFile, destFile, dryRun)) {
         changed.push({ rel, action: destExists ? 'updated' : 'added' });
       }
     }
@@ -988,47 +911,6 @@ function loadStrippedSettings(filePath) {
 }
 
 /**
- * 從 local settings 萃取本機保留欄位（供 to-local 套用時保留，不被 repo 覆寫）。
- * 僅保留 DEVICE_SETTINGS_KEYS top-level 欄位；env key 不再被同步流程特別保留。
- * @param {Record<string, unknown>} local
- * @returns {{ deviceValues: Record<string, unknown> }}
- */
-function extractDeviceValues(local) {
-  const { device: deviceValues } = partitionSettingsTopLevel(local);
-  return { deviceValues };
-}
-
-/**
- * 合併 deviceValues 回 repo 設定，對巢狀物件做 shallow merge（避免整個 env 被覆蓋）
- * @param {Record<string, unknown>} repo
- * @param {Record<string, unknown>} deviceValues
- * @returns {Record<string, unknown>}
- */
-function mergeDeviceValues(repo, deviceValues) {
-  const merged = { ...repo };
-  for (const [key, val] of Object.entries(deviceValues)) {
-    if (val !== null && typeof val === 'object' && !Array.isArray(val)
-        && typeof merged[key] === 'object' && merged[key] !== null) {
-      merged[key] = { ...merged[key], ...val };
-    } else {
-      merged[key] = val;
-    }
-  }
-  return merged;
-}
-
-/**
- * 將 settings.json 去除裝置欄位後產生 stripped JSON 字串
- * （保留為向後相容介面，內部委派給 loadStrippedSettings）
- * @param {string} filePath - settings.json 路徑
- * @returns {string|null} stripped JSON 字串，檔案不存在時回傳 null
- */
-function getStrippedSettings(filePath) {
-  const result = loadStrippedSettings(filePath);
-  return result ? result.serialized : null;
-}
-
-/**
  * settings.json 合併核心（路徑可注入版，供測試直接驗黑名單混合制剝除不變式）
  * @param {string} localPath - 本機 settings.json 路徑
  * @param {string} repoPath - repo settings.json 路徑
@@ -1059,10 +941,10 @@ function mergeSettingsBetween(localPath, repoPath, direction, dryRun = false) {
     if (stripped && repoStr === stripped.serialized) return false;
 
     if (dryRun) return true;
+    // repo 可攜內容為準，本機 DEVICE_SETTINGS_KEYS 欄位整鍵保留（不與 repo 側同名物件合併）
     const local = fs.existsSync(localPath) ? readJson(localPath) : {};
-    const { deviceValues } = extractDeviceValues(local);
-    const merged = mergeDeviceValues(repo, deviceValues);
-    writeJsonSafe(localPath, merged);
+    const { device } = partitionSettingsTopLevel(local);
+    writeJsonSafe(localPath, { ...repo, ...device });
     return true;
   }
 }
@@ -1273,20 +1155,6 @@ function compareStrippedToRepo(strippedContent, repoPath, op) {
 }
 
 /**
- * 回傳 settings 的顯示用淺副本：env 每個值遮罩為 '***'（僅顯示層，不影響差異判定）。
- * env 改採黑名單後同步進 repo 的 env key 可能含未過濾機密值——diff 預覽不得顯示其值。
- * 純值變更（key 不變）遮罩後兩側同為 '***'、於預覽中只會看到狀態改變，不再顯示值本身，但摘要仍以未遮罩內容判為 changed。
- * @param {Record<string, unknown>} obj
- * @returns {Record<string, unknown>}
- */
-function maskEnvValuesForDisplay(obj) {
-  if (!obj || typeof obj.env !== 'object' || obj.env === null) return obj;
-  const env = {};
-  for (const key of Object.keys(obj.env)) env[key] = '***';
-  return { ...obj, env };
-}
-
-/**
  * 統一構造同步項目的顯示標籤：`<prefix><label>[/rel]`。
  * prefix 由 materialize 保證存在；`|| 'claude/'` 為手工建構 item 的防呆 fallback。
  * @param {SyncItem} item
@@ -1323,19 +1191,14 @@ function diffSettingsItem(item, direction) {
     return { ...base, status: compareStrippedToRepo(stripped.serialized, repoPath, '讀取 repo 設定'), src: null };
   }
 
-  // to-repo：本機 stripped → repo。狀態以未遮罩內容判定；顯示層遮罩 env 值。
+  // to-repo：本機 stripped → repo
   if (!fs.existsSync(localPath)) return { ...base, status: null, src: null };
   const stripped = loadStrippedSettings(localPath);
   if (stripped === null) return { ...base, status: null, src: null };
-  const tmpSrc = createTmpDiffFile('json', serializeSettings(maskEnvValuesForDisplay(stripped.clean)));
-  const repoExists = fs.existsSync(repoPath);
-  const status = repoExists
+  const status = fs.existsSync(repoPath)
     ? compareStrippedToRepo(stripped.serialized, repoPath, '讀取 repo 設定')
     : 'new';
-  const dest = repoExists
-    ? createTmpDiffFile('json', serializeSettings(maskEnvValuesForDisplay(readJson(repoPath))))
-    : repoPath;
-  return { ...base, status, src: tmpSrc, dest, droppedKeys: stripped.dropped };
+  return { ...base, status, src: null };
 }
 
 /**
@@ -1382,11 +1245,10 @@ function diffCodexConfigItem(item, direction) {
   // 與 mergeCodexConfigToRepo 的空字串保護對齊（codex-config.js）：本機無可攜欄位（portable === ''）
   // 且 repo 尚無此檔時，apply 不會建空檔，diff 亦須視同無差異，避免永久假「將新增」。
   if (portable === '' && !repoExists) return { ...base, status: null, src: null };
-  const tmpSrc = createTmpDiffFile('toml', portable);
   const status = repoExists
     ? compareStrippedToRepo(portable, repoPath, '讀取 repo Codex 設定')
     : 'new';
-  return { ...base, status, src: tmpSrc };
+  return { ...base, status, src: null };
 }
 
 /**
@@ -1451,7 +1313,7 @@ function applyMergeItem(mergeFn, label) {
  */
 function applyFileItem(item, dryRun) {
   const existed = fs.existsSync(item.dest);
-  if (!copyFile(item.src, item.dest, false, dryRun)) return [];
+  if (!copyFile(item.src, item.dest, dryRun)) return [];
   return [{ action: existed ? 'updated' : 'added', label: itemLabel(item) }];
 }
 
@@ -1462,7 +1324,7 @@ function applyFileItem(item, dryRun) {
  * @returns {Array<{action: string, label: string}>}
  */
 function applyDirItem(item, dryRun) {
-  return mirrorDir(item.src, item.dest, item.excludePatterns || [], false, dryRun)
+  return mirrorDir(item.src, item.dest, item.excludePatterns || [], dryRun)
     .map(c => ({ action: c.action, label: itemLabel(item, c.rel) }));
 }
 
@@ -2413,6 +2275,24 @@ function parseArgs() {
 }
 
 /**
+ * `npm run <cmd> --dry-run` 這類寫法的旗標會被 npm 攔截成自家 config（argv 收不到），
+ * 導致「以為在預覽、實際真寫入」。npm 會把被吞旗標轉成 npm_config_* 環境變數，
+ * 據此偵測並直接拋錯中止（fail fast），要求以 `--` 分隔重新執行。
+ * @returns {void}
+ */
+function assertNoSwallowedNpmFlags() {
+  const swallowed = [
+    ['npm_config_dry_run', '--dry-run'],
+    ['npm_config_yes', '--yes'],
+  ].filter(([envKey]) => process.env[envKey] === 'true').map(([, flag]) => flag);
+  if (swallowed.length === 0) return;
+  throw new SyncError(
+    `旗標 ${swallowed.join('、')} 被 npm 攔截，未傳入 sync.js（npm run 傳旗標須以 -- 分隔，例：npm run to-repo -- --dry-run）`,
+    ERR.INVALID_ARGS,
+  );
+}
+
+/**
  * 讀取 package.json（使用 readJson，不丟出錯誤）
  * @returns {Record<string, unknown>|null}
  */
@@ -2474,6 +2354,7 @@ function askConfirm(question, autoYes = false) {
  * @returns {Promise<number>}
  */
 async function main() {
+  assertNoSwallowedNpmFlags();
   const opts = parseArgs();
   if (opts.noColor) disableColor();
 
@@ -2550,7 +2431,6 @@ if (require.main === module) {
     getFiles,
     mirrorDir,
     copyFile,
-    createTmpDiffFile,
     applySyncItems,
     diffSyncItems,
     diffDirItems,
@@ -2577,31 +2457,16 @@ if (require.main === module) {
     statusToStatsKey,
     parseSkillSource,
     parseArgs,
+    assertNoSwallowedNpmFlags,
     toRelativePath,
     maskHome,
     serializeSettings,
     loadStrippedSettings,
-    getStrippedSettings,
     partitionSettingsTopLevel,
-    parsePortableCodexConfig,
-    serializePortableCodexConfig,
-    mergePortableCodexConfig,
     loadPortableCodexConfig,
     getPortableCodexConfig,
     loadSkillsFromLock,
-    extractDeviceValues,
-    mergeDeviceValues,
     DEVICE_SETTINGS_KEYS,
-    SENSITIVE_KEY_PATTERN,
-    SECRET_VALUE_PATTERN,
-    HOME_PATH_PATTERN,
-    DEVICE_ENV_KEYS,
-    SETTINGS_HARD_BLOCK_KEYS,
-    CODEX_CONFIG_HARD_BLOCK_SECTIONS,
-    PRIVATE_KEY_PATTERN,
-    CODEX_CONFIG_TOP_KEYS,
-    CODEX_CONFIG_DEVICE_SECTION_PREFIXES,
-    isDeviceCodexSection,
     INIT_FILE_MAP,
     INIT_RULES_TO_REMOVE,
     SyncError,

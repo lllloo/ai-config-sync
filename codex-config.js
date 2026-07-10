@@ -200,29 +200,30 @@ function parsePortableCodexConfig(content) {
 }
 
 /**
- * 取得 section 輸出的 key 順序：top-level／plugins 用 carve-out 固定順序，其餘 section
- * 用 parse 時的插入順序（即來源檔內順序），維持輸出穩定
+ * 取得 section 輸出的 key 順序：top-level 用 carve-out 固定順序，其餘 section
+ * 一律排序輸出（UTF-16 code unit 預設排序，跨裝置確定性；parse 已保證 map 只含
+ * 可攜 key，plugins section 天生只剩 enabled）
  * @param {Map<string, Map<string, string>>} data
  * @param {string} section
  * @returns {string[]}
  */
 function getCodexConfigKeys(data, section) {
   if (section === '') return CODEX_CONFIG_TOP_KEYS;
-  if (section.startsWith('plugins.')) return ['enabled'];
   const values = data.get(section);
-  return values ? [...values.keys()] : [];
+  return values ? [...values.keys()].sort() : [];
 }
 
 /**
  * 將可攜 Codex config map 序列化為穩定 TOML：top-level 先出（固定 key 順序），
- * 其餘非黑名單 section 依插入順序（來源檔順序）輸出
+ * 其餘非黑名單 section 依 section 名排序輸出——輸出只由內容決定、與來源檔
+ * 排列順序無關，杜絕多裝置間僅順序不同造成的 repo 永久 ping-pong diff
  * @param {Map<string, Map<string, string>>} data
  * @returns {string}
  */
 function serializePortableCodexConfig(data) {
   const lines = [];
   pushCodexConfigTopLevel(lines, data);
-  for (const section of data.keys()) {
+  for (const section of [...data.keys()].sort()) {
     if (section === '') continue;
     pushCodexConfigSection(lines, data, section);
   }

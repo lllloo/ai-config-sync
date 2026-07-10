@@ -86,11 +86,14 @@ node --test --test-name-pattern="<name>" test/<file>.test.js
 | `--version` | 顯示版本號（別名 `-v`） |
 | `--help` | 顯示指令說明（別名 `-h`） |
 
-> 不在白名單內的旗標（含 typo 如 `--dryrun`）會直接報錯，不會被靜默忽略——避免打錯字而略過 dry-run 預覽真寫入。
+> 不在白名單內的旗標（含 typo 如 `--dryrun`）會直接報錯，不會被靜默忽略——避免打錯字而略過 dry-run 預覽真寫入（此保護僅在旗標實際到達 `sync.js` 時有效，見下）。
+
+> **npm run 傳旗標必須以 `--` 分隔**：`npm run to-repo --dry-run` 的 `--dry-run` 會被 npm 攔截成自家 config、根本傳不進 `sync.js`。`sync.js` 會偵測 npm 吞掉的 `--dry-run`／`--yes`（`npm_config_*` 環境變數）並**直接報錯中止**，不會靜默以真寫入模式執行；正確寫法是 `npm run to-repo -- --dry-run`。
 
 ```bash
 # 範例：預覽 to-repo 會做什麼，不實際寫入
 node sync.js to-repo --dry-run
+npm run to-repo -- --dry-run   # 經 npm run 必須加 -- 分隔
 
 # 範例：顯示詳細差異資訊
 node sync.js diff --verbose
@@ -167,7 +170,7 @@ npm run to-local
 ## 注意事項
 
 - `settings.json` 的 **top-level 採黑名單制**：預設同步 top-level 欄位，僅排除 `DEVICE_SETTINGS_KEYS` 明確黑名單（裝置偏好 `model`／`effortLevel`／`defaultShell`／`tui`／`autoUpdatesChannel`、平台綁定 `hooks`、憑證 helper `apiKeyHelper`／`awsCredentialExport`／`awsAuthRefresh`／`otelHeadersHelper`）。敏感命名 pattern（key／token／secret／credential／password／auth／cert／cookie／session／jwt／helper／refresh）**不再**讓 sync 自動剝除或中止；未列黑名單的 key 依一般 settings 差異同步，並由 `npm run safety:check` 以 warning 供人工審核
-- `settings.json` 的 `env` 區塊 **全部依一般同步語意同步**：不再因 `DEVICE_ENV_KEYS` 或敏感命名 pattern 被剝除，也不在 to-local 特別保留本機 env key。`diff`／`status` 顯示層仍會把 env 值遮罩為 `***`，避免差異預覽印出值；但實際 repo 內容是否安全須由 `npm run safety:check` 與人工審核判斷
+- `settings.json` 的 `env` 區塊 **全部依一般同步語意同步**：不再因舊 env review 清單（`CLAUDE_CODE_USE_POWERSHELL_TOOL`、`ANTHROPIC_CUSTOM_HEADERS`、proxy 類）或敏感命名 pattern 被剝除，也不在 to-local 特別保留本機 env key。`diff`／`status` 只輸出項目狀態行、不印任何設定內容（env 值不會出現在輸出）；實際 repo 內容是否安全須由 `npm run safety:check` 與人工審核判斷
 - **`npm run safety:check`** 是手動、唯讀、離線檢查：掃描 `claude/`、`codex/`、`opencode/` 與 `skills-lock.json`，不掃 `test/`、`openspec/`、README 等非同步來源文件。secret／私鑰／HOME 路徑的 **text pattern 掃描另排除外部套件文件目錄**（`claude/agents/`、`claude/skills/`、`codex/agents/`）——這些是原樣鏡射的第三方 agent／skill 文件，為說明偵測規則本就含 token／路徑樣式，掃它們會製造整類誤判（排除只作用於 text 掃描，結構化 `.json`／`.toml` 的 hard block 不受影響）。取捨：套件文件若真含機密不再被 text pattern 攔，可接受（公開上游、本 repo 不編輯），真正機密載體與使用者手改的設定來源仍全覆蓋。hard block 包含已知 token 值樣式、私鑰片段、絕對 HOME 路徑、repo `claude/settings.json` 出現 `hooks` 或 credential helper 欄位、repo `codex/config.toml` 出現機密載體 section（`model_providers.*`／`mcp_servers.*`，只印 section 路徑不印值，為 section 黑名單同步層之外的第 2 層防線）；warning 包含 `claude/settings.json` 的 env key 清單與結構化設定中命中敏感命名 pattern 的 key path。輸出只列分類、檔案與欄位／key／line，不列 env 值、secret 原值或完整 HOME 路徑
 - **同步流程不保證阻止機密寫入 repo**：`to-repo` 只做明確不同步欄位剝除與資料搬移；CLAUDE.md、rules、skills、statusline.sh 等仍為原樣鏡射。建議流程是 `npm run to-repo` 後、commit 前執行 `npm run safety:check` 與 `git diff`
 - **`hooks` 不跨裝置同步**：hook command 多為平台綁定（PowerShell／終端跳脫序列），在 Windows 與 macOS 無法共用，故各裝置自行維護本機 `hooks`，repo 不攜帶。需在新裝置重建 hook 時手動設定

@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const {
   matchExclude,
   parseArgs,
+  assertNoSwallowedNpmFlags,
   parseSkillSource,
   toRelativePath,
   maskHome,
@@ -19,7 +20,6 @@ const {
   getFiles,
   mirrorDir,
   copyFile,
-  createTmpDiffFile,
   applySyncItems,
   readFileSafe,
   readJson,
@@ -203,6 +203,55 @@ test('parseArgs：所有別名皆可正確解析', () => {
     assert.equal(result.command, expected,
       `別名 '${alias}' 應解析為 '${expected}'`);
   }
+});
+
+// =============================================================================
+// npm 吞旗標防護：`npm run to-repo --dry-run` 的旗標被 npm 攔截、argv 收不到，
+// 只留下 npm_config_* 環境變數——偵測到即 fail fast，不得靜默以真寫入模式執行
+// =============================================================================
+
+function withEnv(overrides, fn) {
+  const saved = {};
+  for (const [k, v] of Object.entries(overrides)) {
+    saved[k] = process.env[k];
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try { return fn(); }
+  finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+test('assertNoSwallowedNpmFlags：npm_config_dry_run=true 拋 INVALID_ARGS', () => {
+  withEnv({ npm_config_dry_run: 'true' }, () => {
+    assert.throws(() => assertNoSwallowedNpmFlags(), (e) => {
+      assert.ok(e instanceof SyncError);
+      assert.equal(e.code, ERR.INVALID_ARGS);
+      assert.ok(e.message.includes('--dry-run'), '訊息應點名被吞的旗標');
+      assert.ok(e.message.includes('--'), '訊息應教學 -- 分隔用法');
+      return true;
+    });
+  });
+});
+
+test('assertNoSwallowedNpmFlags：npm_config_yes=true 拋 INVALID_ARGS', () => {
+  withEnv({ npm_config_yes: 'true' }, () => {
+    assert.throws(() => assertNoSwallowedNpmFlags(), (e) => {
+      assert.ok(e instanceof SyncError && e.code === ERR.INVALID_ARGS);
+      assert.ok(e.message.includes('--yes'));
+      return true;
+    });
+  });
+});
+
+test('assertNoSwallowedNpmFlags：無 npm_config_* 旗標時不拋錯', () => {
+  withEnv({ npm_config_dry_run: undefined, npm_config_yes: undefined }, () => {
+    assert.doesNotThrow(() => assertNoSwallowedNpmFlags());
+  });
 });
 
 // =============================================================================
@@ -401,7 +450,7 @@ test('mirrorDir：dry-run 報告 deleted 但不實際刪檔', () => {
     seedFile(dest, 'a.txt', 'A');
     seedFile(dest, 'b.txt', 'STALE');
 
-    const changed = mirrorDir(src, dest, [], false, true); // dryRun=true
+    const changed = mirrorDir(src, dest, [], true); // dryRun=true
 
     assert.equal(fs.existsSync(path.join(dest, 'b.txt')), true, 'dry-run 不得實刪');
     assert.ok(changed.some(c => c.rel === 'b.txt' && c.action === 'deleted'));
@@ -627,15 +676,15 @@ test('copyFile：dry-run 不寫入但正確回報「將會寫入」', () => {
     fs.writeFileSync(src, 'A');
 
     // dest 不存在 → 將新增
-    assert.equal(copyFile(src, dest, false, true), true);
+    assert.equal(copyFile(src, dest, true), true);
     assert.equal(fs.existsSync(dest), false, 'dry-run 不得寫入');
 
     // dest 內容相同 → 無需寫入
     fs.writeFileSync(dest, 'A');
-    assert.equal(copyFile(src, dest, false, true), false);
+    assert.equal(copyFile(src, dest, true), false);
     // dest 內容不同 → 將更新
     fs.writeFileSync(dest, 'B');
-    assert.equal(copyFile(src, dest, false, true), true);
+    assert.equal(copyFile(src, dest, true), true);
   });
 });
 
@@ -652,16 +701,6 @@ test('copyFile：非 dry-run 內容相同不重寫，內容不同才寫入', () 
     fs.writeFileSync(src, 'B');
     assert.equal(copyFile(src, dest), true, '內容不同應寫入');
     assert.equal(fs.readFileSync(dest, 'utf8'), 'B');
-  });
-});
-
-test('copyFile：force 即使內容相同也寫入', () => {
-  withTmpDir((dir) => {
-    const src = path.join(dir, 'src.txt');
-    const dest = path.join(dir, 'dest.txt');
-    fs.writeFileSync(src, 'A');
-    fs.writeFileSync(dest, 'A');
-    assert.equal(copyFile(src, dest, true, false), true, 'force 應強制寫入');
   });
 });
 
@@ -705,46 +744,6 @@ test('applySyncItems：dry-run 計入統計但不實際寫入', () => {
 
     assert.equal(stats.added, 1, 'dry-run 仍計入將新增的統計');
     assert.equal(fs.existsSync(fileDest), false, 'dry-run 不得實際寫入');
-  });
-});
-
-// =============================================================================
-// 安全：createTmpDiffFile 隨機名 + O_EXCL（防共用 /tmp symlink 攻擊）
-// =============================================================================
-
-test('createTmpDiffFile：寫入內容、檔名隨機、落在 os.tmpdir() 下', () => {
-  const os = require('node:os');
-  const p1 = createTmpDiffFile('json', '{"a":1}');
-  const p2 = createTmpDiffFile('json', '{"a":1}');
-  try {
-    assert.equal(fs.readFileSync(p1, 'utf8'), '{"a":1}');
-    assert.notEqual(p1, p2, '兩次呼叫檔名應不同（隨機）');
-    assert.equal(path.dirname(p1), os.tmpdir(), '應落在 os.tmpdir()');
-    assert.match(path.basename(p1), /^ai-config-sync-[0-9a-f]+\.json$/);
-    if (process.platform !== 'win32') {
-      assert.equal(fs.statSync(p1).mode & 0o777, 0o600, '權限應為 0600');
-    }
-  } finally {
-    fs.rmSync(p1, { force: true });
-    fs.rmSync(p2, { force: true });
-  }
-});
-
-itUnix('createTmpDiffFile：O_EXCL 拒絕跟隨既存 symlink（不覆寫目標）', () => {
-  withTmpDir((dir) => {
-    const os = require('node:os');
-    const victim = path.join(dir, 'victim');
-    fs.writeFileSync(victim, 'ORIGINAL');
-    // 預埋一個指向 victim 的 symlink，名稱與「下一個」隨機檔同名——無法預測隨機名，
-    // 故改以固定路徑直接驗證 wx 行為：對已存在路徑寫 'wx' 應拋 EEXIST、不覆寫。
-    const link = path.join(os.tmpdir(), `ai-config-sync-excl-test-${path.basename(dir)}.json`);
-    fs.symlinkSync(victim, link);
-    try {
-      assert.throws(() => fs.writeFileSync(link, 'ATTACK', { flag: 'wx', mode: 0o600 }));
-      assert.equal(fs.readFileSync(victim, 'utf8'), 'ORIGINAL', 'O_EXCL 不得覆寫 symlink 目標');
-    } finally {
-      fs.rmSync(link, { force: true });
-    }
   });
 });
 

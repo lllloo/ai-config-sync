@@ -15,9 +15,9 @@ const {
   parsePortableCodexConfig,
   serializePortableCodexConfig,
   mergePortableCodexConfig,
-  loadPortableCodexConfig,
   isDeviceCodexSection,
-} = require('../sync.js');
+} = require('../codex-config.js');
+const { loadPortableCodexConfig } = require('../sync.js');
 const { withTmpDir } = require('./helpers');
 
 // 本機 config.toml 樣本，涵蓋：top-level 可攜/裝置 key、未列黑名單的一般 section
@@ -63,11 +63,23 @@ use_memories = true
 new_flag = true
 `;
 
-// 依黑名單混合制過濾後、依插入順序序列化的預期輸出：top-level 只留 personality/
-// web_search；plugins 只留 enabled；tui/features/memories/experimental 整段同步；
-// projects/model_providers/mcp_servers/tui.model_availability_nux 整段排除。
+// 依黑名單混合制過濾後、排序序列化的預期輸出：top-level 只留 personality/
+// web_search（carve-out 固定順序先出）；plugins 只留 enabled；tui/features/memories/
+// experimental 整段同步；projects/model_providers/mcp_servers/tui.model_availability_nux
+// 整段排除。section 與 section 內 key 一律排序輸出（與來源檔排列順序無關）。
 const PORTABLE_CONFIG = `personality = "pragmatic"
 web_search = "live"
+
+[experimental]
+new_flag = true
+
+[features]
+goals = true
+memories = true
+
+[memories]
+generate_memories = true
+use_memories = true
 
 [plugins."browser-use@openai-bundled"]
 enabled = true
@@ -78,17 +90,6 @@ enabled = true
 [tui]
 status_line = ["model-with-reasoning", "project-name"]
 theme = "dark"
-
-[features]
-memories = true
-goals = true
-
-[memories]
-generate_memories = true
-use_memories = true
-
-[experimental]
-new_flag = true
 `;
 
 test('parsePortableCodexConfig：一般 section 整段同步、黑名單 section 整段排除', () => {
@@ -140,6 +141,15 @@ test('serializePortableCodexConfig：輸出順序穩定且含結尾換行', () =
   const serialized = serializePortableCodexConfig(parsePortableCodexConfig(LOCAL_CONFIG));
   assert.ok(serialized.endsWith('\n'));
   assert.equal(serialized, PORTABLE_CONFIG);
+});
+
+test('serializePortableCodexConfig：不同來源排列順序 → byte-identical 輸出（防跨裝置 ping-pong）', () => {
+  const deviceA = `web_search = "live"\npersonality = "pragmatic"\n\n[tui]\ntheme = "dark"\nstatus_line = ["x"]\n\n[features]\ngoals = true\n`;
+  const deviceB = `personality = "pragmatic"\nweb_search = "live"\n\n[features]\ngoals = true\n\n[tui]\nstatus_line = ["x"]\ntheme = "dark"\n`;
+  const outA = serializePortableCodexConfig(parsePortableCodexConfig(deviceA));
+  const outB = serializePortableCodexConfig(parsePortableCodexConfig(deviceB));
+  assert.equal(outA, outB, 'section 與 key 排列不同、內容相同時輸出必須相同');
+  assert.ok(outA.startsWith('personality'), 'top-level carve-out 固定順序先出');
 });
 
 test('isDeviceCodexSection：黑名單 section 前綴與子 section 命中、一般 section 不命中', () => {
@@ -216,7 +226,7 @@ theme = "dark"
   assert.ok(serialized.includes('approval-requested'));
 });
 
-test('parse/serialize：多行三引號字串完整保留', () => {
+test('parse/serialize：多行三引號字串完整保留（key 排序輸出）', () => {
   const input = `[features]
 note = """
 line1
@@ -224,8 +234,15 @@ line2
 """
 enabled = true
 `;
+  const expected = `[features]
+enabled = true
+note = """
+line1
+line2
+"""
+`;
   const serialized = serializePortableCodexConfig(parsePortableCodexConfig(input));
-  assert.equal(serialized, input);
+  assert.equal(serialized, expected);
 });
 
 test('parse：array-of-tables（[[x]]）其下 key 不外洩、不誤掛前一 section', () => {

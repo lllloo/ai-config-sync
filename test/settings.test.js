@@ -2,7 +2,7 @@
 
 // =============================================================================
 // settings.json 純函式單元測試
-// 鎖定 serializeSettings / loadStrippedSettings / getStrippedSettings
+// 鎖定 serializeSettings / loadStrippedSettings / partitionSettingsTopLevel
 // 三條路徑（to-repo / to-local / diff）的序列化結果必須一致，
 // 防止結尾換行不對稱 bug 回歸（issue: to-local 比對誤判為 changed）
 // =============================================================================
@@ -15,14 +15,11 @@ const path = require('node:path');
 const {
   serializeSettings,
   loadStrippedSettings,
-  getStrippedSettings,
-  extractDeviceValues,
-  mergeDeviceValues,
   mergeSettingsBetween,
   partitionSettingsTopLevel,
   DEVICE_SETTINGS_KEYS,
-  SENSITIVE_KEY_PATTERN,
 } = require('../sync.js');
+const { SENSITIVE_KEY_PATTERN } = require('../safety-check.js');
 const { withTmpDir } = require('./helpers');
 
 // -----------------------------------------------------------------------------
@@ -233,23 +230,23 @@ test('loadStrippedSettings：全為可攜欄位時 dropped 為空陣列', () => 
   });
 });
 
-test('extractDeviceValues：保留所有被排除 top-level key（黑名單／pattern 命中）供 to-local', () => {
+test('partitionSettingsTopLevel：device 分區保留所有黑名單 top-level key 供 to-local', () => {
   const local = {
-    permissions: ['a'],                    // 白名單 → 不萃取（採 repo 值）
+    permissions: ['a'],                    // 可攜 → 不進 device（採 repo 值）
     tui: 'modern',
     autoUpdatesChannel: 'latest',
     apiKeyHelper: '/home/u/get-key.sh',
   };
-  const { deviceValues } = extractDeviceValues(local);
-  assert.deepEqual(deviceValues, {
+  const { device } = partitionSettingsTopLevel(local);
+  assert.deepEqual(device, {
     tui: 'modern',
     autoUpdatesChannel: 'latest',
     apiKeyHelper: '/home/u/get-key.sh',
   });
-  assert.ok(!('permissions' in deviceValues), '可攜 key 不應被萃取');
+  assert.ok(!('permissions' in device), '可攜 key 不應進 device 分區');
 });
 
-test('extractDeviceValues：只回傳 top-level 裝置欄位，不保留 env key', () => {
+test('partitionSettingsTopLevel：device 只含 top-level 裝置欄位，env 不在其中', () => {
   const local = {
     model: 'opus',
     effortLevel: 'high',
@@ -257,25 +254,20 @@ test('extractDeviceValues：只回傳 top-level 裝置欄位，不保留 env key
     env: { EDITOR: 'nvim', ANTHROPIC_API_KEY: 'sk-x', CLAUDE_CODE_USE_POWERSHELL_TOOL: '1' },
     permissions: ['a'],
   };
-  const { deviceValues } = extractDeviceValues(local);
-  assert.deepEqual(deviceValues, {
+  const { device } = partitionSettingsTopLevel(local);
+  assert.deepEqual(device, {
     model: 'opus',
     effortLevel: 'high',
     defaultShell: 'powershell',
   });
-  assert.ok(!('permissions' in deviceValues), 'permissions 不應在 deviceValues');
-  assert.ok(!('env' in deviceValues), 'env 不應由同步流程特別保留');
+  assert.ok(!('permissions' in device), 'permissions 不應在 device 分區');
+  assert.ok(!('env' in device), 'env 不應由同步流程特別保留');
 });
 
-test('extractDeviceValues：env key 不再萃取供 to-local 保留', () => {
-  const { deviceValues } = extractDeviceValues({ env: { HTTP_PROXY: 'http://u:p@h', GITHUB_TOKEN: 'x' } });
-  assert.deepEqual(deviceValues, {});
-});
-
-test('extractDeviceValues：乾淨名可攜 env key 不萃取（採 repo 值）', () => {
-  // 黑名單制核心：乾淨名 env key 為可攜、由 repo 值勝出，故不進 deviceValues
-  const { deviceValues } = extractDeviceValues({ env: { EDITOR: 'nvim', X: '1' } });
-  assert.deepEqual(deviceValues, {});
+test('partitionSettingsTopLevel：env key（含 proxy／token 命名）一律歸 portable', () => {
+  const { device, portable } = partitionSettingsTopLevel({ env: { HTTP_PROXY: 'http://u:p@h', GITHUB_TOKEN: 'x' } });
+  assert.deepEqual(device, {});
+  assert.ok('env' in portable, 'env 整塊依一般同步語意走 portable');
 });
 
 // -----------------------------------------------------------------------------
@@ -299,18 +291,19 @@ test('loadStrippedSettings：剝除 hooks（to-repo 不帶平台綁定 hooks）'
   });
 });
 
-test('extractDeviceValues：回傳本機 hooks 供 to-local 保留', () => {
-  const hooks = { Stop: [{ hooks: [{ type: 'command', command: 'y', shell: 'powershell' }] }] };
-  const { deviceValues } = extractDeviceValues({ hooks, permissions: ['a'] });
-  assert.deepEqual(deviceValues, { hooks });
-});
+test('mergeSettingsBetween(to-local)：本機 hooks 整鍵保留（不與 repo 部分合併）', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    const localHooks = { Stop: [{ hooks: [{ type: 'command', command: 'z', shell: 'powershell' }] }] };
+    writeJson(localPath, { permissions: ['old'], hooks: localHooks });
+    writeJson(repoPath, { permissions: ['new'] });
 
-test('mergeDeviceValues：repo 無 hooks 時整批採用本機 hooks（不部分合併）', () => {
-  const repo = { permissions: ['a'] };
-  const localHooks = { Stop: [{ hooks: [{ type: 'command', command: 'z' }] }] };
-  const merged = mergeDeviceValues(repo, { hooks: localHooks });
-  assert.deepEqual(merged.hooks, localHooks, '本機 hooks 應原樣保留');
-  assert.deepEqual(merged.permissions, ['a'], '非裝置欄位不受影響');
+    assert.equal(mergeSettingsBetween(localPath, repoPath, 'to-local'), true);
+    const merged = JSON.parse(fs.readFileSync(localPath, 'utf8'));
+    assert.deepEqual(merged.hooks, localHooks, '本機 hooks 應原樣保留');
+    assert.deepEqual(merged.permissions, ['new'], '可攜欄位採 repo 值');
+  });
 });
 
 test('loadStrippedSettings：env 不存在時不報錯', () => {
@@ -320,24 +313,6 @@ test('loadStrippedSettings：env 不存在時不報錯', () => {
 
     const result = loadStrippedSettings(fp);
     assert.deepEqual(result.clean, { permissions: ['a'] });
-  });
-});
-
-// -----------------------------------------------------------------------------
-// getStrippedSettings：向後相容介面
-// -----------------------------------------------------------------------------
-test('getStrippedSettings：檔案不存在回傳 null', () => {
-  assert.equal(getStrippedSettings('/nonexistent/x.json'), null);
-});
-
-test('getStrippedSettings：回傳值等同 serializeSettings(clean)', () => {
-  withTmpDir((dir) => {
-    const fp = path.join(dir, 'settings.json');
-    writeJson(fp, { language: 'zh-TW', model: 'opus', effortLevel: 'high' });
-
-    const stripped = getStrippedSettings(fp);
-    assert.equal(stripped, serializeSettings({ language: 'zh-TW' }));
-    assert.ok(stripped.endsWith('\n'));
   });
 });
 
@@ -382,31 +357,20 @@ test('回歸：to-local 比對 — 相同內容（僅 device fields 不同）應
 });
 
 // -----------------------------------------------------------------------------
-// mergeDeviceValues：to-local 合併，巢狀 env 物件 shallow merge
+// to-local 裝置欄位為整鍵覆蓋：repo 若被手改混入裝置欄位（如 tui），本機值整鍵勝出，
+// 不與 repo 側同名物件 shallow merge（裝置偏好不應混入 repo 殘留 subkey）
 // -----------------------------------------------------------------------------
-test('mergeDeviceValues：env 巢狀 key 不覆蓋 repo 的其他 env key', () => {
-  const repo = { env: { EDITOR: 'code --wait' }, permissions: ['a'] };
-  const deviceValues = { env: { CLAUDE_CODE_USE_POWERSHELL_TOOL: '1' } };
-  const merged = mergeDeviceValues(repo, deviceValues);
-  assert.deepEqual(merged, {
-    env: { EDITOR: 'code --wait', CLAUDE_CODE_USE_POWERSHELL_TOOL: '1' },
-    permissions: ['a'],
+test('mergeSettingsBetween(to-local)：repo 混入裝置欄位時本機整鍵覆蓋、不部分合併', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(localPath, { permissions: ['old'], tui: { theme: 'dark' } });
+    writeJson(repoPath, { permissions: ['new'], tui: { theme: 'light', stray: true } });
+
+    assert.equal(mergeSettingsBetween(localPath, repoPath, 'to-local'), true);
+    const merged = JSON.parse(fs.readFileSync(localPath, 'utf8'));
+    assert.deepEqual(merged.tui, { theme: 'dark' }, 'repo 側 tui 的 subkey 不得混進本機');
   });
-});
-
-test('mergeDeviceValues：top-level deviceValues 覆蓋 repo 對應欄位', () => {
-  const repo = { defaultShell: 'zsh', permissions: ['a'] };
-  const deviceValues = { defaultShell: 'powershell' };
-  const merged = mergeDeviceValues(repo, deviceValues);
-  assert.equal(merged.defaultShell, 'powershell');
-  assert.deepEqual(merged.permissions, ['a']);
-});
-
-test('mergeDeviceValues：deviceValues 為空時回傳 repo 副本', () => {
-  const repo = { env: { EDITOR: 'vim' }, permissions: ['a'] };
-  const merged = mergeDeviceValues(repo, {});
-  assert.deepEqual(merged, repo);
-  assert.ok(merged !== repo, '應為新物件，非原始 reference');
 });
 
 test('回歸：to-repo 寫入後再讀回，與 loadStrippedSettings.serialized 完全相符', () => {
@@ -445,15 +409,7 @@ test('同步降責：to-repo stripped 含 env 金鑰，to-local 以 repo env 覆
       env: { EDITOR: 'vim', ANTHROPIC_API_KEY: 'sk-secret', GITHUB_TOKEN: 'ghp_x' },
       permissions: ['a'],
     });
-
-    const repo = { env: { EDITOR: 'code --wait', CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1' }, permissions: ['a'] };
-    const local = JSON.parse(fs.readFileSync(localPath, 'utf8'));
-    const { deviceValues } = extractDeviceValues(local);
-    const merged = mergeDeviceValues(repo, deviceValues);
-    assert.equal(merged.env.ANTHROPIC_API_KEY, undefined, 'to-local 不再特別保留本機金鑰');
-    assert.equal(merged.env.GITHUB_TOKEN, undefined, 'to-local 不再特別保留本機 token');
-    assert.equal(merged.env.EDITOR, 'code --wait', '可攜 env 採 repo 值');
-    assert.equal(merged.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, '1', '可攜 env 從 repo 帶入');
+    // to-local 的 env 覆蓋語意由下方 mergeSettingsBetween(to-local) 測試直接驗證
   });
 });
 
