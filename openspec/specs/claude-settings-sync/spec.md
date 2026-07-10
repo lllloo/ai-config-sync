@@ -13,7 +13,7 @@
 
 #### Scenario: to-repo 剝除黑名單 key
 - **WHEN** 執行 `npm run to-repo`
-- **AND** 本機 `settings.json` 含有列於 `DEVICE_SETTINGS_KEYS` 的 top-level key（如 `model`、`hooks`、`apiKeyHelper`）
+- **AND** 本機 `settings.json` 含有列於 `DEVICE_SETTINGS_KEYS` 的 top-level key（如 `model`、`hooks`、`tui`）
 - **THEN** repo 的 `claude/settings.json` SHALL NOT 包含該 key
 
 #### Scenario: to-repo 不因敏感命名剝除未知 key

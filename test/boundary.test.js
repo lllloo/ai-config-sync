@@ -346,10 +346,10 @@ test('COMMAND_ALIASES 值皆指向 COMMANDS 中存在的 key', () => {
   }
 });
 
-test('DEVICE_SETTINGS_KEYS 含裝置欄位 model／effortLevel（黑名單正面保證）', () => {
+test('DEVICE_SETTINGS_KEYS 含裝置欄位 model／tui（黑名單正面保證）', () => {
   const { DEVICE_SETTINGS_KEYS } = require('../sync.js');
   assert.ok(DEVICE_SETTINGS_KEYS.includes('model'));
-  assert.ok(DEVICE_SETTINGS_KEYS.includes('effortLevel'));
+  assert.ok(DEVICE_SETTINGS_KEYS.includes('tui'));
 });
 
 // =============================================================================

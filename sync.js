@@ -42,11 +42,11 @@ const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
  */
 const DEVICE_SETTINGS_KEYS = [
   // 裝置偏好：各機不同，同步會互踩
-  'model', 'effortLevel', 'defaultShell', 'tui', 'autoUpdatesChannel',
+  'model', 'tui', 'autoUpdatesChannel',
   // 平台綁定：hooks command 為 shell 方言（PowerShell vs zsh），跨平台必壞
   'hooks',
-  // 憑證 helper：指向本機憑證腳本的路徑（全數同時命中 pattern，明列為雙保險）
-  'apiKeyHelper', 'awsCredentialExport', 'awsAuthRefresh', 'otelHeadersHelper',
+  // 只列本機實際存在的 key，不做預防性列名；憑證 helper（apiKeyHelper 等）
+  // 若日後出現會照常同步進 repo，由 safety:check 的 hard block 攔下
 ];
 
 /**

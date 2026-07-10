@@ -48,7 +48,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | repo 路徑 | 本機路徑 | 備註 |
 |-----------|----------|------|
 | `claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | 全文比對 |
-| `claude/settings.json` | `~/.claude/settings.json` | **top-level 採黑名單制**：預設同步，僅排除 `DEVICE_SETTINGS_KEYS` 黑名單（裝置偏好、平台綁定 `hooks`、憑證 helper；清單見 `sync.js` 常數與 README，有 drift-guard 測試把關）。敏感命名 key 與 `env` 全部依一般同步語意同步，安全審核改由 `safety:check`；`diff`／`status` 只輸出狀態行、不印設定內容 |
+| `claude/settings.json` | `~/.claude/settings.json` | **top-level 採黑名單制**：預設同步，僅排除 `DEVICE_SETTINGS_KEYS` 黑名單（裝置偏好、平台綁定 `hooks`；只列本機實際存在的 key、不做預防性列名，憑證 helper 由 `safety:check` hard block 兜底；清單見 `sync.js` 常數與 README，有 drift-guard 測試把關）。敏感命名 key 與 `env` 全部依一般同步語意同步，安全審核改由 `safety:check`；`diff`／`status` 只輸出狀態行、不印設定內容 |
 | `claude/statusline.sh` | `~/.claude/statusline.sh` | 全文比對 |
 | `claude/agents/` | `~/.claude/agents/` | 以 package 子目錄組織（如 `everything-claude-code/`） |
 | `claude/commands/` | `~/.claude/commands/` | 目錄鏡射 |
