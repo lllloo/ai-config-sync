@@ -17,6 +17,8 @@ const {
   loadStrippedSettings,
   mergeSettingsBetween,
   partitionSettingsTopLevel,
+  findNewSettingsTopKeys,
+  collectNewSettingsKeys,
   DEVICE_SETTINGS_KEYS,
 } = require('../sync.js');
 const { SENSITIVE_KEY_PATTERN } = require('../safety-check.js');
@@ -544,5 +546,73 @@ test('mergeSettingsBetween(to-local)：dry-run 不寫檔；repo 缺檔回傳 fal
 
     const repoMissing = path.join(dir, 'absent.json');
     assert.equal(mergeSettingsBetween(localPath, repoMissing, 'to-local'), false);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// findNewSettingsTopKeys：首次出現 top-level key 的查驗提示（只比 key 集合、不看值）
+// -----------------------------------------------------------------------------
+test('findNewSettingsTopKeys：本機缺檔回傳空陣列', () => {
+  withTmpDir((dir) => {
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(repoPath, { permissions: {} });
+    assert.deepEqual(findNewSettingsTopKeys(path.join(dir, 'absent.json'), repoPath), []);
+  });
+});
+
+test('findNewSettingsTopKeys：repo 缺檔時列出全部可攜 key（首次建 repo）', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    writeJson(localPath, { permissions: {}, language: 'zh-TW', model: 'opus' });
+    // model 在黑名單，不屬可攜集合，不得列出
+    assert.deepEqual(
+      findNewSettingsTopKeys(localPath, path.join(dir, 'absent.json')),
+      ['permissions', 'language'],
+    );
+  });
+});
+
+test('findNewSettingsTopKeys：只列 repo 尚無的 key，保持本機順序', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(localPath, { newFlag: true, permissions: {}, anotherNew: 1 });
+    writeJson(repoPath, { permissions: {} });
+    assert.deepEqual(findNewSettingsTopKeys(localPath, repoPath), ['newFlag', 'anotherNew']);
+  });
+});
+
+test('findNewSettingsTopKeys：黑名單 key 即使 repo 沒有也不列（已被剝除）', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(localPath, { permissions: {}, model: 'opus', hooks: {}, tui: {} });
+    writeJson(repoPath, { permissions: {} });
+    assert.deepEqual(findNewSettingsTopKeys(localPath, repoPath), []);
+  });
+});
+
+test('findNewSettingsTopKeys：兩端 key 一致（值不同）不觸發', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(localPath, { language: 'zh-TW' });
+    writeJson(repoPath, { language: 'en' });
+    assert.deepEqual(findNewSettingsTopKeys(localPath, repoPath), []);
+  });
+});
+
+test('collectNewSettingsKeys：從項目清單取 settings 項目；無 settings 項目回傳空陣列', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(localPath, { newFlag: true });
+    writeJson(repoPath, {});
+    const items = [
+      { type: 'file', src: localPath, dest: repoPath },
+      { type: 'settings', src: localPath, dest: repoPath },
+    ];
+    assert.deepEqual(collectNewSettingsKeys(items), ['newFlag']);
+    assert.deepEqual(collectNewSettingsKeys([{ type: 'file', src: localPath, dest: repoPath }]), []);
   });
 });

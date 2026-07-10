@@ -886,6 +886,55 @@ function loadStrippedSettings(filePath) {
 }
 
 /**
+ * 找出本機可攜 top-level key 中 repo 端尚未出現者（首次進入同步範圍的 key）。
+ * 黑名單制下新 key 預設同步，此函式在「首次出現」時點名，供人工查驗是否屬
+ * 裝置偏好、該補列 DEVICE_SETTINGS_KEYS——不維護官方預設值表（會過期），
+ * 只做兩端 key 集合的差集。repo 檔不存在時視為空集合（首次建 repo 全數列出，
+ * 屬預期的初始化查驗行為）。只回傳 key 名、不含值。
+ * @param {string} localPath - 本機 settings.json 路徑
+ * @param {string} repoPath - repo settings.json 路徑
+ * @returns {string[]} 首次出現的可攜 top-level key（保持本機順序）
+ */
+function findNewSettingsTopKeys(localPath, repoPath) {
+  const stripped = loadStrippedSettings(localPath);
+  if (stripped === null) return [];
+  const repoKeys = fs.existsSync(repoPath)
+    ? new Set(Object.keys(readJson(repoPath)))
+    : new Set();
+  return Object.keys(stripped.clean).filter((key) => !repoKeys.has(key));
+}
+
+/**
+ * 輸出「settings.json 首次出現 top-level key」的人工查驗提示。
+ * 措辭與同步時態解耦（diff 未寫入、to-repo 已寫入皆適用）；只印 key 名不印值。
+ * @param {string[]} newKeys - findNewSettingsTopKeys 的結果
+ */
+function printNewSettingsKeysNotice(newKeys) {
+  if (newKeys.length === 0) return;
+  console.log(col.yellow(`\n  [!] settings.json 首次出現 top-level key：${newKeys.join('、')}`));
+  console.log(col.dim('      不在 DEVICE_SETTINGS_KEYS 黑名單，依預設納入同步；若屬裝置偏好（各機不同），請補列黑名單'));
+}
+
+/**
+ * 從同步項目清單取樣 settings 項目的首次出現 key（路徑取自 item.src／item.dest，
+ * 維持路徑單一來源；settings 為 fixedFlow，src 恆本機、dest 恆 repo）
+ * @param {SyncItem[]} items
+ * @returns {string[]}
+ */
+function collectNewSettingsKeys(items) {
+  const item = items.find((i) => i.type === 'settings');
+  return item ? findNewSettingsTopKeys(item.src, item.dest) : [];
+}
+
+/**
+ * collect + print 的便捷組合（diff 路徑用；to-repo 因需 apply 前取樣、apply 後印，分開呼叫）
+ * @param {SyncItem[]} items
+ */
+function noticeNewSettingsKeys(items) {
+  printNewSettingsKeysNotice(collectNewSettingsKeys(items));
+}
+
+/**
  * settings.json 合併核心（路徑可注入版，供測試直接驗黑名單混合制剝除不變式）
  * @param {string} localPath - 本機 settings.json 路徑
  * @param {string} repoPath - repo settings.json 路徑
@@ -1559,6 +1608,7 @@ function runDiff(opts) {
     if (printDiffItem(item, opts)) hasDiff = true;
   }
   printSkillDiffSummaries(skillsSummary);
+  noticeNewSettingsKeys(items);
   if (!hasDiff) {
     console.log(col.green('\n  本機與 repo 完全一致\n'));
     return EXIT_OK;
@@ -1660,10 +1710,13 @@ function runToRepo(opts) {
   isWriting = !dryRun;
   try {
     const items = buildSyncItems('to-repo');
+    // 首次出現 key 須在 apply 前取樣（寫入後 repo 已含新 key，差集恆空），提示留到摘要後印
+    const newSettingsKeys = collectNewSettingsKeys(items);
     const { stats, changeLog } = applySyncItems(items, 'to-repo', opts);
 
     console.log('');
     printSummary(stats);
+    printNewSettingsKeysNotice(newSettingsKeys);
 
     if (dryRun) {
       console.log(col.dim('\n  以上為預覽，未實際寫入任何檔案'));
@@ -2320,6 +2373,8 @@ if (require.main === module) {
     serializeSettings,
     loadStrippedSettings,
     partitionSettingsTopLevel,
+    findNewSettingsTopKeys,
+    collectNewSettingsKeys,
     loadPortableCodexConfig,
     getPortableCodexConfig,
     loadSkillsFromLock,
