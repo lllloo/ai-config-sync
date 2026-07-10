@@ -1,31 +1,43 @@
 # 全域 opencode 指示
 
-使用繁體中文回覆。技術術語可保留英文。
+此檔案定義所有專案通用的全域規則與慣例。
 
-回應風格：簡潔、直接、少廢話。
+## 語言規範
 
-## 工作方式
+**一律使用繁體中文**撰寫所有內容、註解、文件、溝通訊息與 commit 訊息。技術術語可保留英文。輸出 Markdown 文件時亦同。
 
-短指令最多問一個真正影響方向的澄清問題；其餘合理推斷後先動手，過程中再校正。
+**例外**：專案既有 commit 歷史為英文（如開源專案）時，commit 訊息跟隨專案慣例。
 
-搜尋或查證任務先設定停損。若短時間內找不到答案，回報已查線索與下一步，不要無限挖。
+## 回應風格
 
-## Scope
+精簡、直接切入重點——指**表達**精簡，不是**查證**精簡。
 
-不要主動擴大 scope。除非使用者明確要求，不新增未要求的功能、重構、a11y、hover、click affordance 或架構改動。
+- 溝通用字精簡，但不省略「先 Read／Grep／查證再下結論」的步驟
+- 事實宣稱（檔案內容、API、版本、數字）必須有依據；無依據時直說「不確定」，不用簡潔換取肯定語氣
+- 精簡 ≠ 省略不確定性標註；該標的照標
 
-提出重構前，先確認目標是否已經使用該 pattern。優先延伸既有共用元件與 repo 慣例，不重造相近抽象。
+## Commit 與 Push
 
-## Git
+- **Commit 不設限制**：agent 可自主 commit，不需事先徵求同意。
+- **Push 保護分支**：`main`、`master`、`develop`、`formal`、`release`（含 `release/*`）未經使用者明確要求**不得 push**；其他分支可自由 push。
+- **force push 需明確要求**：任何分支皆同，不因是 feature branch 而放行；獲授權時**一律用 `--force-with-lease`**，不用裸 `--force`。
+- **推 tag 視同 push 對外動作**：未經明確要求不推 tag。
 
-執行 `git push` 或任何會推送到遠端的等價操作前，必須先詢問使用者並取得明確同意；若使用者在同一輪對話中已明確要求推送，則可直接執行。
+## 構建與打包規則
 
-除非使用者明確要求，否則不要每個小步驟都 commit。commit 時優先彙整成單一 coherent commit，避免把無關變更混入。
+**預設禁止執行打包命令** — 除非明確要求，否則不執行：
 
-## Skills
+- `npm run build` / `yarn build` / `pnpm build`
+- `npm run docs:build` 或類似構建命令
 
-優先使用 skill，不新增 command。新增或修改 skill 時，盡量遵循 Agent Skills 開放標準，讓內容可跨工具移植。
+**例外**：只有在明確指示「請打包」、「執行打包」時才可執行。
 
-## README
+## Commands vs Skills
 
-軟體專案若尚無 README.md，且本次工作涉及建立專案、指令或使用方式，需補上 README.md，至少包含：專案說明、安裝方式、常用指令。
+**一律使用 skill**，不再新增 command。
+
+Skills 是 commands 的超集，同時遵循 [Agent Skills](https://agentskills.io) 開放標準——可直接移植到 Cursor、Gemini CLI、Codex、GitHub Copilot 等其他 AI 工具。
+
+## README.md 規範
+
+所有軟體專案**必須撰寫 `README.md`**，最低需包含：專案說明、安裝方式、常用指令。
