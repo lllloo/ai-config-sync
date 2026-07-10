@@ -36,8 +36,6 @@ const {
   ERR,
   COMMANDS,
   COMMAND_ALIASES,
-  INIT_FILE_MAP,
-  INIT_RULES_TO_REMOVE,
 } = require('../sync.js');
 const { withArgv, withTmpDir, withTmpFile } = require('./helpers');
 
@@ -434,45 +432,10 @@ test('COMMAND_ALIASES：別名應對應回正式指令', () => {
   }
 });
 
-test('COMMANDS：init 指令存在且有說明', () => {
-  assert.ok(COMMANDS['init'], 'COMMANDS 應含 init');
-  assert.equal(COMMANDS['init'].alias, null, 'init 無別名');
-  assert.ok(COMMANDS['init'].desc, 'init 應有 desc');
-});
-
 test('COMMANDS：safety:check 指令存在且無別名', () => {
   assert.ok(COMMANDS['safety:check'], 'COMMANDS 應含 safety:check');
   assert.equal(COMMANDS['safety:check'].alias, null, 'safety:check 無別名');
   assert.ok(COMMANDS['safety:check'].desc, 'safety:check 應有 desc');
-});
-
-// -----------------------------------------------------------------------------
-// INIT_FILE_MAP / INIT_RULES_TO_REMOVE：init 指令的資料驅動清單
-// -----------------------------------------------------------------------------
-test('INIT_FILE_MAP：每項皆有 src/dest/type，type 為 json 或 text', () => {
-  assert.ok(Array.isArray(INIT_FILE_MAP) && INIT_FILE_MAP.length > 0);
-  for (const item of INIT_FILE_MAP) {
-    assert.equal(typeof item.src, 'string');
-    assert.equal(typeof item.dest, 'string');
-    assert.ok(['json', 'text'].includes(item.type), `type 應為 json|text，實為 ${item.type}`);
-    assert.ok(item.src.includes('.example.'), `src 應指向 .example 範本：${item.src}`);
-  }
-});
-
-test('INIT_FILE_MAP：所有 .example 範本檔實際存在於 repo', () => {
-  const repoRoot = path.resolve(__dirname, '..');
-  for (const item of INIT_FILE_MAP) {
-    const srcAbs = path.join(repoRoot, item.src);
-    assert.ok(fs.existsSync(srcAbs), `範本檔應存在：${item.src}`);
-  }
-});
-
-test('INIT_RULES_TO_REMOVE：所有路徑皆位於 claude/rules/ 下', () => {
-  assert.ok(Array.isArray(INIT_RULES_TO_REMOVE));
-  for (const rel of INIT_RULES_TO_REMOVE) {
-    assert.ok(rel.startsWith('claude/rules/'), `應位於 claude/rules/ 下：${rel}`);
-    assert.ok(rel.endsWith('.md'), `應為 .md 檔：${rel}`);
-  }
 });
 
 // -----------------------------------------------------------------------------

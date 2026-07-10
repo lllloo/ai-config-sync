@@ -41,10 +41,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm test` — 執行 `test/*.test.js`（`node --test`，零相依，共用 helper 在 `test/helpers.js`）
 - 單一測試：`node --test --test-name-pattern="<name>" test/<file>.test.js`
 
-**Fork / 初始化：**
-- `npm run init` — 把作者個人資料重置為空骨架（從 `.example` 範本覆寫正式檔、刪除 `claude/rules/` 個人化規則）。**fork 後執行一次**，作者本人日常不需執行。支援 `--dry-run` 預覽
-
-**全域旗標**（`node sync.js` 直接呼叫時可用）：`--dry-run`、`--yes`（別名 `--force`，略過互動確認；非互動環境執行 to-local／init 必加）、`--verbose`、`--version`、`--help`。**不在白名單內的旗標（含 typo 如 `--dryrun`）會拋 `INVALID_ARGS` 而非被靜默忽略**——避免打錯字略過 dry-run 真寫入。**npm run 傳旗標必須以 `--` 分隔**（`npm run to-repo -- --dry-run`）：不加 `--` 時旗標被 npm 攔截、傳不進 `sync.js`；`main()` 開頭的 `assertNoSwallowedNpmFlags` 會偵測 `npm_config_dry_run`／`npm_config_yes` 並拋 `INVALID_ARGS` fail fast，杜絕「以為在預覽、實際真寫入」。指令別名：`d`/`s`/`tr`/`tl`/`sd`/`sa`/`sr`（`init` 與 `safety:check` 無別名）。
+**全域旗標**（`node sync.js` 直接呼叫時可用）：`--dry-run`、`--yes`（別名 `--force`，略過互動確認；非互動環境執行 to-local 必加）、`--verbose`、`--version`、`--help`。**不在白名單內的旗標（含 typo 如 `--dryrun`）會拋 `INVALID_ARGS` 而非被靜默忽略**——避免打錯字略過 dry-run 真寫入。**npm run 傳旗標必須以 `--` 分隔**（`npm run to-repo -- --dry-run`）：不加 `--` 時旗標被 npm 攔截、傳不進 `sync.js`；`main()` 開頭的 `assertNoSwallowedNpmFlags` 會偵測 `npm_config_dry_run`／`npm_config_yes` 並拋 `INVALID_ARGS` fail fast，杜絕「以為在預覽、實際真寫入」。指令別名：`d`/`s`/`tr`/`tl`/`sd`/`sa`/`sr`（`safety:check` 無別名）。
 
 ## 同步項目與對應
 
@@ -71,7 +68,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 架構重點
 
-**主入口 + safety／codex-config 模組**：`sync.js` 為主 CLI 入口（同步／diff／skills／init 邏輯），`safety:check` 掃描與輸出獨立於 `safety-check.js`，Codex `config.toml` 過濾同步獨立於 `codex-config.js`。三檔零外部相依、只用 Node.js 內建模組。兩子模組皆 **不反向 require `sync.js`**：
+**主入口 + safety／codex-config 模組**：`sync.js` 為主 CLI 入口（同步／diff／skills 邏輯），`safety:check` 掃描與輸出獨立於 `safety-check.js`，Codex `config.toml` 過濾同步獨立於 `codex-config.js`。三檔零外部相依、只用 Node.js 內建模組。兩子模組皆 **不反向 require `sync.js`**：
 
 - `safety-check.js`：透過 `createSafetyChecker(deps)` 由 `sync.js` 注入共用工具（`REPO_ROOT`、`getFiles`、`readFileSafe`、`readJson`、`toRelativePath`、`maskHome`、`col`、`EXIT_*`）；`sync.js` 以 lazy singleton 建立 checker（避開 const 相依的 TDZ），`runSafetyCheck`／`runSafetyChecks` 僅為轉接。safety 專屬常數（`SENSITIVE_KEY_PATTERN` 等 pattern、`SETTINGS_HARD_BLOCK_KEYS`、`CODEX_CONFIG_HARD_BLOCK_SECTIONS`、掃描範圍）由 `safety-check.js` 持有，測試直接 require 該模組（`sync.js` 不再 re-export）。`scanTomlKeyWarnings` 除敏感命名 key 的 warning 外，另對命中 `CODEX_CONFIG_HARD_BLOCK_SECTIONS`（`model_providers`／`mcp_servers`）的 section header 回報 hard block（只印 section 路徑、不印值）。**TOML 解析直接復用 codex-config 同步端的 `readCodexStatements`（由 `sync.js` 經 deps 注入）**：不再自製逐行 regex，統一 header／kv 判斷並具備跨行狀態感知（多行陣列、`"""`／`'''` 三引號字串併入續行），既辨識 array-of-tables（`[[x]]`）／尾註解／內部空白等合法 header 變體、也杜絕字串內的 `[x]` 樣式被誤判為 section header 而錯標 key 歸屬；同步端與 safety 端共用單一解析邏輯，杜絕兩份平行 regex 漂移。**text pattern 掃描（`scanSafetyTextFile`：secret／私鑰／HOME 路徑）於 `runSafetyChecks` 逐檔迴圈中對命中 `SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`（`claude/agents/`／`claude/skills/`／`codex/agents/`）的檔略過**——這些是原樣鏡射的外部套件文件，為說明偵測規則本就含 token／路徑樣式，掃它們天生整類 false positive；排除只作用於 text 掃描，結構化 `.json`／`.toml` 掃描（含 hard block）不受影響（這些目錄下也無設定檔）。對外入口 `node sync.js safety:check` 與 `npm run safety:check` 不變。
 - `codex-config.js`：承載 Codex config 的 TOML parse／serialize／merge、可攜欄位判斷（**section 級黑名單混合制**，見同步項目表）、load／get 與 apply 進出口，以及專屬常數（`CODEX_CONFIG_TOP_KEYS`、`CODEX_CONFIG_DEVICE_SECTION_PREFIXES`）與 section 黑名單判斷（`isDeviceCodexSection`，被 `isPortableCodexConfigKey` 呼叫）。純 parse／serialize／merge 無 IO 直接匯出；serialize 對非黑名單 section 與 section 內 key 一律排序輸出（UTF-16 code unit 預設排序，輸出只由內容決定、與來源檔排列無關，杜絕多裝置間僅順序不同造成的 repo 永久 ping-pong diff）、top-level carve-out 固定順序先出；to-local merge 仍保留本機檔佈局。**跨行語法（parse 與 merge 共用 `readCodexStatements` 邏輯語句讀取器）**：逐行掃描以 `scanCodexValueState`（追蹤陣列括號淨深度與三引號字串開閉，略過字串／註解內字元）偵測未閉合的多行陣列與 `"""`／`'''` 三引號字串並併入續行，避免逐行截斷成無效 TOML；`matchCodexHeader` 顯式辨識 array-of-tables（`[[x]]`）與一般 table（`[x]`），array-of-tables 其下 key 一律不視為可攜（真實 array-of-tables section 皆機密／裝置載體，且無法 round-trip 成單一 table），杜絕 key 誤掛前一 section 的外洩面。load／get／apply 需讀寫檔，經 `createCodexConfigHandler(deps)`（僅注入 IO 工具 `readFileSafe`、`writeTextSafe`；路徑不再由 handler 自算，改由 caller 從 `SYNC_AREAS` 導出的 `item.src`／`item.dest` 傳入 `mergeCodexConfigToml(localPath, repoPath, direction, dryRun)`）建立，`sync.js` 以 lazy singleton 轉接，`applySyncItem` 的 `codex-config` case 僅呼叫 `mergeCodexConfigToml`。**路徑單一來源**：`settings.json`／`config.toml` 的本機／repo 路徑統一由 `SYNC_AREAS` → `materializeSyncItem` 產出的 `item.src`／`item.dest` 供給（`diffSettingsItem`／`diffCodexConfigItem`／`mergeSettingsBetween`／`mergeCodexConfigToml` 皆消費之），不再於各 diff／merge 函式內重算 `CLAUDE_HOME/...`／`CODEX_HOME/...`，避免路徑多重來源漂移。常數與純函式由模組持有，測試直接 require `codex-config.js`（`sync.js` 不再 re-export 本體未使用的符號，只取實際用到的 `readCodexStatements`／`mergePortableCodexConfig`）。**`diffCodexConfigItem`／`diffCodexConfigToLocal` 屬 diff 引擎、留在 Sync Core**（依賴 `isEolOnlyDiff`），只回呼模組匯出的 `loadPortableCodexConfig`／`mergePortableCodexConfig`／`getPortableCodexConfig`，不複製 merge 判斷。**黑名單制風險承擔**：Codex 未來在保留 section（tui/features/memories）新增裝置型非機密 key 會先跨裝置互踩、再由人工加入排除清單（value-diff 使其可見）；top-level/plugins 因維持允許清單不承擔此風險。
@@ -102,7 +99,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **安全審核改由 `npm run safety:check`**：唯讀、離線掃描 `claude/`、`codex/`、`opencode/`、`skills-lock.json`，不掃 `test/`、`openspec/`、README 等非同步來源文件。**secret／私鑰／HOME 路徑的 text pattern 掃描另排除外部套件文件目錄（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`：`claude/agents/`／`claude/skills/`／`codex/agents/`）**——這些為原樣鏡射的第三方文件、為說明偵測規則本就含 token／路徑樣式，掃它們天生整類 false positive；排除只作用於 text 掃描，結構化 `.json`／`.toml` 的 hard block 不受影響。**取捨（明文承擔）**：套件文件若真含機密不再被 text pattern 攔，可接受（公開上游、非本 repo 產物）；真正機密載體與使用者手改的設定來源仍全覆蓋。增減排除目錄須改常數與 README。hard block：已知 secret value pattern、私鑰片段、絕對 HOME 路徑、repo `claude/settings.json` 出現 `hooks` 或 credential helper 欄位、repo `codex/config.toml` 出現機密載體 section（`model_providers.*`／`mcp_servers.*`）；warning：`claude/settings.json` env key 清單與結構化設定中命中 `SENSITIVE_KEY_PATTERN` 的 key path。輸出只列分類、檔案與欄位／key／line，不輸出 env 值、secret 原值或完整 HOME 路徑。exit code：clean 0、只有 warning 1、任一 hard block 2。
 - **構建規則**（來自全域 CLAUDE.md）：禁擅自執行 `npm run build`。
 - **嚴禁洩漏敏感資訊到輸出**：`diff`／`status` 不得顯示 env 值，`safety:check` 不得顯示 secret 原值或完整 HOME 路徑。同步流程本身不再宣稱能阻止所有機密寫入 repo；`file`／`dir` 型項目仍原樣同步，commit 前須執行 `npm run safety:check` 與人工審核。
-- **部分失敗可見度**：apply 中途拋例外時，`mirrorDir` 把已完成變更附掛到 `SyncError.context.partialChanges`，`applySyncItems` 補印並經 `logPartialApply` 記入 `.sync-history.log`（標記「因錯誤中斷」）——與 `handleSignal` 的訊號中斷警告互補，已寫入的檔案不得零可見度。
+- **部分失敗可見度**：apply 中途拋例外時，`mirrorDir` 把已完成變更附掛到 `SyncError.context.partialChanges`，`applySyncItems` 補印、`warnPartialApply` 警告「已寫入 N 筆變更」——與 `handleSignal` 的訊號中斷警告互補，已寫入的檔案不得零可見度。操作歷史由 git 承載，不另寫 log 檔。
 
 ## Skills 管理
 
@@ -145,6 +142,6 @@ gh api repos/affaan-m/everything-claude-code/contents/agents/<name>.md --jq '.co
 
 ## 注意事項
 
-- `.sync-history.log`、`.DS_Store` 在 `.gitignore`；`.agents/skills/` 為本地 skill 實體目錄，**已納入版控**
+- `.DS_Store` 在 `.gitignore`；`.agents/skills/` 為本地 skill 實體目錄，**已納入版控**
 - Skills 不在自動同步範圍，`skills-lock.json` 為各裝置參考清單（source of truth）
 - 上游 `npx skills` 功能追蹤見 `UPSTREAM.md`（跨裝置還原、Claude Code symlink bug 等，修改 skills 流程前先查）

@@ -2,8 +2,6 @@
 
 跨裝置同步 Claude Code / Codex 設定的私有 Git repo 工具。
 
-**這是一個 GitHub Template**：點 [Use this template](https://github.com/) 建立自己的私有 repo，再執行 `npm run init` 清空作者範例後填入自己的設定。詳見下方「Fork 後初次設定」。
-
 **同步項目**（依工具對應）：
 
 | 功能 | Claude Code（`~/.claude/`） | Codex（`~/.codex/`） | opencode（`~/.config/opencode/`） | 說明 |
@@ -73,14 +71,13 @@ node --test --test-name-pattern="<name>" test/<file>.test.js
 | `skills:diff` | `sd` |
 | `skills:add` | `sa` |
 | `skills:remove` | `sr` |
-| `init` | — |
 
 ### 旗標
 
 | 旗標 | 說明 |
 |------|------|
 | `--dry-run` | 預覽操作，不實際寫入（適用 to-repo / to-local） |
-| `--yes` | 略過互動確認（別名 `--force`）；非互動環境（CI / pipe）執行 to-local / init 時必加，否則會直接報錯而非卡住 |
+| `--yes` | 略過互動確認（別名 `--force`）；非互動環境（CI / pipe）執行 to-local 時必加，否則會直接報錯而非卡住 |
 | `--no-color` | 關閉色彩輸出（亦支援 `NO_COLOR` 環境變數；`FORCE_COLOR` 可強制開啟） |
 | `--verbose` | 顯示詳細路徑與檔案大小 |
 | `--version` | 顯示版本號（別名 `-v`） |
@@ -101,28 +98,7 @@ node sync.js diff --verbose
 
 ## Fork 後初次設定
 
-如果你是從 template 建立自己的 repo（而不是回到自己已有的設定 repo），執行以下流程清空作者範例：
-
-```bash
-# 1. 從 template 建立自己的 repo 後 clone
-git clone <your-new-repo-url>
-cd <your-new-repo>
-
-# 2. 清空作者個人內容為空骨架（會互動確認，可加 --dry-run 預覽）
-npm run init
-
-# 3. 修改 package.json 的 name 與 description 為你自己的
-# 4. 在主力機把本機現有設定推上 repo
-npm run to-repo
-git add . && git commit -m "init: my settings" && git push
-
-# 5. 其他裝置 clone 後直接 to-local 即可
-```
-
-`npm run init` 會：
-- 把 `claude/CLAUDE.md`、`codex/AGENTS.md`、`claude/settings.json`、`skills-lock.json`、`opencode/opencode.jsonc`、`opencode/AGENTS.md` 重置為空骨架（由 `.example` 範本覆寫；opencode 主設定一律重置為 canonical `opencode.jsonc`）
-- 刪除 `claude/rules/` 下作者個人化規則檔
-- **不會動** `claude/agents/`、`codex/agents/`、`claude/skills/`、`.agents/skills/`、`sync.js`、`test/`（這些對所有人都有用）
+Fork 或複製本 repo 給自己用時，repo 內容是作者的個人設定；在你的主力機直接執行 `npm run to-repo` 就會以本機設定覆蓋（`claude/rules/` 下不屬於你的規則檔請手動刪除），改好 `package.json` 的 name / description 後 commit push 即可。
 
 ## 新裝置部署
 
@@ -136,11 +112,11 @@ npm run to-local
 
 ## 檔案說明
 
-> 各同步項目（`claude/`、`codex/`、`opencode/` 下的檔案）對應關係見上方「同步項目」表；此處僅列工具本體與範本檔。
+> 各同步項目（`claude/`、`codex/`、`opencode/` 下的檔案）對應關係見上方「同步項目」表；此處僅列工具本體。
 
 | 檔案 | 說明 |
 |------|------|
-| `sync.js` | 主 CLI 入口，實作同步／diff／skills／init 指令邏輯（無外部相依） |
+| `sync.js` | 主 CLI 入口，實作同步／diff／skills 指令邏輯（無外部相依） |
 | `safety-check.js` | `safety:check` 唯讀掃描模組，由 `sync.js` 注入共用工具（不獨立執行、不反向 require） |
 | `codex-config.js` | Codex `config.toml` 過濾同步模組（TOML parse／serialize／merge 純函式與常數、load／get／apply 進出口），由 `sync.js` 注入共用工具（不獨立執行、不反向 require；diff 渲染留在 `sync.js`） |
 | `test/sync.test.js` | 同步邏輯純函式單元測試（使用 Node.js 內建 `node:test`） |
@@ -152,12 +128,6 @@ npm run to-local
 | `test/helpers.js` | 各測試檔共用的 helper |
 | `package.json` | 定義所有 npm 指令 |
 | `skills-lock.json` | 全域 skills 清單（跨裝置 source of truth） |
-| `claude/CLAUDE.example.md` | Fork 後 `npm run init` 用的空骨架範本 |
-| `claude/settings.example.json` | 同上，設定檔範本（僅基本 permissions） |
-| `codex/AGENTS.example.md` | 同上，Codex 全域指示範本 |
-| `opencode/opencode.example.jsonc` | 同上，opencode 主設定範本（含 `$schema`） |
-| `opencode/AGENTS.example.md` | 同上，opencode 全域指示範本 |
-| `skills-lock.example.json` | 同上，空 skills 清單範本 |
 
 ## Exit Code
 
@@ -186,4 +156,4 @@ npm run to-local
 - Claude agents 儲存於 `claude/agents/`，以 package 子目錄分組（目前為 `everything-claude-code/`）；Codex agents 儲存於 `codex/agents/`，同樣以 package 子目錄分組（目前無 agent），Codex CLI 會遞迴掃描子目錄
 - Skills 不在自動同步範圍內，用 `npm run skills:diff` 查看差異；本機多裝者會列出 `npm run skills:add`（加入 repo）與 `npx skills remove`（從本機移除）兩種建議
 - 所有檔案寫入（JSON、文字、目錄鏡射）皆透過底層 `writeFileSafe` 使用 atomic write（先寫同目錄暫存檔再 rename），避免中途斷電／中斷導致檔案損壞
-- 每次 to-repo / to-local 操作會記錄到 `.sync-history.log`（已加入 .gitignore）；同步中途因錯誤中斷時，已寫入的變更仍會列出並記入 log（標記「因錯誤中斷」），不會無聲消失
+- 同步中途因錯誤中斷時，已寫入的變更仍會逐項列出並警告「已寫入 N 筆變更」，不會無聲消失；操作歷史由 git 本身承載（to-repo 完成後即顯示 git status）

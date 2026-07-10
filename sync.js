@@ -34,7 +34,6 @@ const CODEX_HOME = path.join(HOME, '.codex');
 // 機密（auth.json）與資料庫落在 ~/.local/share、~/.cache、~/.local/state，天生不在此射程。
 const OPENCODE_HOME = path.join(HOME, '.config', 'opencode');
 const AGENTS_HOME = path.join(HOME, '.agents');
-const SYNC_HISTORY_LOG = path.join(REPO_ROOT, '.sync-history.log');
 const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
 
 /**
@@ -92,32 +91,8 @@ const COMMANDS = {
   'skills:diff': { alias: 'sd', desc: '比對 skills 差異' },
   'skills:add':  { alias: 'sa', desc: '新增 skill 到 skills-lock.json' },
   'skills:remove': { alias: 'sr', desc: '從 skills-lock.json 移除 skill' },
-  'init':        { alias: null, desc: '重置為空骨架（fork 後執行一次）' },
   'help':        { alias: null, desc: '顯示此說明' },
 };
-
-/**
- * Init 指令的檔案對應：把 .example 範本覆寫到正式檔
- * @type {Array<{src: string, dest: string, type: 'json'|'text'}>}
- */
-const INIT_FILE_MAP = [
-  { src: 'claude/settings.example.json', dest: 'claude/settings.json', type: 'json' },
-  { src: 'skills-lock.example.json',     dest: 'skills-lock.json',     type: 'json' },
-  { src: 'claude/CLAUDE.example.md',     dest: 'claude/CLAUDE.md',     type: 'text' },
-  { src: 'codex/AGENTS.example.md',      dest: 'codex/AGENTS.md',      type: 'text' },
-  // opencode 主設定重置為 canonical opencode.jsonc（type text 以保留 JSONC 註解）
-  { src: 'opencode/opencode.example.jsonc', dest: 'opencode/opencode.jsonc', type: 'text' },
-  { src: 'opencode/AGENTS.example.md',      dest: 'opencode/AGENTS.md',      type: 'text' },
-];
-
-/**
- * Init 指令要刪除的個人化 rules 檔（相對 REPO_ROOT）
- * @type {string[]}
- */
-const INIT_RULES_TO_REMOVE = [
-  'claude/rules/llm-docs.md',
-  'claude/rules/skill-writing.md',
-];
 
 /** 由 COMMANDS 自動建立的別名對應表 */
 const COMMAND_ALIASES = Object.fromEntries(
@@ -662,8 +637,8 @@ function mirrorDir(src, dest, excludePatterns = [], dryRun = false) {
       if (!dryRun) cleanEmptyDirs(dest);
     }
   } catch (e) {
-    // 中途失敗：已完成的變更附掛給呼叫端（applySyncItems 補印並記入 audit log），
-    // 避免「部分檔案已寫入磁碟但零可見度、.sync-history.log 無紀錄」
+    // 中途失敗：已完成的變更附掛給呼叫端（applySyncItems 補印），
+    // 避免「部分檔案已寫入磁碟但零可見度」
     if (e instanceof SyncError && changed.length) e.context.partialChanges = changed;
     throw e;
   }
@@ -994,34 +969,6 @@ function getPortableCodexConfig(filePath) {
  */
 function mergeCodexConfigToml(localPath, repoPath, direction, dryRun = false) {
   return codexConfigHandler().mergeCodexConfigToml(localPath, repoPath, direction, dryRun);
-}
-
-// =============================================================================
-// Section: Operation Log -- 操作日誌
-// 每次同步後追加紀錄到 .sync-history.log
-// =============================================================================
-
-/**
- * 追加操作日誌
- * @param {string} direction - 操作方向（to-repo / to-local）
- * @param {string[]} changes - 變更清單
- * @returns {void}
- */
-function appendSyncLog(direction, changes) {
-  try {
-    const timestamp = new Date().toISOString();
-    const hostname = os.hostname();
-    const entry = [
-      `[${timestamp}] ${direction} @ ${hostname}`,
-      ...changes.map(c => `  ${c}`),
-      '',
-    ].join('\n');
-    // mode 0600：log 含 hostname，建立時即收斂為 owner-only
-    fs.appendFileSync(SYNC_HISTORY_LOG, entry + '\n', { mode: 0o600 });
-  } catch (e) {
-    // 日誌寫入失敗不影響主流程，但需 warn 讓使用者察覺 audit trail 中斷
-    console.warn(col.yellow(`  [warn] 寫入同步日誌失敗（${e.code || 'unknown'}）：${toRelativePath(SYNC_HISTORY_LOG)}`));
-  }
 }
 
 // =============================================================================
@@ -1407,7 +1354,7 @@ function applySyncItems(items, direction, opts) {
       changes = applySyncItem(item, direction, dryRun);
     } catch (e) {
       // 單項中途失敗：先把該項已完成的變更（mirrorDir 附掛的 partialChanges）補進
-      // 統計與輸出，再把整體已套用清單附掛給呼叫端（logPartialApply 記 audit log）——
+      // 統計與輸出，再把整體已套用清單附掛給呼叫端（warnPartialApply 印中斷警告）——
       // 與 handleSignal 的訊號中斷警告互補，讓「例外中斷」路徑的部分寫入同樣可見
       if (e instanceof SyncError) {
         for (const c of e.context.partialChanges || []) record({ action: c.action, label: itemLabel(item, c.rel) });
@@ -1423,21 +1370,19 @@ function applySyncItems(items, direction, opts) {
 }
 
 /**
- * apply 中途拋錯時交代部分結果：印出已寫入筆數警告，並將已套用變更記入
- * .sync-history.log（audit trail 不因中斷而全失）。dry-run 無實際寫入，不記 log。
+ * apply 中途拋錯時交代部分結果：印出已寫入筆數警告（已寫入清單本身已隨
+ * applySyncItems 逐項輸出）。dry-run 無實際寫入，不警告。
  * 一律清除 err.context.applied，避免 formatError 印出物件 dump。
- * @param {'to-repo'|'to-local'} direction
  * @param {unknown} err - applySyncItems 拋出的錯誤
  * @param {boolean} dryRun
  * @returns {void}
  */
-function logPartialApply(direction, err, dryRun) {
+function warnPartialApply(err, dryRun) {
   if (!(err instanceof SyncError) || !err.context.applied) return;
   const { changeLog } = err.context.applied;
   delete err.context.applied;
   if (dryRun) return;
   console.error(col.yellow(`\n  [warn] 同步因錯誤中斷：已寫入 ${changeLog.length} 筆變更（如上所列），其餘項目未執行`));
-  if (changeLog.length > 0) appendSyncLog(direction, [...changeLog, '(因錯誤中斷，後續項目未執行)']);
 }
 
 /**
@@ -1727,15 +1672,11 @@ function runToRepo(opts) {
       return EXIT_OK;
     }
 
-    if (changeLog.length > 0) {
-      appendSyncLog('to-repo', changeLog);
-    }
-
     console.log('');
     showGitStatus();
     console.log('');
   } catch (e) {
-    logPartialApply('to-repo', e, dryRun);
+    warnPartialApply(e, dryRun);
     throw e;
   } finally {
     isWriting = false;
@@ -1792,10 +1733,9 @@ async function confirmAndApply(items, autoYes = false) {
     if (changeLog.length > 0) {
       console.log('');
       for (const ch of changeLog) console.log(`    ${ch}`);
-      appendSyncLog('to-local', changeLog);
     }
   } catch (e) {
-    logPartialApply('to-local', e, false);
+    warnPartialApply(e, false);
     throw e;
   } finally {
     isWriting = false;
@@ -2099,87 +2039,6 @@ function printVersion() {
   console.log(pkg ? pkg.version : 'unknown');
 }
 
-// =============================================================================
-// Section: Init -- 重置為空骨架（給 fork 後使用者執行一次）
-// =============================================================================
-
-/**
- * Init 指令：把 repo 內作者個人資料重置為空骨架
- * 適用情境：使用 template 建立新 repo 後，第一次執行清空作者範例
- * @param {ParsedArgs} opts
- * @returns {Promise<number>}
- */
-async function runInit(opts) {
-  console.log(col.bold('\n  ai-config-sync init'));
-  console.log(col.dim('  將下列項目重置為空骨架，方便填入自己的設定：'));
-  console.log('');
-
-  for (const item of INIT_FILE_MAP) {
-    const destAbs = path.join(REPO_ROOT, item.dest);
-    console.log(`    ${col.yellow('~')} ${toRelativePath(destAbs)}  ${col.dim('<- ' + item.src)}`);
-  }
-  for (const rel of INIT_RULES_TO_REMOVE) {
-    const full = path.join(REPO_ROOT, rel);
-    if (fs.existsSync(full)) {
-      console.log(`    ${col.red('-')} ${toRelativePath(full)}`);
-    }
-  }
-  console.log('');
-  console.log(col.dim('  不會動：claude/agents/、codex/agents/、claude/skills/、.agents/skills/、sync.js、test/'));
-  console.log('');
-
-  if (opts.dryRun) {
-    console.log(col.yellow('  [dry-run] 上述變更未實際執行'));
-    return EXIT_OK;
-  }
-
-  const ok = await askConfirm(col.bold('  確定要繼續？(y/N) '), opts.yes);
-  if (!ok) {
-    console.log(col.dim('  已取消'));
-    return EXIT_OK;
-  }
-
-  applyInitChanges();
-
-  console.log('');
-  console.log(col.bold('  下一步：'));
-  console.log(col.dim('    1. 改 package.json 的 name 與 description 為你自己的'));
-  console.log(col.dim('    2. 主力機執行 npm run to-repo 把本機設定推上 repo'));
-  console.log(col.dim('    3. git add . && git commit -m "init: my settings" && git push'));
-  console.log(col.dim('    4. 其他裝置 git clone 後執行 npm run to-local 套用'));
-  console.log('');
-  return EXIT_OK;
-}
-
-/**
- * 套用 init 變更：複製 .example 覆寫正式檔、刪除個人 rules
- * @returns {void}
- */
-function applyInitChanges() {
-  for (const item of INIT_FILE_MAP) {
-    const srcAbs = path.join(REPO_ROOT, item.src);
-    const destAbs = path.join(REPO_ROOT, item.dest);
-    if (item.type === 'json') {
-      writeJsonSafe(destAbs, readJson(srcAbs));
-    } else {
-      let content;
-      try { content = fs.readFileSync(srcAbs, 'utf8'); }
-      catch (e) { throw toSyncFsError(e, srcAbs, '讀取範本'); }
-      writeTextSafe(destAbs, content);
-    }
-    console.log(`    ${col.green('✓')} ${toRelativePath(destAbs)}`);
-  }
-  for (const rel of INIT_RULES_TO_REMOVE) {
-    const full = path.join(REPO_ROOT, rel);
-    try {
-      fs.unlinkSync(full);
-      console.log(`    ${col.green('✓')} 已刪除 ${toRelativePath(full)}`);
-    } catch (e) {
-      if (e.code !== 'ENOENT') throw toSyncFsError(e, full, '刪除');
-    }
-  }
-}
-
 /**
  * help 指令：顯示所有可用指令與說明
  * @returns {void}
@@ -2400,7 +2259,6 @@ async function runCommand(command, opts) {
     case 'skills:diff': return runSkillsDiff();
     case 'skills:add': return runSkillsAdd(opts);
     case 'skills:remove': return runSkillsRemove(opts);
-    case 'init': return runInit(opts);
     case 'help': runHelp(); return EXIT_OK;
     default: throw new SyncError(`未知指令：${command}`, ERR.INVALID_ARGS);
   }
@@ -2467,8 +2325,6 @@ if (require.main === module) {
     getPortableCodexConfig,
     loadSkillsFromLock,
     DEVICE_SETTINGS_KEYS,
-    INIT_FILE_MAP,
-    INIT_RULES_TO_REMOVE,
     SyncError,
     ERR,
     EXIT_OK,

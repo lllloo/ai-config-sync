@@ -11,7 +11,6 @@
     "skills:remove": "node sync.js skills:remove",
     "to-repo": "node sync.js to-repo",
     "to-local": "node sync.js to-local",
-    "init": "node sync.js init",
     "test": "node --test \"test/*.test.js\""
   },
   "private": true
