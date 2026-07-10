@@ -17,9 +17,32 @@
 // 邊界原則（見 openspec/changes/extract-codex-config-module/design.md）：
 // - 不反向 require sync.js。純 parse／serialize／merge 無 IO，直接匯出；
 //   load／get／apply 需讀寫檔，經 createCodexConfigHandler(deps) 由 sync.js
-//   注入共用工具（readFileSafe、writeTextSafe、REPO_ROOT、CODEX_HOME）。
-// - 專屬常數由本檔持有並匯出，sync.js re-export 供既有測試引用，避免漂移。
-// - diff 渲染屬 diff 引擎、留在 sync.js，只回呼本檔匯出的純函式與 handler。
+//   注入 IO 工具（readFileSafe、writeTextSafe），sync.js 以 lazy singleton
+//   轉接。路徑不由 handler 自算：caller 從 SYNC_AREAS → materializeSyncItem
+//   產出的 item.src／item.dest 傳入 mergeCodexConfigToml(localPath, repoPath,
+//   direction, dryRun)，維持路徑單一來源。
+// - 專屬常數與純函式由本檔持有並匯出，測試直接 require 本模組（sync.js 只取
+//   本體實際用到的 readCodexStatements／mergePortableCodexConfig，不 re-export）。
+// - diff 渲染（diffCodexConfigItem／diffCodexConfigToLocal）屬 diff 引擎、
+//   留在 sync.js（依賴 isEolOnlyDiff），只回呼本檔匯出的 load／merge／get，
+//   不複製 merge 判斷。
+//
+// 序列化確定性：serialize 對非黑名單 section 與 section 內 key 一律排序輸出
+// （UTF-16 code unit 預設排序），輸出只由內容決定、與來源檔排列無關，杜絕多裝置
+// 間僅順序不同造成的 repo 永久 ping-pong diff；top-level carve-out 固定順序先出。
+// to-local merge 仍保留本機檔佈局（不重排、不吃使用者手改的註解）。
+//
+// 跨行語法（parse 與 merge 共用 readCodexStatements 邏輯語句讀取器）：逐行掃描
+// 以 scanCodexValueState（追蹤陣列括號淨深度與三引號字串開閉，略過字串／註解內
+// 字元）偵測未閉合的多行陣列與 """／''' 三引號字串並併入續行，避免逐行截斷成
+// 無效 TOML。matchCodexHeader 顯式辨識 array-of-tables（[[x]]）與一般 table
+// （[x]）；array-of-tables 其下 key 一律不視為可攜（真實 array-of-tables section
+// 皆機密／裝置載體，且無法 round-trip 成單一 table），杜絕 key 誤掛前一 section
+// 的外洩面。
+//
+// 黑名單制風險承擔（明文）：Codex 未來在保留 section（tui／features／memories）
+// 新增裝置型非機密 key 會先跨裝置互踩、再由人工加入排除清單（value-diff 使其
+// 可見）；top-level／plugins 因維持允許清單不承擔此風險。
 // =============================================================================
 
 const fs = require('fs');

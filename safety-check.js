@@ -10,9 +10,26 @@
 // 邊界原則（見 openspec/changes/extract-safety-check-module/design.md）：
 // - 不反向 require sync.js；共用工具（REPO_ROOT、getFiles、readFileSafe、
 //   readJson、toRelativePath、maskHome、col、EXIT_*）由 sync.js 經
-//   createSafetyChecker(deps) 注入。
-// - safety 專屬常數（patterns、掃描範圍）由本檔持有並匯出，sync.js re-export
-//   供既有測試引用，避免常數漂移。
+//   createSafetyChecker(deps) 注入，sync.js 以 lazy singleton 建立 checker
+//   （避開 const 相依的 TDZ），runSafetyCheck／runSafetyChecks 僅為轉接。
+// - safety 專屬常數（SENSITIVE_KEY_PATTERN 等 pattern、SETTINGS_HARD_BLOCK_KEYS、
+//   CODEX_CONFIG_HARD_BLOCK_SECTIONS、掃描範圍）由本檔持有並匯出，測試直接
+//   require 本模組（sync.js 不 re-export）。
+//
+// TOML 解析復用 codex-config 同步端的 readCodexStatements（由 sync.js 經 deps
+// 注入）：不自製逐行 regex，統一 header／kv 判斷並具備跨行狀態感知（多行陣列、
+// """／''' 三引號字串併入續行）——既辨識 array-of-tables（[[x]]）／尾註解／內部
+// 空白等合法 header 變體，也杜絕字串內的 [x] 樣式被誤判為 section header 而錯標
+// key 歸屬；同步端與 safety 端共用單一解析邏輯，杜絕兩份平行 regex 漂移。
+// scanTomlKeyWarnings 除敏感命名 key 的 warning 外，另對命中
+// CODEX_CONFIG_HARD_BLOCK_SECTIONS 的 section header 回報 hard block
+// （只印 section 路徑、不印值）。
+//
+// text pattern 掃描（scanSafetyTextFile：secret／私鑰／HOME 路徑）於
+// runSafetyChecks 逐檔迴圈中對命中 SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES 的檔略過
+// ——那些是原樣鏡射的外部套件文件，為說明偵測規則本就含 token／路徑樣式，掃它們
+// 天生整類 false positive；排除只作用於 text 掃描，結構化 .json／.toml 掃描
+// （含 hard block）不受影響（這些目錄下也無設定檔）。
 // =============================================================================
 
 const fs = require('fs');
