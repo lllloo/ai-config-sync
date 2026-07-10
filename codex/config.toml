@@ -1,12 +1,9 @@
 personality = "pragmatic"
 web_search = "live"
 
-[tui]
-status_line = [ "model-with-reasoning", "project-name", "git-branch", "five-hour-limit", "weekly-limit" ]
-
 [features]
-memories = true
 goals = true
+memories = true
 
 [memories]
 generate_memories = true
@@ -35,3 +32,6 @@ enabled = true
 
 [plugins."spreadsheets@openai-primary-runtime"]
 enabled = true
+
+[tui]
+status_line = [ "model-with-reasoning", "project-name", "git-branch", "five-hour-limit", "weekly-limit" ]
