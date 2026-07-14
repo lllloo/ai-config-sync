@@ -17,7 +17,9 @@ const {
   diffDir,
   diffDirItems,
   diffFileItem,
+  diffSyncItems,
   printToLocalPreview,
+  readJson,
   matchExclude,
   statusToStatsKey,
   parseSkillSource,
@@ -704,4 +706,97 @@ test('buildFullDiffList：dir 已有細項差異時不補摘要行', () => {
   const diffItems = [{ label: 'claude/skills/ob/a.md', status: 'changed', itemType: 'dir' }];
   const result = buildFullDiffList(items, diffItems);
   assert.equal(result.some(d => d.label === 'claude/skills/'), false);
+});
+
+// --- diffFileItem：deleted 以外的分支（deleted+preserved 已於上方涵蓋） -------
+
+test('diffFileItem：dest 缺檔 → new，不標 preserved', () => {
+  withTmpDir((dir) => {
+    const src = path.join(dir, 'repo.md');
+    const dest = path.join(dir, 'local-missing.md');
+    fs.writeFileSync(src, 'repo content');
+    const entry = diffFileItem({ src, dest, label: 'CLAUDE.md', prefix: 'claude/' });
+    assert.equal(entry.status, 'new');
+    assert.notEqual(entry.preserved, true, 'new 不得標 preserved');
+    assert.equal(entry.itemType, 'file');
+    assert.equal(entry.label, 'claude/CLAUDE.md');
+  });
+});
+
+test('diffFileItem：兩端內容相同 → status 為 null（無差異）', () => {
+  withTmpDir((dir) => {
+    const src = path.join(dir, 'repo.md');
+    const dest = path.join(dir, 'local.md');
+    fs.writeFileSync(src, 'same');
+    fs.writeFileSync(dest, 'same');
+    const entry = diffFileItem({ src, dest, label: 'CLAUDE.md', prefix: 'claude/' });
+    assert.equal(entry.status, null);
+  });
+});
+
+// --- diffSyncItems：依 type 分派並攤平（file→1 筆、dir→N 筆、未知→略過） -------
+
+test('diffSyncItems：file 型產出 1 筆、dir 型產出各檔差異，順序為 manifest 順序', () => {
+  withTmpDir((dir) => {
+    const fileSrc = path.join(dir, 'repo.md');
+    const fileDest = path.join(dir, 'local.md');
+    fs.writeFileSync(fileSrc, 'A');
+    fs.writeFileSync(fileDest, 'B'); // changed
+    const dirSrc = path.join(dir, 'repo-dir');
+    const dirDest = path.join(dir, 'local-dir');
+    fs.mkdirSync(dirSrc);
+    fs.mkdirSync(dirDest);
+    fs.writeFileSync(path.join(dirSrc, 'x.md'), 'new file'); // new（dest 無）
+
+    const items = [
+      { type: 'file', src: fileSrc, dest: fileDest, label: 'CLAUDE.md', prefix: 'claude/' },
+      { type: 'dir', src: dirSrc, dest: dirDest, label: 'skills', prefix: 'claude/', excludePatterns: [] },
+    ];
+    const result = diffSyncItems(items, 'to-repo');
+    assert.deepEqual(
+      result.map(d => ({ label: d.label, status: d.status })),
+      [
+        { label: 'claude/CLAUDE.md', status: 'changed' },
+        { label: 'claude/skills/x.md', status: 'new' },
+      ],
+    );
+  });
+});
+
+test('diffSyncItems：未知 type 走 default 分支 → 不產出任何 entry', () => {
+  const result = diffSyncItems(
+    [{ type: 'unknown', src: '/s', dest: '/d', label: 'x', prefix: 'claude/' }],
+    'to-repo',
+  );
+  assert.deepEqual(result, []);
+});
+
+// --- printToLocalPreview：changed / eol 皆映射為 updated -----------------------
+
+test('printToLocalPreview：changed 與 eol 皆計入 updated', () => {
+  const stats = printToLocalPreview([
+    { status: 'changed', label: 'claude/CLAUDE.md' },
+    { status: 'eol', label: 'claude/statusline.sh' },
+    { status: 'new', label: 'claude/rules/a.md' },
+  ]);
+  assert.deepEqual(stats, { added: 1, updated: 2, deleted: 0 });
+});
+
+// --- readJson：檔案不存在 vs 正常解析（解析失敗不洩漏密鑰見 boundary.test.js） ---
+
+test('readJson：檔案不存在拋 FILE_NOT_FOUND（SyncError，非裸 Error）', () => {
+  withTmpDir((dir) => {
+    const missing = path.join(dir, 'nope.json');
+    assert.throws(() => readJson(missing), (e) => {
+      assert.ok(e instanceof SyncError, '應為 SyncError');
+      assert.equal(e.code, ERR.FILE_NOT_FOUND);
+      return true;
+    });
+  });
+});
+
+test('readJson：正常 JSON 解析為物件', () => {
+  withTmpFile(JSON.stringify({ a: 1, nested: { b: 'x' } }), (fp) => {
+    assert.deepEqual(readJson(fp), { a: 1, nested: { b: 'x' } });
+  });
 });
