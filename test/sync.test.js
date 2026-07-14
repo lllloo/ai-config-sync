@@ -355,7 +355,7 @@ test('drift-guard：新增 opencode area 後 claude／codex 既有項目 materia
     const claudeLabels = byArea('claude/').map(i => i.label);
     const codexLabels = byArea('codex/').map(i => i.label);
     assert.deepEqual(claudeLabels,
-      ['CLAUDE.md', 'settings.json', 'statusline.sh', 'agents', 'commands', 'skills', 'rules']);
+      ['CLAUDE.md', 'settings.json', 'statusline.sh', 'commands', 'skills', 'rules']);
     assert.deepEqual(codexLabels, ['AGENTS.md']);
     // 每個非 opencode 項目的 src/dest 皆不含 .config/opencode 路徑
     for (const it of [...byArea('claude/'), ...byArea('codex/')]) {

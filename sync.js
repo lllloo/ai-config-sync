@@ -985,7 +985,6 @@ const SYNC_MANIFEST = [
   { area: 'claude', label: 'CLAUDE.md',     type: 'file' },
   { area: 'claude', label: 'settings.json', type: 'settings', fixedFlow: true },
   { area: 'claude', label: 'statusline.sh', type: 'file' },
-  { area: 'claude', label: 'agents',        type: 'dir' },
   { area: 'claude', label: 'commands',      type: 'dir' },
   { area: 'claude', label: 'skills',        type: 'dir' },
   { area: 'claude', label: 'rules',         type: 'dir' },

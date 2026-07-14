@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 目錄命名（重要）
 
-- **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、statusline.sh、agents、commands、skills、rules），由 `sync.js` 管理。
+- **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、statusline.sh、commands、skills、rules），由 `sync.js` 管理。
 - **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（目前只有 AGENTS.md），由 `sync.js` 管理。`config.toml` **刻意不同步**（見下方）。
 - **`opencode/`**（無點）— 要同步到 `~/.config/opencode/` 的全域設定（`opencode.jsonc` 主設定、`AGENTS.md` 全域指示），由 `sync.js` 管理。opencode 採 XDG 佈局，設定家在 `~/.config/opencode`（非 `~/.opencode`）。
 - **`.claude/`**（有點）— 本 repo 專用的 Claude Code 本地設定（`settings.json` 等），**不參與同步、不映射到 `~/.claude/`**。`.claude/skills` 是 symlink 指向 `../.agents/skills`。
@@ -50,7 +50,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | 全文比對 |
 | `claude/settings.json` | `~/.claude/settings.json` | **top-level 採黑名單制**：預設同步，僅排除 `DEVICE_SETTINGS_KEYS` 黑名單（裝置偏好、平台綁定 `hooks`；只列本機實際存在的 key、不做預防性列名，憑證 helper 由 `safety:check` hard block 兜底；清單見 `sync.js` 常數與 README，有 drift-guard 測試把關）。敏感命名 key 與 `env` 全部依一般同步語意同步，安全審核改由 `safety:check`；`diff`／`status` 只輸出狀態行、不印設定內容。**首次出現的 top-level key** 由 `diff`／`to-repo` 印 key 名提示（`findNewSettingsTopKeys`，只比 key 集合差集），供人工查驗是否補列黑名單 |
 | `claude/statusline.sh` | `~/.claude/statusline.sh` | 全文比對 |
-| `claude/agents/` | `~/.claude/agents/` | 以 package 子目錄組織（如 `everything-claude-code/`） |
 | `claude/commands/` | `~/.claude/commands/` | 目錄鏡射 |
 | `claude/skills/` | `~/.claude/skills/` | 目錄鏡射 |
 | `claude/rules/` | `~/.claude/rules/` | 模組化全域規則（CLAUDE.md 的拆分檔），支援 frontmatter `paths:` 做 path-specific scoping |
@@ -120,23 +119,9 @@ Skills 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具
 
 ## Agents 管理
 
-### Claude Code（`claude/agents/`）
+**目前無任何同步的 agent，`SYNC_MANIFEST` 未列任何 agents 項**（Claude 端 `claude/agents/` 與 Codex 端 `codex/agents/` 目錄與同步項目均已移除，不做預防性保留）。原 `everything-claude-code`（`affaan-m/everything-claude-code`）agent 庫因實用價值低（多為特定技術棧的 reviewer、與 Claude Code 內建 agent 重疊）已整批移除；同時 `SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES` 也移除了 `claude/agents/`（豁免隨目錄一併撤除）。
 
-以 package 子目錄組織，目前唯一來源：
-
-1. **`everything-claude-code/`** — 來自 `affaan-m/everything-claude-code`，上游 `agents/` 為扁平結構（無分類層級）
-
-> 此 repo 的 agent 庫定位為「只收隔離審查／探索型 agent」，builder 類一律走 skill，不再以 agent 收錄。
-
-**新增 agent 的方式**（用 `gh` 抓原始內容）：
-```bash
-# 從 everything-claude-code
-gh api repos/affaan-m/everything-claude-code/contents/agents/<name>.md --jq '.content' | base64 -d > claude/agents/everything-claude-code/<name>.md
-```
-
-### Codex
-
-**目前無任何 Codex agent，`codex/agents/` 未列 `SYNC_MANIFEST`**（目錄與同步項目已移除，不做預防性保留）。日後若要新增：在 `SYNC_MANIFEST` 加回 `{ area: 'codex', label: 'agents', type: 'dir' }` 一列，以 package 子目錄組織（對稱於 `claude/agents/`），且原則為只抓 Claude 端已有同名 agent 的對應 `.toml`（避免 codex 與 claude agents 失同步）。Codex CLI 透過 `collect_agent_role_files` 遞迴掃描 `~/.codex/agents/` 下所有層級的 `.toml`（[原始碼參考](https://github.com/openai/codex/blob/main/codex-rs/core/src/config/agent_roles.rs)），agent 識別以 TOML 內 `name` 欄位為準，與檔名/路徑無關。
+日後若要恢復 Claude agent 同步：在 `SYNC_MANIFEST` 加回 `{ area: 'claude', label: 'agents', type: 'dir' }` 一列（以 package 子目錄組織），並同步更新 `test/sync.test.js` 的 claude label 清單 drift-guard、README 同步項目表與目錄命名表。若要恢復 Codex agent：加回 `{ area: 'codex', label: 'agents', type: 'dir' }`，原則為只抓 Claude 端已有同名 agent 的對應 `.toml`。Codex CLI 透過 `collect_agent_role_files` 遞迴掃描 `~/.codex/agents/` 下所有層級的 `.toml`（[原始碼參考](https://github.com/openai/codex/blob/main/codex-rs/core/src/config/agent_roles.rs)），agent 識別以 TOML 內 `name` 欄位為準，與檔名/路徑無關。
 
 ## 注意事項
 
