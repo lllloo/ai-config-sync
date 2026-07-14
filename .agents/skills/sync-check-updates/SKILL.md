@@ -1,62 +1,23 @@
 ---
 name: sync-check-updates
-description: 比對本機已安裝的 agents（everything-claude-code）與 skills（skills-lock.json）和上游來源，找出有更新但尚未同步的項目。觸發時機：使用者詢問「有沒有更新」「agents/skills 有沒有落後」「check-updates」「上游有沒有新版」等語意時使用。
+description: 比對本機已安裝的 skills（skills-lock.json）與各自上游來源，找出有更新但尚未同步的項目。觸發時機：使用者詢問「有沒有更新」「skills 有沒有落後」「check-updates」「上游有沒有新版」等語意時使用。
 ---
 
-比對本機檔案與上游來源，找出**已安裝但有更新**的 agents / skills。與 `agents-new` skill 分工：那個找「沒裝過但值得裝的」，這個找「裝了但落後的」。
+比對本機 skill 檔與上游來源，找出**已安裝但有更新**的 skills。
+
+> agents 已不在同步範圍（`everything-claude-code` agent 庫已整批移除），本 skill 只檢查 skills。
 
 ## 檢查範圍
 
 | 類別 | 本機位置 | 上游 |
 |---|---|---|
-| agents（everything） | `claude/agents/everything-claude-code/*.md` | `affaan-m/everything-claude-code` (`agents/`) |
 | skills | `skills-lock.json` 各項 `source` | 各自上游 repo |
 
 `claude/skills/pen-design/`、`claude/commands/*.md`、`claude/CLAUDE.md`、`claude/settings.json` 為自維護內容，**不檢查**。
 
 ## 步驟
 
-### 1. 抓上游 tree（每 repo 一次 API call，可併行）
-
-```bash
-gh api "repos/affaan-m/everything-claude-code/git/trees/main?recursive=1" \
-  --jq '.tree[] | select(.type == "blob" and (.path | startswith("agents/") and endswith(".md"))) | "\(.path)\t\(.sha)"'
-```
-
-產出 `<upstream-path>\t<blob-sha>` 表。
-
-### 2. 計算本機 blob SHA
-
-```bash
-# everything-claude-code
-for f in claude/agents/everything-claude-code/*.md; do
-  git hash-object "$f"
-done
-```
-
-`git hash-object` 算出的是 git blob SHA，與 GitHub tree API 回傳的 `sha` 同源可直接比對。
-
-### 3. 比對
-
-**everything-claude-code**：以檔名（basename）對應 upstream `agents/<name>.md`。
-
-狀態分類：
-- `OK` — SHA 相同
-- `UPDATED` — SHA 不同（上游有變動）
-- `MISSING_UPSTREAM` — 上游找不到同名檔（可能已被移除或改名）
-- `LOCAL_MODIFIED` — 本機 SHA 不符合上游任何版本（使用者手動改過，需人工判斷）
-
-判斷 `UPDATED` vs `LOCAL_MODIFIED` 的方式：查上游該檔的 commit 歷史，看本機 SHA 是否出現在歷史中。
-```bash
-gh api "repos/<owner>/<repo>/commits?path=<upstream-path>&per_page=20" \
-  --jq '.[].sha' # 這是 commit SHA，不是 blob SHA
-# 取得 commit 後查各 commit 下的 blob SHA
-gh api "repos/<owner>/<repo>/contents/<path>?ref=<commit-sha>" --jq '.sha'
-```
-
-若嫌重，v1 可簡化為只分 `OK` / `DIFF`，`DIFF` 再由使用者自行比對。
-
-### 4. skills 檢查（真比對 SKILL.md blob SHA）
+### 1. skills 檢查（真比對 SKILL.md blob SHA）
 
 **前提**：精確版本比對的是 `SKILL.md` 的 blob SHA。若 skill 的 `references/`、`scripts/`、`assets/` 有更動但 SKILL.md 沒改，此檢查會漏報——實務上影響不大，因為 SKILL.md 是主要入口。
 
@@ -81,6 +42,8 @@ gh api "repos/<owner>/<repo>/contents/<path>?ref=<commit-sha>" --jq '.sha'
    done
    ```
 
+   `git hash-object` 算出的是 git blob SHA，與 GitHub tree API 回傳的 `sha` 同源可直接比對。
+
 3. 對每個**獨特的** source repo（同一 repo 可能被多個 skill 共用，合併呼叫避免浪費 API quota），抓一次 recursive tree：
 
    ```bash
@@ -101,10 +64,12 @@ gh api "repos/<owner>/<repo>/contents/<path>?ref=<commit-sha>" --jq '.sha'
    - 不同 → `UPDATED`（上游有更新）
    - 本機 `NOT_INSTALLED` → `NOT_INSTALLED`（跳過比對，提示可 `npx skills add -g <source>`）
 
-**輸出表格**：
+### 2. 輸出報告
+
+精簡 Markdown table：
 
 ```
-## Skills（真比對）
+## Skills（真比對 SKILL.md blob SHA）
 
 | Name | Source | 狀態 | 備註 |
 |---|---|---|---|
@@ -114,45 +79,22 @@ gh api "repos/<owner>/<repo>/contents/<path>?ref=<commit-sha>" --jq '.sha'
 | multi-match | x/y | AMBIGUOUS | 上游有 2 個同名 SKILL.md：`a/<name>/SKILL.md`、`b/<name>/SKILL.md` |
 ```
 
-### 5. 輸出報告
-
-精簡 Markdown table，三段：
-
-```
-## Agents：everything-claude-code
-
-| Name | 狀態 | 備註 |
-|---|---|---|
-| foo | OK | — |
-| bar | UPDATED | 上游 blob `abc123` → 本機 `def456` |
-
-## Skills（真比對 SKILL.md blob SHA）
-
-| Name | Source | 狀態 | 備註 |
-|---|---|---|---|
-| vue-best-practices | vuejs-ai/skills | OK | — |
-| frontend-design | anthropics/skills | UPDATED | 本機 `abc123` → 上游 `def456` |
-```
-
 末尾附**更新指令提示**（不自動執行）：
 
 ```
 ## 如何更新
 
-### Agents（單檔覆寫）
-gh api repos/affaan-m/everything-claude-code/contents/agents/<name>.md --jq '.content' | base64 -d > claude/agents/everything-claude-code/<name>.md
-
-### Skills（已安裝有更新 → 首選）
+### 已安裝有更新 → 首選
 npx skills update -g <name>
 
-### Skills（尚未安裝）
+### 尚未安裝
 npx skills add -g <source>
 
 ### Fallback（update 失敗時才用，remove + add 會觸發互動選單，多 skill repo 需手動選）
 npx skills remove -g <name> && npx skills add -g <source>
 ```
 
-**附註**：agents 更新後需要 `npm run to-local` 才會套用到本機 `~/.claude/agents/`；skills 由 `npx skills` 直接操作 `~/.claude/skills/`，不走本專案的同步流程。
+**附註**：skills 由 `npx skills` 直接操作 `~/.claude/skills/`，不走本專案的同步流程。
 
 ## 規則
 
