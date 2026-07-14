@@ -126,7 +126,7 @@ Skills 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具
 
 1. **`everything-claude-code/`** — 來自 `affaan-m/everything-claude-code`，上游 `agents/` 為扁平結構（無分類層級）
 
-> `VoltAgent/awesome-claude-code-subagents`（原補充來源）已於 2026-06 下架移除；此 repo 的 agent 庫定位為「只收隔離審查／探索型 agent」，builder 類一律走 skill，不再以 agent 收錄。
+> 此 repo 的 agent 庫定位為「只收隔離審查／探索型 agent」，builder 類一律走 skill，不再以 agent 收錄。
 
 **新增 agent 的方式**（用 `gh` 抓原始內容）：
 ```bash
@@ -136,7 +136,7 @@ gh api repos/affaan-m/everything-claude-code/contents/agents/<name>.md --jq '.co
 
 ### Codex
 
-**目前無任何 Codex agent，`codex/agents/` 未列 `SYNC_MANIFEST`**（原唯一上游 `VoltAgent/awesome-codex-subagents` 已隨 claude 端 awesome 一併下架；目錄與同步項目已移除，不做預防性保留）。日後若要新增：在 `SYNC_MANIFEST` 加回 `{ area: 'codex', label: 'agents', type: 'dir' }` 一列，以 package 子目錄組織（對稱於 `claude/agents/`），且原則為只抓 Claude 端已有同名 agent 的對應 `.toml`（避免 codex 與 claude agents 失同步）。Codex CLI 透過 `collect_agent_role_files` 遞迴掃描 `~/.codex/agents/` 下所有層級的 `.toml`（[原始碼參考](https://github.com/openai/codex/blob/main/codex-rs/core/src/config/agent_roles.rs)），agent 識別以 TOML 內 `name` 欄位為準，與檔名/路徑無關。
+**目前無任何 Codex agent，`codex/agents/` 未列 `SYNC_MANIFEST`**（目錄與同步項目已移除，不做預防性保留）。日後若要新增：在 `SYNC_MANIFEST` 加回 `{ area: 'codex', label: 'agents', type: 'dir' }` 一列，以 package 子目錄組織（對稱於 `claude/agents/`），且原則為只抓 Claude 端已有同名 agent 的對應 `.toml`（避免 codex 與 claude agents 失同步）。Codex CLI 透過 `collect_agent_role_files` 遞迴掃描 `~/.codex/agents/` 下所有層級的 `.toml`（[原始碼參考](https://github.com/openai/codex/blob/main/codex-rs/core/src/config/agent_roles.rs)），agent 識別以 TOML 內 `name` 欄位為準，與檔名/路徑無關。
 
 ## 注意事項
 
