@@ -1,6 +1,6 @@
 ---
-name: bmad-task
-description: 為單一 BMAD story 依序跑三階段（bmad-create-story → bmad-dev-story → bmad-code-review），每階段委派給一個全新 context 的 subagent 執行，主線只做協調、階段之間停下等使用者確認。code-review 會審查＋收官（回填發現、依結果切狀態），但不自動修 code；被審出的 patch 修不修由使用者裁示。僅由使用者輸入 /bmad-task 明確呼叫，不自動觸發。
+name: bmad-run-story
+description: 為單一 BMAD story 依序跑三階段（bmad-create-story → bmad-dev-story → bmad-code-review），每階段委派給一個全新 context 的 subagent 執行，主線只做協調、階段之間停下等使用者確認。code-review 會審查＋收官（回填發現、依結果切狀態），但不自動修 code；被審出的 patch 修不修由使用者裁示。僅由使用者輸入 /bmad-run-story 明確呼叫，不自動觸發。
 disable-model-invocation: true
 ---
 
@@ -17,11 +17,11 @@ disable-model-invocation: true
 ## 前置檢查
 
 1. **確認 BMAD 已安裝**：available skills 清單中必須同時存在 `bmad-create-story`、`bmad-dev-story`、`bmad-code-review`。缺任何一個就中止，告知使用者此專案未安裝 BMAD（或版本不含該 workflow），不要用自己的理解模擬 BMAD 流程替代。
-2. **確認 story 編號**：使用者若已在指令中帶了編號（如 `/bmad-task 3-2`）直接採用；沒有就先問「這次要跑的 story 編號是？」，拿到再繼續。編號格式依專案慣例（`3`、`2-1`、`epic2-story3` 等），原樣使用、不改寫。
+2. **確認 story 編號**：使用者若已在指令中帶了編號（如 `/bmad-run-story 3-2`）直接採用；沒有就先問「這次要跑的 story 編號是？」，拿到再繼續。編號格式依專案慣例（`3`、`2-1`、`epic2-story3` 等），原樣使用、不改寫。
 
 ## 進度帳本
 
-**建立前先清光現有 task**：用 TaskList（或內建 todo 清單）先看現有 task，把**所有現存 task 一律刪除**（不分編號，含本 story 之前殘留的、其他 story 殘留的），再新建本 story 三個。每次 /bmad-task 都是乾淨重建，不沿用、不接續既有 task——確保清單只反映本次這一輪的進度，不被舊殘留干擾。
+**建立前先清光現有 task**：用 TaskList（或內建 todo 清單）先看現有 task，把**所有現存 task 一律刪除**（不分編號，含本 story 之前殘留的、其他 story 殘留的），再新建本 story 三個。每次 /bmad-run-story 都是乾淨重建，不沿用、不接續既有 task——確保清單只反映本次這一輪的進度，不被舊殘留干擾。
 
 刪除前若現存 task 中有未完成項目，回報時附帶一句提醒使用者（例如「已清除先前殘留的 story {編號} task」），讓使用者知道清掉了什麼。
 
@@ -60,4 +60,4 @@ disable-model-invocation: true
 ## 中止與失敗
 
 - 任一階段失敗：對應 task 保持原狀態，回報失敗原因與已完成的部分，不自動重試、不跳過該階段續跑後面的。
-- 使用者中途喊停：停在當下，保留當前 task 清單現狀不動（不主動刪）。注意下次重新 /bmad-task 會依「進度帳本」清光現存 task 重建，不靠既有 task 接續；使用者若要接續，屆時自行從想繼續的階段開始確認推進。
+- 使用者中途喊停：停在當下，保留當前 task 清單現狀不動（不主動刪）。注意下次重新 /bmad-run-story 會依「進度帳本」清光現存 task 重建，不靠既有 task 接續；使用者若要接續，屆時自行從想繼續的階段開始確認推進。
