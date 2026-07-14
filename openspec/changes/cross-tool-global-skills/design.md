@@ -45,10 +45,10 @@ Claude Code 不讀 `~/.agents/skills/`（官方探索路徑表），故無法只
 ## 需要改動的位置（sync.js 分派點）
 
 - `SYNC_AREAS`：加 `agents` 區。
-- `SYNC_MANIFEST`：加 `{ area: 'agents', label: 'skills', type: 'xtool-skills' }`。
+- `SYNC_MANIFEST`：加 `{ area: 'agents', label: 'skills', type: 'xtool-skills' }`，**必須插在 `claude` 區 `skills` dir 列之前**——順序即安全：xtool 先完成 agents 端寫入與 dir→symlink 轉換，claude mirror 再跑時 dest 只剩 symlink（`getFiles` 會跳過），不會在 agents 端寫入前誤刪真實目錄（見 D5 的空目錄陷阱）。
 - `diffSyncItem` / `applySyncItem` 兩個 `switch`：接上 `xtool-skills` 分支。
 - `buildFullDiffList`：若 `xtool-skills` 需摘要行呈現（類比 `dir` 特判）。
-- 新增 symlink 建立工具函式（sync.js 至今無 symlink 能力）：需走 atomic 慣例、Windows fallback 策略（見 open question）。
+- 新增 symlink 建立工具函式（sync.js 至今無 symlink 能力）：需走 atomic 慣例、Windows fallback 策略（見 open question）。**型別判斷一律 `lstatSync`**——`statSync`／`existsSync` 會跟隨 link，把正確 symlink 誤判成真實目錄（每次 apply 重走 D5 刪建、破壞幂等）；懸空 symlink 對 `existsSync` 回 false，須以 lstat 辨識後 unlink 重建，不可直接 `symlinkSync`（會 EEXIST）。
 - `mirrorDir` **不改**（保留 prune 語意給獨佔目錄的 `dir` 型）；新型別用獨立的非 prune 實作。
 
 ## 需要同步的文件與測試
@@ -63,18 +63,20 @@ Claude Code 不讀 `~/.agents/skills/`（官方探索路徑表），故無法只
 
 現狀：`bmad-run-story`、`mini-research`、`pen-design` 在 repo 是 `claude/skills/<name>/`、在本機是 `~/.claude/skills/<name>/` **真實目錄**。切到新機制需：
 
-1. **repo 端搬移**：`git mv claude/skills/<name> agents/skills/<name>`（三個 skill）。
+1. **repo 端搬移**：`git mv claude/skills/<name> agents/skills/<name>`（三個 skill），並**確認 repo `claude/skills/` 不殘留空目錄**——`mirrorDir` 只在 src 不存在時提早返回；src 存在但為空會把 dest 差集全數 prune，若 `claude/skills` dir 列又排在 xtool 列之前，會在 agents 端寫入前先刪光本機真實目錄（繞過第 2 點的順序保證）。防線有二：移除殘留空目錄＋manifest 順序（xtool 在前，見「需要改動的位置」）。
 2. **本機端 dir→symlink 轉換**（`to-local` 首次跑新機制時）：
    - 先 upsert 到 `~/.agents/skills/<name>/`（真實目錄）。
-   - 再把 `~/.claude/skills/<name>` 從**真實目錄**改成指向 `~/.agents/skills/<name>` 的 symlink：需「先確認 `~/.agents` 端已寫成功 → 刪 `~/.claude` 真實目錄 → 建 symlink」，任一步失敗要能回滾或至少留下可見警告（沿用 `partialChanges` 機制），**不可在刪掉真實目錄後、建 symlink 前中斷而掉 skill**。
+   - 再把 `~/.claude/skills/<name>` 從**真實目錄**改成指向 `~/.agents/skills/<name>` 的 symlink：需「先確認 `~/.agents` 端已寫成功 → 刪 `~/.claude` 真實目錄 → 建 symlink」，任一步失敗要能回滾或至少留下可見警告（沿用 `partialChanges` 機制），**不可在刪掉真實目錄後、建 symlink 前中斷而掉 skill 內容**。註：dir→symlink 轉換本質上無法原子（rename 不能以 symlink 覆蓋目錄），可保證的是「正典內容已先安全落在 `~/.agents`」——殘餘空窗僅限 Claude 探索點短暫缺席、不損失內容，測試斷言以此為準。
 3. 轉換具**幂等性**：已是正確 symlink 就跳過。
 
 ## D6：共管目錄的同名碰撞守門
 
 `~/.agents/skills/<name>` 與 `~/.claude/skills/<name>` 都可能已被 npx 佔用同名。upsert 前必須偵測：
 
-- 若 `~/.agents/skills/<name>` 已存在**且非本機制所建**（例如它登記在 `~/.agents/.skill-lock.json`，或 `~/.claude/skills/<name>` 是指向它的既有 npx symlink），視為碰撞 → **拒絕覆寫、報 warning**，不 silently 蓋掉 npx 的 skill。
-- diff 階段就先標示碰撞,別等到 apply 才炸。
+- **碰撞判準唯一：`<name>` 登記於 `~/.agents/.skill-lock.json`**（npx 安裝必有登記；本機制永不登記）→ **拒絕覆寫、報 warning**，不 silently 蓋掉 npx 的 skill。
+- **「claude 側 symlink 存在」不得作為碰撞訊號**：本機制首次 apply 後的產物（agents 真實目錄＋claude symlink）與 npx 產物在檔案系統上無法區分，用它判碰撞會讓第二次 apply 起所有受管 skill 被誤判、直接破壞幂等。
+- **已知取捨**：手動複製進 `~/.agents/skills/`、未登記 lock 的同名目錄無 ownership 標記可辨，會被視為受管而覆寫。接受此風險，記錄於 README 共管語意補述。
+- diff 階段就先標示碰撞,別等到 apply 才炸。**呈現方式**：新增 diff status 值 `conflict`，以狀態行輸出（不印內容），計入 `EXIT_DIFF=1`。
 
 ## 已驗證的外部事實（原 open question 收斂）
 
