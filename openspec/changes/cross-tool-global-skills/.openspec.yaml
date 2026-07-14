@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-07-14
+goal: repo-authored global skills discoverable by both Claude Code and Codex via
+  ~/.agents/skills canonical + ~/.claude/skills symlink
