@@ -43,6 +43,7 @@ const {
 const {
   CODEX_CONFIG_HARD_BLOCK_SECTIONS,
   CODEX_CONFIG_DEVICE_WARN_SECTIONS,
+  SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES,
 } = require('../safety-check.js');
 const { withArgv, withTmpDir, withTmpFile } = require('./helpers');
 
@@ -486,6 +487,14 @@ test('README drift-guard：codex 機密／裝置狀態 section 清單皆載於 R
   }
   for (const prefix of CODEX_CONFIG_DEVICE_WARN_SECTIONS) {
     assert.ok(README.includes(`\`${prefix}`), `README 未載明 codex 裝置狀態 warning section：${prefix}`);
+  }
+});
+
+// CLAUDE.md 修改守則宣稱「增減排除目錄須改常數與 README（drift-guard 測試把關）」，
+// 此測試讓該宣稱成真：SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES 增減未跟 README 即 fail。
+test('README drift-guard：safety text 掃描排除目錄皆載於 README', () => {
+  for (const prefix of SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES) {
+    assert.ok(README.includes(`\`${prefix}\``), `README 未載明 text 掃描排除目錄：${prefix}`);
   }
 });
 

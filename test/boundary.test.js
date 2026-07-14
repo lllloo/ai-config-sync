@@ -864,6 +864,25 @@ test('safety:check：SECRET_VALUE_PATTERN 各 token 前綴皆 hard block（防 r
   }
 });
 
+test('safety:check：SETTINGS_HARD_BLOCK_KEYS 各 key 皆 hard block（防陣列成員誤刪）', () => {
+  const { SETTINGS_HARD_BLOCK_KEYS } = require('../safety-check.js');
+  // hooks 以外的 apiKeyHelper／aws*／otel* 為 credential helper，settings.test.js
+  // 反覆宣稱「照常同步、由 safety:check hard block 兜底」——此迴圈證明兜底確實存在，
+  // 任一 key 被重構移出陣列即紅燈（比照 SECRET_VALUE_PATTERN 的逐項迴圈）。
+  for (const key of SETTINGS_HARD_BLOCK_KEYS) {
+    const { repo, root } = setupSafetySandbox();
+    try {
+      writeSafetyJson(repo, 'claude/settings.json', { [key]: 'x' });
+      const r = runSafety(repo);
+      assert.equal(r.status, 2, `settings key 應 hard block: ${key}\n${r.stdout}\n${r.stderr}`);
+      assert.match(r.stdout, /不應同步 settings 欄位/, `${key} 應歸類為不應同步 settings 欄位`);
+      assert.match(r.stdout, new RegExp(key), `輸出應標明命中的 key: ${key}`);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
 test('safety:check：hard block exit 2，輸出遮罩 secret 與 HOME 路徑', () => {
   const { repo, root } = setupSafetySandbox();
   try {
