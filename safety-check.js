@@ -74,7 +74,7 @@ const CODEX_CONFIG_HARD_BLOCK_SECTIONS = ['model_providers', 'mcp_servers'];
 const CODEX_CONFIG_DEVICE_WARN_SECTIONS = ['profiles', 'history', 'shell_environment_policy'];
 
 /** safety:check 僅掃同步來源與 skills manifest，不掃 test/openspec/README 等文件 */
-const SAFETY_SCAN_DIRS = ['claude', 'codex', 'opencode'];
+const SAFETY_SCAN_DIRS = ['claude', 'codex', 'opencode', 'agents'];
 const SAFETY_SCAN_FILES = ['skills-lock.json'];
 
 /**
@@ -84,7 +84,7 @@ const SAFETY_SCAN_FILES = ['skills-lock.json'];
  * 掃它們天生整類 false positive。排除只作用於 text 掃描；結構化 .json／.toml
  * 掃描（settings.json／config.toml 的 hard block）不受影響（這些目錄下也無設定檔）。
  */
-const SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES = ['claude/skills/'];
+const SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES = ['claude/skills/', 'agents/skills/'];
 
 /** 純函式：回傳第一個命中 pattern 的行號（1-based），無則 null */
 function findFirstMatchingLine(content, pattern) {

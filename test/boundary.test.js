@@ -20,6 +20,7 @@ const {
   getFiles,
   mirrorDir,
   copyFile,
+  ensureSymlink,
   applySyncItems,
   readFileSafe,
   readJson,
@@ -744,6 +745,125 @@ test('applySyncItems：dry-run 計入統計但不實際寫入', () => {
 
     assert.equal(stats.added, 1, 'dry-run 仍計入將新增的統計');
     assert.equal(fs.existsSync(fileDest), false, 'dry-run 不得實際寫入');
+  });
+});
+
+// =============================================================================
+// ensureSymlink：幂等建立/修復探索點 symlink（xtool-skills 前置能力）
+// 型別判斷一律 lstat；懸空 symlink 須修復不 EEXIST；真實目錄佔用走 D5 轉換
+// =============================================================================
+
+itUnix('ensureSymlink：link 不存在 → 建立指向 target 的 symlink（action added）', () => {
+  withTmpDir((dir) => {
+    const target = path.join(dir, 'target');
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, 'SKILL.md'), 'X');
+    const link = path.join(dir, 'link');
+
+    const res = ensureSymlink(target, link);
+    assert.deepEqual(res, { action: 'added' });
+    assert.equal(fs.lstatSync(link).isSymbolicLink(), true, '應為 symlink');
+    assert.equal(fs.readlinkSync(link), target, '應指向 target');
+    assert.equal(fs.readFileSync(path.join(link, 'SKILL.md'), 'utf8'), 'X', '內容經 symlink 可達');
+  });
+});
+
+itUnix('ensureSymlink：已是正確 symlink → 回 null（幂等，不重建）', () => {
+  withTmpDir((dir) => {
+    const target = path.join(dir, 'target');
+    fs.mkdirSync(target);
+    const link = path.join(dir, 'link');
+    fs.symlinkSync(target, link);
+
+    assert.equal(ensureSymlink(target, link), null, '幂等應回 null');
+  });
+});
+
+itUnix('ensureSymlink：symlink 指向錯誤 → 修正（action updated）', () => {
+  withTmpDir((dir) => {
+    const target = path.join(dir, 'target');
+    const wrong = path.join(dir, 'wrong');
+    fs.mkdirSync(target);
+    fs.mkdirSync(wrong);
+    const link = path.join(dir, 'link');
+    fs.symlinkSync(wrong, link);
+
+    const res = ensureSymlink(target, link);
+    assert.deepEqual(res, { action: 'updated' });
+    assert.equal(fs.readlinkSync(link), target, '應改指向正確 target');
+  });
+});
+
+itUnix('ensureSymlink：懸空 symlink（目標不存在）→ unlink 重建，不因 EEXIST 失敗', () => {
+  withTmpDir((dir) => {
+    const target = path.join(dir, 'target');
+    fs.mkdirSync(target);
+    const link = path.join(dir, 'link');
+    // 先建懸空 symlink（指向不存在路徑）
+    fs.symlinkSync(path.join(dir, 'ghost'), link);
+    assert.equal(fs.existsSync(link), false, '懸空 symlink 對 existsSync 回 false');
+
+    let res;
+    assert.doesNotThrow(() => { res = ensureSymlink(target, link); });
+    assert.deepEqual(res, { action: 'updated' });
+    assert.equal(fs.readlinkSync(link), target);
+  });
+});
+
+itUnix('ensureSymlink：真實目錄佔用（D5 遷移）→ rm 後建 symlink', () => {
+  withTmpDir((dir) => {
+    const target = path.join(dir, 'agents-skill');
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, 'SKILL.md'), 'CANON');
+    // link 位置是舊機制的真實目錄
+    const link = path.join(dir, 'claude-skill');
+    fs.mkdirSync(link);
+    fs.writeFileSync(path.join(link, 'SKILL.md'), 'OLD');
+
+    const res = ensureSymlink(target, link);
+    assert.deepEqual(res, { action: 'updated' });
+    assert.equal(fs.lstatSync(link).isSymbolicLink(), true, '真實目錄應被轉為 symlink');
+    assert.equal(fs.readFileSync(path.join(link, 'SKILL.md'), 'utf8'), 'CANON', '內容來自 target 正典');
+  });
+});
+
+itUnix('ensureSymlink：dry-run 不寫入但回報 action', () => {
+  withTmpDir((dir) => {
+    const target = path.join(dir, 'target');
+    fs.mkdirSync(target);
+    const link = path.join(dir, 'link');
+
+    const res = ensureSymlink(target, link, true);
+    assert.deepEqual(res, { action: 'added' });
+    assert.equal(fs.existsSync(link), false, 'dry-run 不得建立 symlink');
+  });
+});
+
+test('ensureSymlink：Windows dir symlink 失敗時退回 junction（mock 覆蓋）', () => {
+  withTmpDir((dir) => {
+    const target = path.join(dir, 'target');
+    fs.mkdirSync(target);
+    const link = path.join(dir, 'link');
+
+    const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    const origSymlink = fs.symlinkSync;
+    const calls = [];
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    fs.symlinkSync = (t, p, type) => {
+      calls.push(type);
+      if (type === 'dir') { const e = new Error('EPERM'); e.code = 'EPERM'; throw e; }
+      return origSymlink(t, p); // junction：在此平台以一般 symlink 落地
+    };
+    try {
+      let res;
+      assert.doesNotThrow(() => { res = ensureSymlink(target, link); });
+      assert.deepEqual(res, { action: 'added' });
+      assert.ok(calls.includes('dir'), '應先嘗試 dir symlink');
+      assert.ok(calls.includes('junction'), 'dir 失敗後應退回 junction');
+    } finally {
+      fs.symlinkSync = origSymlink;
+      Object.defineProperty(process, 'platform', origPlatform);
+    }
   });
 });
 

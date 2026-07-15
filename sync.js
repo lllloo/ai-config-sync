@@ -34,6 +34,13 @@ const CODEX_HOME = path.join(HOME, '.codex');
 const OPENCODE_HOME = path.join(HOME, '.config', 'opencode');
 const AGENTS_HOME = path.join(HOME, '.agents');
 const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
+// 跨工具全域 skill（xtool-skills）用到的三個 skill 根：
+//   - AGENTS_SKILLS_HOME：正典真實目錄（Codex 原生掃）
+//   - CLAUDE_SKILLS_HOME：Claude 探索點（放 symlink 橋指向正典）
+//   - REPO_AGENTS_SKILLS：repo 端受管 skill 來源（決定「受管名字」集合，兩方向皆以此為準）
+const AGENTS_SKILLS_HOME = path.join(AGENTS_HOME, 'skills');
+const CLAUDE_SKILLS_HOME = path.join(CLAUDE_HOME, 'skills');
+const REPO_AGENTS_SKILLS = path.join(REPO_ROOT, 'agents', 'skills');
 
 /**
  * settings.json top-level 採黑名單制：預設同步，僅排除列於此黑名單的裝置／平台綁定欄位。
@@ -64,6 +71,7 @@ const STATUS_ICONS = {
   eol:     { icon: '\u2248', color: 'dim'    },  // 僅檔尾換行差異
   up:      { icon: '\u2191', color: 'cyan'   },  // 本機有、repo 沒有
   down:    { icon: '\u2193', color: 'yellow' },  // repo 有、本機沒有
+  conflict:{ icon: '!', color: 'red'    },  // 與 npx 既有 skill 撞名（xtool-skills）
 };
 
 /**
@@ -99,7 +107,7 @@ const COMMAND_ALIASES = Object.fromEntries(
  * @property {string} label - 顯示名稱
  * @property {string} src - 來源路徑
  * @property {string} dest - 目的路徑
- * @property {'file'|'settings'|'dir'} type - 項目類型
+ * @property {'file'|'settings'|'dir'|'xtool-skills'} type - 項目類型
  * @property {string[]} [excludePatterns] - dir 型項目的排除模式
  * @property {string} [prefix] - 顯示路徑前綴（預設 'claude/'，codex 同步項用 'codex/'）
  */
@@ -660,6 +668,112 @@ function cleanEmptyDirs(dir) {
 }
 
 // =============================================================================
+// Section: Symlink Utilities -- symlink 建立與幂等維護
+// 供 xtool-skills 在 ~/.claude/skills/<name> 建立指向 ~/.agents/skills/<name>
+// 的探索點 symlink（Claude Code 官方支援 symlink 探索、會自動去重）。
+// =============================================================================
+
+/**
+ * lstat（不跟隨 link）取檔案屬性；不存在回 null，其他錯誤包成 SyncError。
+ * 型別判斷一律走 lstat：statSync／existsSync 會跟隨 link，把正確 symlink 誤判
+ * 成真實目錄（每次 apply 重走刪建、破壞幂等），懸空 symlink 對 existsSync 亦回 false。
+ * @param {string} p
+ * @returns {fs.Stats|null}
+ */
+function lstatSyncSafe(p) {
+  try {
+    return fs.lstatSync(p);
+  } catch (e) {
+    if (e.code === 'ENOENT') return null;
+    throw toSyncFsError(e, p, '讀取連結屬性');
+  }
+}
+
+/**
+ * 建立 symlink：dir 型；Windows dir symlink 失敗時退回 junction（免開發者模式、
+ * 對讀取工具透明）；junction 亦失敗則拋帶 path context 的 SyncError（不 silently 略過）。
+ * @param {string} target - symlink 指向的絕對路徑
+ * @param {string} linkPath - 要建立的 symlink 路徑（呼叫端已確保不存在）
+ * @returns {void}
+ */
+function symlinkWithFallback(target, linkPath) {
+  try {
+    fs.symlinkSync(target, linkPath, 'dir');
+    return;
+  } catch (e) {
+    if (process.platform !== 'win32') throw toSyncFsError(e, linkPath, '建立 symlink');
+    // Windows：dir symlink 需權限（開發者模式），退回 junction（絕對 target、免權限）
+    try {
+      fs.symlinkSync(target, linkPath, 'junction');
+    } catch (_) {
+      throw new SyncError(
+        `無法建立 symlink 或 junction（Windows 權限不足）：${toRelativePath(linkPath)}`,
+        ERR.IO_ERROR,
+        { path: linkPath },
+      );
+    }
+  }
+}
+
+/**
+ * 走「暫存名 + rename」建 symlink，貼近 atomic 慣例（避免半建狀態殘留）。
+ * @param {string} target
+ * @param {string} linkPath - 呼叫端已確保此路徑不存在
+ * @returns {void}
+ */
+function createSymlinkAtomic(target, linkPath) {
+  ensureDir(path.dirname(linkPath));
+  const tmp = `${linkPath}.tmp.${crypto.randomBytes(6).toString('hex')}`;
+  registerTempFile(tmp);
+  try {
+    symlinkWithFallback(target, tmp);
+    fs.renameSync(tmp, linkPath);
+  } catch (e) {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+    if (e instanceof SyncError) throw e;
+    throw toSyncFsError(e, linkPath, '建立 symlink');
+  } finally {
+    tempFiles.delete(tmp);
+  }
+}
+
+/**
+ * 幂等建立／修復指向 target 的 symlink。型別判斷一律 lstat（見 lstatSyncSafe）：
+ *   - 已是指向 target 的正確 symlink → 跳過（回 null）
+ *   - symlink 指向錯誤／懸空 → unlink 後重建
+ *   - 真實檔案／目錄佔用（舊機制產物，D5）→ rm 後建 symlink；呼叫端須先確認正典
+ *     內容已落在 target（~/.agents），此處 rm 才安全（不可在刪目錄後、建 link 前掉內容）
+ *   - 不存在 → 直接建
+ * @param {string} target - symlink 指向的絕對路徑
+ * @param {string} linkPath - 要建立的 symlink 路徑
+ * @param {boolean} [dryRun=false]
+ * @returns {{action: string}|null} 有動作回 {action}，無變更回 null
+ */
+function ensureSymlink(target, linkPath, dryRun = false) {
+  const cur = lstatSyncSafe(linkPath);
+  if (cur && cur.isSymbolicLink()) {
+    let pointsToTarget = false;
+    try { pointsToTarget = fs.readlinkSync(linkPath) === target; } catch (_) { pointsToTarget = false; }
+    if (pointsToTarget) return null;
+    if (!dryRun) {
+      try { fs.unlinkSync(linkPath); } catch (e) { throw toSyncFsError(e, linkPath, '移除舊 symlink'); }
+      createSymlinkAtomic(target, linkPath);
+    }
+    return { action: 'updated' };
+  }
+  if (cur) {
+    // 真實檔案／目錄（D5 遷移）：正典內容須已先落在 target，rm 後建 link
+    if (!dryRun) {
+      try { fs.rmSync(linkPath, { recursive: true, force: true }); } catch (e) { throw toSyncFsError(e, linkPath, '移除舊目錄'); }
+      createSymlinkAtomic(target, linkPath);
+    }
+    return { action: 'updated' };
+  }
+  if (!dryRun) createSymlinkAtomic(target, linkPath);
+  return { action: 'added' };
+}
+
+// =============================================================================
 // Section: Git Utilities -- Git 操作封裝
 // 封裝 git 指令執行，含 stderr 處理與可用性檢查
 // =============================================================================
@@ -967,13 +1081,15 @@ const SYNC_AREAS = {
   claude:   { homeBase: CLAUDE_HOME,   repoDir: 'claude',   prefix: 'claude/'   },
   codex:    { homeBase: CODEX_HOME,    repoDir: 'codex',    prefix: 'codex/'    },
   opencode: { homeBase: OPENCODE_HOME, repoDir: 'opencode', prefix: 'opencode/' },
+  // 跨工具全域 skill 正典區：~/.agents（Codex 原生掃、Claude 透過 symlink 橋探索）
+  agents:   { homeBase: AGENTS_HOME,   repoDir: 'agents',   prefix: 'agents/'   },
 };
 
 /**
  * 同步項目宣告式清單：一列 = 一個同步路徑，為所有同步項目的單一事實來源。
  * 新增同步內容只需在此加一列（不需改任何 builder 或 dispatch switch）。
  *   - area：對應 SYNC_AREAS 的 key（'claude' → ~/.claude ↔ repo claude/；'codex' → ~/.codex ↔ repo codex/）
- *   - type：'file'|'settings'|'dir'（型別行為由 diffSyncItem／applySyncItem 分派）
+ *   - type：'file'|'settings'|'dir'|'xtool-skills'（型別行為由 diffSyncItem／applySyncItem 分派）
  *   - fixedFlow：true 代表 src 恆為本機端、dest 恆為 repo 端，不隨 direction 交換
  *     （settings.json 由 mergeSettingsBetween 依 direction 決定流向）
  *   - exclude（選填，僅 dir 型）：glob 片段陣列，diffDir／mirrorDir 以 matchExclude 略過對應相對路徑
@@ -986,6 +1102,10 @@ const SYNC_MANIFEST = [
   { area: 'claude', label: 'settings.json', type: 'settings', fixedFlow: true },
   { area: 'claude', label: 'statusline.sh', type: 'file' },
   { area: 'claude', label: 'commands',      type: 'dir' },
+  // xtool-skills 必須排在 claude skills dir 列之前：agents 端寫入與 dir→symlink
+  // 轉換先於 claude mirror，claude mirror 再跑時 dest 只剩 symlink（getFiles 跳過），
+  // 不會在 agents 端寫入前誤刪真實目錄（見 design D5 空目錄陷阱）
+  { area: 'agents', label: 'skills',        type: 'xtool-skills' },
   { area: 'claude', label: 'skills',        type: 'dir' },
   { area: 'claude', label: 'rules',         type: 'dir' },
   { area: 'codex',  label: 'AGENTS.md',     type: 'file' },
@@ -1171,6 +1291,87 @@ function diffDirItems(item) {
 }
 
 /**
+ * 產生 xtool-skills 型項目的 diff 結果 entries。只比對受管名字（不列 npx 住戶）：
+ *   - 碰撞（npx lock 登記）→ 整個 skill 一筆 `conflict` 狀態行
+ *   - 否則逐檔比對 src/<name> vs dest/<name>（如 dir）；src skill 缺時 deleted 標
+ *     preserved（upsert 不刪 dest，避免預覽誤報「將刪除」）
+ *   - to-local 另檢查 ~/.claude/skills/<name> symlink 橋是否就緒（缺／指錯即列出）
+ * @param {SyncItem} item
+ * @param {'to-repo'|'to-local'} direction
+ * @returns {object[]}
+ */
+function diffXtoolItems(item, direction) {
+  const results = [];
+  for (const name of managedSkillNames()) {
+    if (isNpxManagedSkill(name)) {
+      results.push(makeXtoolEntry(item, name, 'conflict'));
+      continue;
+    }
+    const skillSrc = path.join(item.src, name);
+    const srcMissing = !fs.existsSync(skillSrc);
+    for (const d of diffDir(skillSrc, path.join(item.dest, name))) {
+      results.push(makeXtoolFileEntry(item, name, d, srcMissing));
+    }
+    if (direction === 'to-local') {
+      const bridge = diffBridgeLink(item, name);
+      if (bridge) results.push(bridge);
+    }
+  }
+  return results;
+}
+
+/**
+ * xtool 整個 skill 層級的 diff entry（供 conflict 呈現）
+ * @param {SyncItem} item
+ * @param {string} name
+ * @param {string} status
+ * @returns {object}
+ */
+function makeXtoolEntry(item, name, status) {
+  const src = path.join(item.src, name);
+  const dest = path.join(item.dest, name);
+  return { label: itemLabel(item, name), status, src, dest, verboseSrc: src, verboseDest: dest, itemType: 'xtool-skills' };
+}
+
+/**
+ * xtool 單檔 diff entry
+ * @param {SyncItem} item
+ * @param {string} name
+ * @param {{rel: string, status: string}} d
+ * @param {boolean} srcMissing
+ * @returns {object}
+ */
+function makeXtoolFileEntry(item, name, d, srcMissing) {
+  const rel = `${name}/${d.rel}`;
+  const src = path.join(item.src, rel);
+  const dest = path.join(item.dest, rel);
+  const entry = { label: itemLabel(item, rel), status: d.status, src, dest, verboseSrc: src, verboseDest: dest, itemType: 'xtool-skills' };
+  if (d.status === 'deleted' && srcMissing) entry.preserved = true;
+  return entry;
+}
+
+/**
+ * to-local：檢查 ~/.claude/skills/<name> 是否已是指向 ~/.agents/skills/<name> 的
+ * 正確 symlink；就緒回 null，否則回一筆 diff entry（不存在→new、真實目錄/指錯→changed）。
+ * @param {SyncItem} item
+ * @param {string} name
+ * @returns {object|null}
+ */
+function diffBridgeLink(item, name) {
+  const target = path.join(AGENTS_SKILLS_HOME, name);
+  const link = path.join(CLAUDE_SKILLS_HOME, name);
+  const cur = lstatSyncSafe(link);
+  let ok = false;
+  if (cur && cur.isSymbolicLink()) {
+    try { ok = fs.readlinkSync(link) === target; } catch (_) { ok = false; }
+  }
+  if (ok) return null;
+  const status = cur ? 'changed' : 'new';
+  const label = `${itemLabel(item, name)} [claude 探索點]`;
+  return { label, status, src: target, dest: link, verboseSrc: target, verboseDest: link, itemType: 'xtool-skills' };
+}
+
+/**
  * apply：merge 型（settings）——回傳變更記錄陣列（0 或 1 筆）
  * @param {() => boolean} mergeFn - 已綁定 direction/dryRun 的 merge 呼叫
  * @param {string} label
@@ -1203,6 +1404,115 @@ function applyDirItem(item, dryRun) {
     .map(c => ({ action: c.action, label: itemLabel(item, c.rel) }));
 }
 
+// -----------------------------------------------------------------------------
+// xtool-skills：跨工具全域 skill（~/.agents/skills 正典 + ~/.claude/skills symlink 橋）
+// 與 dir 型的關鍵差異：對 ~/.agents/skills **非 prune**（與 npx skills 共管，不得
+// 列舉 dest 全體刪差集），只認 repo agents/skills 登記的「受管名字」。
+// -----------------------------------------------------------------------------
+
+/**
+ * 列出目錄下第一層的 skill 名（僅目錄項，排除 GLOBAL_EXCLUDE）。
+ * @param {string} dir
+ * @returns {string[]}
+ */
+function listSkillNames(dir) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (e) {
+    if (e.code === 'ENOENT') return [];
+    throw toSyncFsError(e, dir, '讀取 skill 目錄');
+  }
+  return entries
+    .filter(e => e.isDirectory() && !GLOBAL_EXCLUDE.includes(e.name))
+    .map(e => e.name);
+}
+
+/**
+ * 受管 skill 名字集合：一律以 repo agents/skills 為準（兩方向皆同），確保 to-repo
+ * 不掃描整個 ~/.agents/skills 而吸入非受管（npx 安裝）skill。
+ * @returns {string[]}
+ */
+function managedSkillNames() {
+  return listSkillNames(REPO_AGENTS_SKILLS);
+}
+
+/**
+ * 碰撞判準（D6）：<name> 是否登記於 ~/.agents/.skill-lock.json（npx 安裝必登記，
+ * 本機制永不登記）。「claude 側 symlink 存在」不得作為訊號——與本機制自身產物
+ * 無法區分，會讓第二次 apply 起誤判、破壞幂等。lock 讀取失敗時保守回 false
+ * （視為非 npx 住戶，正常同步），不因無關檔案異常中止整個 apply。
+ * @param {string} name
+ * @returns {boolean}
+ */
+function isNpxManagedSkill(name) {
+  let skills;
+  try { skills = loadSkillsFromLock(LOCAL_SKILL_LOCK); }
+  catch (_) { return false; }
+  return Object.prototype.hasOwnProperty.call(skills, name);
+}
+
+/**
+ * 單一受管 skill 的非 prune upsert：mirrorDir(src/<name> → dest/<name>)。
+ * mirrorDir 只在該 skill 目錄「內部」prune 殘檔（不觸碰 sibling skill 目錄）；
+ * src/<name> 不存在時 mirrorDir 提早返回、不刪 dest（非破壞）。
+ * @param {SyncItem} item
+ * @param {string} name
+ * @param {boolean} dryRun
+ * @returns {Array<{rel: string, action: string}>}
+ */
+function upsertOneSkill(item, name, dryRun) {
+  const skillSrc = path.join(item.src, name);
+  const skillDest = path.join(item.dest, name);
+  return mirrorDir(skillSrc, skillDest, [], dryRun)
+    .map(c => ({ rel: `${name}/${c.rel}`, action: c.action }));
+}
+
+/**
+ * to-local 的 Claude 探索點 symlink 橋：~/.claude/skills/<name> → ~/.agents/skills/<name>。
+ * 幂等（正確 symlink 直接跳過）；含 D5 真實目錄→symlink 轉換（正典已先由 upsert 落在
+ * ~/.agents，此處才 rm 舊真實目錄、建 link）。
+ * @param {string} name
+ * @param {boolean} dryRun
+ * @returns {{rel: string, action: string}|null}
+ */
+function bridgeSkillLink(name, dryRun) {
+  const target = path.join(AGENTS_SKILLS_HOME, name);
+  const link = path.join(CLAUDE_SKILLS_HOME, name);
+  const res = ensureSymlink(target, link, dryRun);
+  return res ? { rel: `${name} [claude 探索點]`, action: res.action } : null;
+}
+
+/**
+ * apply：xtool-skills 型——非 prune upsert 受管 skill，再（to-local）建 symlink 橋。
+ * 碰撞（npx lock 登記）者拒絕覆寫、印 warning、跳過。中途失敗把已完成變更附掛
+ * partialChanges 供 applySyncItems 補印（部分寫入不得零可見度）。
+ * @param {SyncItem} item
+ * @param {'to-repo'|'to-local'} direction
+ * @param {boolean} dryRun
+ * @returns {Array<{action: string, label: string}>}
+ */
+function applyXtoolItem(item, direction, dryRun) {
+  const changed = [];
+  try {
+    for (const name of managedSkillNames()) {
+      if (isNpxManagedSkill(name)) {
+        console.warn(col.yellow(`  [warn] skill「${name}」已由 npx skills 登記於 ~/.agents/.skill-lock.json，拒絕覆寫、跳過`));
+        continue;
+      }
+      for (const c of upsertOneSkill(item, name, dryRun)) changed.push(c);
+      if (direction === 'to-local') {
+        const link = bridgeSkillLink(name, dryRun);
+        if (link) changed.push(link);
+      }
+    }
+  } catch (e) {
+    if (e instanceof SyncError && changed.length) e.context.partialChanges = changed;
+    throw e;
+  }
+  return changed.map(c => ({ action: c.action, label: itemLabel(item, c.rel) }));
+}
+
 /**
  * 將變更 action 對應到狀態圖示 key
  * @param {string} action - 'added' | 'updated' | 'deleted'
@@ -1223,6 +1533,7 @@ function diffSyncItem(item, direction) {
     case 'settings': return [diffSettingsItem(item, direction)];
     case 'file': return [diffFileItem(item)];
     case 'dir': return diffDirItems(item);
+    case 'xtool-skills': return diffXtoolItems(item, direction);
     default: return [];
   }
 }
@@ -1239,6 +1550,7 @@ function applySyncItem(item, direction, dryRun) {
     case 'settings': return applyMergeItem(() => mergeSettingsBetween(item.src, item.dest, direction, dryRun), 'settings.json');
     case 'file': return applyFileItem(item, dryRun);
     case 'dir': return applyDirItem(item, dryRun);
+    case 'xtool-skills': return applyXtoolItem(item, direction, dryRun);
     default: return [];
   }
 }
@@ -1403,9 +1715,9 @@ function buildFullDiffList(items, diffItems) {
   // 複製陣列，避免 mutating 呼叫端傳入的物件
   const result = [...diffItems];
 
-  // 補上無差異的 file 與 settings 項目（ok 狀態）
+  // 補上無差異的 file 與 settings 項目（ok 狀態）；dir 與 xtool-skills 走摘要行
   for (const item of items) {
-    if (item.type === 'dir') continue;
+    if (item.type === 'dir' || item.type === 'xtool-skills') continue;
     const label = itemLabel(item);
     if (!result.some(d => d.label === label)) {
       result.push({
@@ -1420,9 +1732,9 @@ function buildFullDiffList(items, diffItems) {
     }
   }
 
-  // 補上無差異的 dir 項目（以摘要行呈現，證明已被檢查）
+  // 補上無差異的 dir／xtool-skills 項目（以摘要行呈現，證明已被檢查）
   for (const item of items) {
-    if (item.type !== 'dir') continue;
+    if (item.type !== 'dir' && item.type !== 'xtool-skills') continue;
     const prefix = `${itemLabel(item)}/`;
     const hasAny = result.some(d => d.label.startsWith(prefix));
     if (!hasAny) {
@@ -1433,15 +1745,16 @@ function buildFullDiffList(items, diffItems) {
         dest: item.dest,
         verboseSrc: item.src,
         verboseDest: item.dest,
-        itemType: 'dir',
+        itemType: item.type,
       });
     }
   }
 
-  // 排序：使用 itemType 欄位，dir 排在後面
+  // 排序：dir 與 xtool-skills（目錄類）排在後面
+  const isDirLike = t => t === 'dir' || t === 'xtool-skills';
   result.sort((a, b) => {
-    const aIsDir = a.itemType === 'dir';
-    const bIsDir = b.itemType === 'dir';
+    const aIsDir = isDirLike(a.itemType);
+    const bIsDir = isDirLike(b.itemType);
     if (aIsDir !== bIsDir) return aIsDir ? 1 : -1;
     return 0;
   });
@@ -1496,18 +1809,23 @@ function runDiff(opts) {
 }
 
 /**
- * 收集 skills 目錄內細項差異，用於摘要顯示
+ * 收集 skills 目錄內細項差異，用於摘要顯示。涵蓋 claude/skills/（dir 型）與
+ * agents/skills/（xtool-skills 型）兩類的**逐檔** entry；conflict（整個 skill 層級、
+ * 無檔名尾段）與摘要行（label 以 `/` 結尾）不歸此摘要，交回 printDiffItem 處理。
  * @param {{label: string, status: string|null}} item
  * @param {Record<string, {added: number, changed: number, deleted: number}>} summary
  * @returns {boolean} 是否已收集為 skill 摘要
  */
 function collectSkillDiffSummary(item, summary) {
-  if (!item.label.startsWith('claude/skills/') || item.status === null) return false;
-  const skill = item.label.split('/')[2];
-  if (!summary[skill]) summary[skill] = { added: 0, changed: 0, deleted: 0 };
-  if (item.status === 'new') summary[skill].added++;
-  else if (item.status === 'changed' || item.status === 'eol') summary[skill].changed++;
-  else if (item.status === 'deleted') summary[skill].deleted++;
+  if (item.status === null || item.status === 'conflict') return false;
+  // 需含檔名尾段（<area>/skills/<name>/<file...>），whole-skill 與摘要行不匹配
+  const m = /^((?:claude|agents)\/skills)\/([^/]+)\/.+/.exec(item.label);
+  if (!m) return false;
+  const key = `${m[1]}/${m[2]}`;
+  if (!summary[key]) summary[key] = { added: 0, changed: 0, deleted: 0 };
+  if (item.status === 'new') summary[key].added++;
+  else if (item.status === 'changed' || item.status === 'eol') summary[key].changed++;
+  else if (item.status === 'deleted') summary[key].deleted++;
   return true;
 }
 
@@ -1523,6 +1841,7 @@ function printDiffItem(item, opts) {
     changed: ['changed', '有差異'],
     eol: ['eol', '僅檔尾換行差異'],
     deleted: ['deleted', 'repo 有、本機沒有'],
+    conflict: ['conflict', '與 npx 既有 skill 撞名，拒絕覆寫'],
   };
   if (item.status === null) {
     printStatusLine('ok', item.label);
@@ -1538,14 +1857,15 @@ function printDiffItem(item, opts) {
  * @param {Record<string, {added: number, changed: number, deleted: number}>} summary
  */
 function printSkillDiffSummaries(summary) {
-  for (const [skill, counts] of Object.entries(summary)) {
+  for (const [key, counts] of Object.entries(summary)) {
     const parts = [];
     if (counts.added) parts.push(`+${counts.added}`);
     if (counts.changed) parts.push(`~${counts.changed}`);
     if (counts.deleted) parts.push(`-${counts.deleted}`);
     const total = counts.added + counts.changed + counts.deleted;
     const status = counts.deleted && !counts.added ? 'deleted' : 'added';
-    printStatusLine(status, `claude/skills/${skill}`, `${parts.join(' ')}  共 ${total} 個檔案`);
+    // key 已是完整前綴（claude/skills/<name> 或 agents/skills/<name>）
+    printStatusLine(status, key, `${parts.join(' ')}  共 ${total} 個檔案`);
   }
 }
 
@@ -1621,6 +1941,7 @@ function printToLocalPreview(diffResults) {
     if (d.status === 'new') printStatusLine('added', d.label, '將新增');
     else if (d.status === 'changed') printStatusLine('changed', d.label, '將更新');
     else if (d.status === 'eol') printStatusLine('eol', d.label, '將更新（僅檔尾換行）');
+    else if (d.status === 'conflict') printStatusLine('conflict', d.label, '撞名 npx skill，將跳過不覆寫');
     else if (d.status === 'deleted' && d.preserved) printStatusLine('up', d.label, '本機保留（repo 無對應來源，不會刪除）');
     else if (d.status === 'deleted') printStatusLine('deleted', d.label, '將刪除');
   }
@@ -1628,6 +1949,7 @@ function printToLocalPreview(diffResults) {
   const previewStats = { added: 0, updated: 0, deleted: 0 };
   for (const d of diffResults) {
     if (d.status === 'deleted' && d.preserved) continue; // mirrorDir 不會刪，不計入
+    if (d.status === 'conflict') continue; // 撞名跳過、不寫入，不計入 stats
     const key = statusToStatsKey(d.status);
     if (key) previewStats[key]++;
   }
@@ -2215,6 +2537,13 @@ if (require.main === module) {
     getFiles,
     mirrorDir,
     copyFile,
+    ensureSymlink,
+    lstatSyncSafe,
+    listSkillNames,
+    managedSkillNames,
+    isNpxManagedSkill,
+    applyXtoolItem,
+    diffXtoolItems,
     applySyncItems,
     diffSyncItems,
     diffDirItems,

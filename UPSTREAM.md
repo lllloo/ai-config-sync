@@ -51,6 +51,8 @@ npx skills add -g <source>
 
 **觸發條件**：**PR #743 merge**（最對題，已實作 `experimental_install -g`，屆時 #683 連帶關閉）——併入後即可依上方「中期／長期策略」在 `sync.js` 加 `skills:install` 逐項橋接，或直接簡化為單一 `npx skills experimental_install -g` 呼叫並更新 README；或 #549 連帶解決 global scope。
 
+**#743 merge 時另須複驗（cross-tool-global-skills change 的 T2 追蹤）**：本 repo 的 `xtool-skills` 型與 `npx skills` **共管 `~/.agents/skills/`**，依賴一項前提——上游 restore/relink **不會 prune 未登記於 lock 的住戶**（我方受管 skill 刻意不寫進 `~/.agents/.skill-lock.json`）。探索時查 #743 diff 為加法型 restore（reads lock → restores canonical → recreates links）、測試明載「without disturbing overlapping project-scoped skills」，故未登記項不被刪、風險已大幅降低。但該判讀為 grep diff 非逐行精讀、且 PR 未 merge 仍可能變動。**#743 實際併入時，複驗 restore 路徑是否新增「刪除 lock 外項目」的邏輯**：若有，我方受管 skill（未登記 lock）可能被上游還原流程誤刪，需改採「把受管名字也寫進 lock 並標記 ownership」或其他隔離策略。
+
 ---
 
 **維護方式**：定期檢查上述連結。若有新相關 issue，附到表格；若已合併／解決，更新狀態並評估是否調整本 repo 行為。

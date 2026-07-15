@@ -386,6 +386,222 @@ test('diff：二進位檔差異輸出不得含沙箱絕對路徑', () => {
 // 以 --dry-run --yes 讓破壞性指令安全非互動執行；缺參數的 skills:* 會回其自身
 // 參數錯誤（非「未知指令」），故 guard 只斷言「未落 default 分支」。
 // -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// xtool-skills：跨工具全域 skill 雙向 apply、共管安全、碰撞守門、幂等、D5 遷移
+// managedSkillNames 以 sandbox repo/agents/skills 為準（REPO_ROOT = sandbox repo）
+// -----------------------------------------------------------------------------
+const AGENTS_SKILL = (home, name, rel) => path.join(home, '.agents', 'skills', name, rel);
+const CLAUDE_SKILL_LINK = (home, name) => path.join(home, '.claude', 'skills', name);
+
+test('xtool to-local：repo agents/skills → ~/.agents 真實目錄 + ~/.claude symlink 橋', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'FOO');
+
+    const r = run(repo, home, ['to-local', '--yes']);
+    assert.equal(r.status, 0, `to-local 應 exit 0\n${r.stdout}\n${r.stderr}`);
+    // ~/.agents/skills/foo 為真實目錄、內容正確
+    assert.equal(fs.lstatSync(AGENTS_SKILL(home, 'foo', 'SKILL.md')).isFile(), true);
+    assert.equal(fs.readFileSync(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'utf8'), 'FOO');
+    // ~/.claude/skills/foo 為指向正典的 symlink，內容經 symlink 可達
+    const link = CLAUDE_SKILL_LINK(home, 'foo');
+    assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'claude 探索點應為 symlink');
+    assert.equal(fs.readlinkSync(link), path.join(home, '.agents', 'skills', 'foo'));
+    assert.equal(fs.readFileSync(path.join(link, 'SKILL.md'), 'utf8'), 'FOO');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('xtool to-repo：只從 ~/.agents/skills/<受管名字> 讀回 repo，不吸入非受管住戶', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    // repo 受管：foo；本機 ~/.agents 有 foo（更新）與 npxresident（非受管）
+    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'OLD');
+    writeText(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'NEW');
+    writeText(AGENTS_SKILL(home, 'npxresident', 'SKILL.md'), 'RESIDENT');
+
+    const r = run(repo, home, ['to-repo']);
+    assert.equal(r.status, 0, `to-repo 應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.equal(fs.readFileSync(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'utf8'),
+      'NEW', '受管 foo 應讀回 repo');
+    assert.equal(fs.existsSync(path.join(repo, 'agents', 'skills', 'npxresident')), false,
+      '非受管住戶不得被吸入 repo');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('xtool 共管不誤刪：~/.agents 內非受管 skill 於 to-local 後原封不動（回歸鎖 D3）', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'FOO');
+    writeText(AGENTS_SKILL(home, 'other', 'SKILL.md'), 'OTHER'); // npx 住戶，不在 repo
+
+    const r = run(repo, home, ['to-local', '--yes']);
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    assert.equal(fs.readFileSync(AGENTS_SKILL(home, 'other', 'SKILL.md'), 'utf8'),
+      'OTHER', '非受管 skill 不得被 prune');
+    assert.equal(fs.readFileSync(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'utf8'), 'FOO');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('xtool 碰撞守門：撞名（lock 已登記）→ 拒絕覆寫、印 warning，apply 續行', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'REPO');
+    writeJson(path.join(home, '.agents', '.skill-lock.json'),
+      { skills: { foo: { source: 'org/foo' } } });
+    writeText(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'NPX-INSTALLED');
+
+    const r = run(repo, home, ['to-local', '--yes']);
+    assert.equal(r.status, 0, `碰撞為 warning、apply 應續行 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.equal(fs.readFileSync(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'utf8'),
+      'NPX-INSTALLED', '撞名 skill 不得被覆寫');
+    assert.match(r.stderr + r.stdout, /拒絕覆寫|撞名/, '應印出碰撞 warning');
+    // 不應建立 claude 探索點（跳過該 skill）
+    assert.equal(fs.existsSync(CLAUDE_SKILL_LINK(home, 'foo')), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('xtool diff：撞名以 conflict 狀態標示、計入 EXIT_DIFF=1', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'REPO');
+    writeJson(path.join(home, '.agents', '.skill-lock.json'),
+      { skills: { foo: { source: 'org/foo' } } });
+
+    const r = run(repo, home, ['diff']);
+    assert.equal(r.status, 1, `碰撞應計入 EXIT_DIFF=1\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /agents\/skills\/foo/, '應列出撞名 skill');
+    assert.match(r.stdout, /撞名|拒絕覆寫/, '應以 conflict 語意標示');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('xtool 幂等：受管 skill apply 成功後再 apply 不判碰撞、宣告一致', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'FOO');
+
+    const r1 = run(repo, home, ['to-local', '--yes']);
+    assert.equal(r1.status, 0, `首次 apply\n${r1.stdout}\n${r1.stderr}`);
+    // 第二次：~/.agents/skills/foo 存在、~/.claude symlink 為本機制所建、foo 未登記 lock
+    const r2 = run(repo, home, ['to-local', '--yes']);
+    assert.equal(r2.status, 0, `再次 apply\n${r2.stdout}\n${r2.stderr}`);
+    assert.match(r2.stdout, /完全一致|無需套用/, '幂等：第二次應無變更、不判碰撞');
+    assert.doesNotMatch(r2.stdout + r2.stderr, /拒絕覆寫|撞名/, '本機制自身產物不得被判為碰撞');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('xtool D5 遷移：~/.claude/skills/foo 舊真實目錄 → to-local 轉為 symlink，內容從 ~/.agents 可達', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'V2');
+    // 舊機制：~/.claude/skills/foo 為真實目錄
+    writeText(path.join(home, '.claude', 'skills', 'foo', 'SKILL.md'), 'OLD');
+
+    const r = run(repo, home, ['to-local', '--yes']);
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    // 正典寫入 ~/.agents
+    assert.equal(fs.readFileSync(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'utf8'), 'V2');
+    // 真實目錄轉為 symlink
+    const link = CLAUDE_SKILL_LINK(home, 'foo');
+    assert.equal(fs.lstatSync(link).isSymbolicLink(), true, '真實目錄應轉為 symlink');
+    assert.equal(fs.readFileSync(path.join(link, 'SKILL.md'), 'utf8'), 'V2', '內容從正典可達');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// root 會繞過檔案權限，唯讀目錄擋不住寫入，故此測試在 root 下跳過
+const itNonRoot = (process.getuid && process.getuid() === 0) ? test.skip : test;
+itNonRoot('xtool D5 遷移中途失敗：正典已先落 ~/.agents，partialChanges 可見、警告部分中斷', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'CANON');
+    // 讓 symlink 橋建立失敗：~/.claude 設唯讀，apply 期建 ~/.claude/skills 目錄必拋
+    // （diff 期只 lstat 尚不存在的路徑，不受阻，確保失敗落在 apply 而非 diff）
+    fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+    fs.chmodSync(path.join(home, '.claude'), 0o500);
+
+    const r = run(repo, home, ['to-local', '--yes']);
+    fs.chmodSync(path.join(home, '.claude'), 0o700); // 還原以便 rmSync 清理
+    assert.equal(r.status, 2, `中途失敗應 exit 2\n${r.stdout}\n${r.stderr}`);
+    // 正典內容已安全落在 ~/.agents（不因 symlink 失敗而遺失）
+    assert.equal(fs.readFileSync(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'utf8'), 'CANON',
+      '正典內容須已先安全落在 ~/.agents');
+    assert.match(r.stdout, /agents\/skills\/foo/, '已寫入的正典變更須列出');
+    assert.match(r.stderr, /同步因錯誤中斷|已寫入 \d+ 筆變更/, '應警告部分中斷');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('xtool + claude mirror 共存：claude 區 mirror 不誤刪 agents 探索點 symlink（P4 回歸）', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'FOO');       // 跨工具
+    writeText(path.join(repo, 'claude', 'skills', 'conly', 'SKILL.md'), 'CONLY');   // Claude-only
+
+    const r1 = run(repo, home, ['to-local', '--yes']);
+    assert.equal(r1.status, 0, `${r1.stdout}\n${r1.stderr}`);
+    assert.equal(fs.lstatSync(CLAUDE_SKILL_LINK(home, 'foo')).isSymbolicLink(), true, 'foo 為探索點 symlink');
+    assert.equal(fs.readFileSync(path.join(home, '.claude', 'skills', 'conly', 'SKILL.md'), 'utf8'),
+      'CONLY', 'Claude-only skill 為真實檔');
+
+    // 再跑一次：claude mirror（getFiles 跳過逃逸 symlink）不得刪掉 agents 探索點
+    const r2 = run(repo, home, ['to-local', '--yes']);
+    assert.equal(r2.status, 0, `${r2.stdout}\n${r2.stderr}`);
+    assert.equal(fs.lstatSync(CLAUDE_SKILL_LINK(home, 'foo')).isSymbolicLink(), true, '探索點 symlink 應存活');
+    assert.equal(fs.readFileSync(path.join(CLAUDE_SKILL_LINK(home, 'foo'), 'SKILL.md'), 'utf8'), 'FOO');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('xtool 空 claude/skills 情境：agents 端先轉 symlink，空 src claude mirror 不刪探索點', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'FOO');
+    fs.mkdirSync(path.join(repo, 'claude', 'skills'), { recursive: true }); // 存在但為空
+    // 舊機制：~/.claude/skills/foo 為真實目錄
+    writeText(path.join(home, '.claude', 'skills', 'foo', 'SKILL.md'), 'OLD');
+
+    const r = run(repo, home, ['to-local', '--yes']);
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    // xtool 列在前：先轉 symlink；空 src 的 claude mirror 不得刪除（getFiles 跳過逃逸 symlink）
+    const link = CLAUDE_SKILL_LINK(home, 'foo');
+    assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'foo 應被轉為並保留為 symlink');
+    assert.equal(fs.readFileSync(path.join(link, 'SKILL.md'), 'utf8'), 'FOO', '內容來自正典');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('xtool to-repo：~/.claude 探索點 symlink 不被吸回 repo claude/skills', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    // 先建立正典 + 探索點
+    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'FOO');
+    run(repo, home, ['to-local', '--yes']);
+    // to-repo：getFiles(~/.claude/skills) 應跳過 foo 探索點（逃逸 symlink），不寫進 repo claude/skills
+    const r = run(repo, home, ['to-repo']);
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    assert.equal(fs.existsSync(path.join(repo, 'claude', 'skills', 'foo')), false,
+      '探索點 symlink 不得被吸回 repo claude/skills');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('dispatch guard：COMMANDS 每個指令皆可被 runCommand 分派（不落未知指令）', () => {
   const { repo, home, root } = setupSandbox();
   try {

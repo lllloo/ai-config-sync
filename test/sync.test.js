@@ -44,6 +44,7 @@ const {
   CODEX_CONFIG_HARD_BLOCK_SECTIONS,
   CODEX_CONFIG_DEVICE_WARN_SECTIONS,
   SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES,
+  SAFETY_SCAN_DIRS,
 } = require('../safety-check.js');
 const { withArgv, withTmpDir, withTmpFile } = require('./helpers');
 
@@ -500,6 +501,38 @@ test('README drift-guard：safety text 掃描排除目錄皆載於 README', () =
   }
 });
 
+// 5.5 drift-guard：safety 掃描來源目錄（SAFETY_SCAN_DIRS）增減須跟 README
+test('README drift-guard：safety 掃描來源目錄皆載於 README', () => {
+  for (const dir of SAFETY_SCAN_DIRS) {
+    assert.ok(README.includes(`\`${dir}/\``), `README 未載明 safety 掃描來源目錄：${dir}/`);
+  }
+});
+
+// 5.4 drift-guard：新增 agents 同步區（SYNC_AREAS + SYNC_MANIFEST 的 xtool-skills 列）
+// 須與 README 同步項目表一致；且 xtool 列必須排在 claude skills dir 列之前（順序即安全）
+test('SYNC_AREAS：agents area 對應 ~/.agents，repoDir/prefix 正確', () => {
+  const a = SYNC_AREAS.agents;
+  assert.ok(a, 'agents area 應存在');
+  assert.match(a.homeBase, /[\\/]\.agents$/);
+  assert.equal(a.repoDir, 'agents');
+  assert.equal(a.prefix, 'agents/');
+});
+
+test('SYNC_MANIFEST：agents/skills 為 xtool-skills 型且排在 claude skills dir 之前', () => {
+  const xtoolIdx = SYNC_MANIFEST.findIndex(e => e.area === 'agents' && e.label === 'skills');
+  const claudeSkillsIdx = SYNC_MANIFEST.findIndex(e => e.area === 'claude' && e.label === 'skills' && e.type === 'dir');
+  assert.ok(xtoolIdx >= 0, 'SYNC_MANIFEST 應含 agents/skills 列');
+  assert.equal(SYNC_MANIFEST[xtoolIdx].type, 'xtool-skills');
+  assert.ok(claudeSkillsIdx >= 0, 'SYNC_MANIFEST 應仍含 claude skills dir 列');
+  assert.ok(xtoolIdx < claudeSkillsIdx,
+    'xtool-skills 列必須排在 claude skills dir 列之前（順序即安全，見 design D5）');
+});
+
+test('README drift-guard：agents 同步區載於 README 同步項目表', () => {
+  assert.ok(README.includes('`agents/skills/`'), 'README 未載明 repo 路徑 agents/skills/');
+  assert.ok(README.includes('`~/.agents/skills/`'), 'README 未載明本機路徑 ~/.agents/skills/');
+});
+
 // codex config.toml 已不再同步：SYNC_MANIFEST 不得再出現該列（回歸鎖）
 test('drift-guard：SYNC_MANIFEST 不含 codex config.toml', () => {
   assert.equal(SYNC_MANIFEST.some(e => e.label === 'config.toml'), false,
@@ -668,7 +701,8 @@ test('collectSkillDiffSummary：status 為 null（無差異）回 false', () => 
 test('collectSkillDiffSummary：eol 狀態計入 changed（回歸：先前漏計顯示「共 0 個檔案」）', () => {
   const summary = {};
   assert.equal(collectSkillDiffSummary({ label: 'claude/skills/ob/SKILL.md', status: 'eol' }, summary), true);
-  assert.deepEqual(summary.ob, { added: 0, changed: 1, deleted: 0 });
+  // key 為完整前綴（claude/skills/<name>），以區隔 agents/skills 的同名 skill
+  assert.deepEqual(summary['claude/skills/ob'], { added: 0, changed: 1, deleted: 0 });
 });
 
 test('collectSkillDiffSummary：new/changed/deleted 各自累加且依 skill 分組', () => {
@@ -677,8 +711,23 @@ test('collectSkillDiffSummary：new/changed/deleted 各自累加且依 skill 分
   collectSkillDiffSummary({ label: 'claude/skills/ob/b.md', status: 'changed' }, summary);
   collectSkillDiffSummary({ label: 'claude/skills/ob/c.md', status: 'deleted' }, summary);
   collectSkillDiffSummary({ label: 'claude/skills/pen/d.md', status: 'changed' }, summary);
-  assert.deepEqual(summary.ob, { added: 1, changed: 1, deleted: 1 });
-  assert.deepEqual(summary.pen, { added: 0, changed: 1, deleted: 0 });
+  assert.deepEqual(summary['claude/skills/ob'], { added: 1, changed: 1, deleted: 1 });
+  assert.deepEqual(summary['claude/skills/pen'], { added: 0, changed: 1, deleted: 0 });
+});
+
+test('collectSkillDiffSummary：agents/skills（xtool）逐檔亦歸摘要，key 前綴為 agents/skills', () => {
+  const summary = {};
+  assert.equal(collectSkillDiffSummary({ label: 'agents/skills/mini-research/SKILL.md', status: 'new' }, summary), true);
+  assert.deepEqual(summary['agents/skills/mini-research'], { added: 1, changed: 0, deleted: 0 });
+});
+
+test('collectSkillDiffSummary：conflict 與 whole-skill 層級 entry 不歸摘要（交回逐行）', () => {
+  const summary = {};
+  // conflict 狀態（整個 skill、無檔名尾段）
+  assert.equal(collectSkillDiffSummary({ label: 'agents/skills/mini-research', status: 'conflict' }, summary), false);
+  // 摘要行（label 以 / 結尾、無檔名尾段）
+  assert.equal(collectSkillDiffSummary({ label: 'agents/skills/', status: 'new' }, summary), false);
+  assert.deepEqual(summary, {});
 });
 
 // --- buildFullDiffList ------------------------------------------------------
