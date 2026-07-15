@@ -52,7 +52,7 @@
 - [x] 7.1 `npm test` 全綠
 - [x] 7.2 `npm run safety:check` clean（驗證 2.8 生效：`agents/skills/` 已在掃描射程內、遷移的三個 skill 無假陽性）
 - [x] 7.3 手動：`npm run diff`／`status` 正確顯示 xtool skill,不洩漏內容、不列 npx 住戶
-- [ ] 7.4 實機驗證：遷移後 Claude Code 與 Codex 皆能看到 `bmad-run-story` 等三個 skill
+- [x] 7.4 實機驗證：遷移後 Claude Code 與 Codex 皆能看到 `bmad-run-story` 等三個 skill
 
 ## 未納入（另案 / Non-Goal）
 
