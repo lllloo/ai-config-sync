@@ -20,12 +20,12 @@ const { spawnSync } = require('node:child_process');
 const { noColorEnv } = require('./helpers.js');
 const { COMMANDS } = require('../sync.js');
 
-// sync.js require('./safety-check.js')，後者 require('./toml-reader.js')，任何
-// `node sync.js` 指令缺任一檔即崩，故三檔同抄。
-const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js'];
+// sync.js require('./safety-check.js')（後者 require('./toml-reader.js')）與
+// require('./skills.js')，任何 `node sync.js` 指令缺任一檔即崩，故四檔同抄。
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js'];
 
 /**
- * 建立沙箱：repo（含 sync.js + safety-check.js + toml-reader.js 副本、git init）與 home。
+ * 建立沙箱：repo（含 sync.js + safety-check.js + toml-reader.js + skills.js 副本、git init）與 home。
  * @returns {{repo: string, home: string}}
  */
 function setupSandbox() {
