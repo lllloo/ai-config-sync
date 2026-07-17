@@ -38,7 +38,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { readTomlStatements } = require('./toml-reader.js');
+const { readTomlStatements, splitTomlKey } = require('./toml-reader.js');
 
 /** 敏感命名 review pattern：僅供 safety:check warning，不參與同步剝除。 */
 const SENSITIVE_KEY_PATTERN = /(key|token|secret|credential|password|auth|cert|cookie|session|jwt|helper|refresh)/i;
@@ -202,16 +202,17 @@ function createSafetyChecker(deps) {
     }
   }
 
+  // 比對 section 的第一個 dotted 片段（引號感知去引號後）：`[mcp_servers]`／
+  // `[mcp_servers.foo]`／`["mcp_servers"]`／`["mcp_servers".foo]` 均命中，杜絕以引號
+  // 包裝繞過 hard block（splitTomlKey 正規化，見 toml-reader.js）。
   function isCodexSecretSection(section) {
-    return CODEX_CONFIG_HARD_BLOCK_SECTIONS.some(
-      prefix => section === prefix || section.startsWith(`${prefix}.`),
-    );
+    const [first] = splitTomlKey(section);
+    return CODEX_CONFIG_HARD_BLOCK_SECTIONS.includes(first);
   }
 
   function isCodexDeviceWarnSection(section) {
-    return CODEX_CONFIG_DEVICE_WARN_SECTIONS.some(
-      prefix => section === prefix || section.startsWith(`${prefix}.`),
-    );
+    const [first] = splitTomlKey(section);
+    return CODEX_CONFIG_DEVICE_WARN_SECTIONS.includes(first);
   }
 
   function scanSafetyStructuredFile(filePath, issues) {

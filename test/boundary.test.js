@@ -1080,6 +1080,29 @@ test('safety:check：機密 section 名含 ] 的引號 key 仍 hard block exit 2
   }
 });
 
+// 回歸（A）：整個 section 名以引號包裝（`["mcp_servers"]`，語意等同 `[mcp_servers]`、
+// Codex 照讀）曾繞過 section 級 hard block——修正前比對用字面字串（含引號）故 miss。
+// 這裡刻意用「不命中任何 secret pattern 的值 + 不敏感的 key」，使修正前結果為 clean
+// exit 0（完全繞過、非靠 text-scan 兜底），證明 splitTomlKey 正規化確實補上結構性防線。
+test('safety:check：引號包裝的機密 section 名（["mcp_servers"]）仍 hard block exit 2', () => {
+  const variants = [
+    '["mcp_servers"]\nbase_url = "provider-value-marker"\n',        // 基本字串整段引號
+    '["model_providers".openai]\nbase_url = "provider-value-marker"\n', // 引號首段 + 子表
+    "['mcp_servers']\nbase_url = \"provider-value-marker\"\n",      // 字面字串整段引號
+  ];
+  for (const body of variants) {
+    const { repo, root } = setupSafetySandbox();
+    try {
+      writeSafetyText(repo, 'codex/config.toml', `personality = "x"\n\n${body}`);
+      const r = runSafety(repo);
+      assert.equal(r.status, 2, `引號包裝 section 名應 hard block、不得繞過\n${body}\n${r.stdout}`);
+      assert.match(r.stdout, /不應同步 codex 機密 section/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
 // fail closed：header 解析不出來時 section 名不可信，機密判斷失去依據，
 // 寧可 hard block 讓人工檢視，也不沿用前一 section 名而漏判。
 test('safety:check：malformed section header → hard block exit 2，只印行號', () => {

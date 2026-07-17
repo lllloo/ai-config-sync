@@ -15,6 +15,7 @@ const assert = require('node:assert/strict');
 const {
   readTomlStatements,
   matchTomlHeader,
+  splitTomlKey,
   isIncompleteTomlValue,
 } = require('../toml-reader.js');
 
@@ -75,6 +76,30 @@ test('matchTomlHeader：malformed header 一律回 null', () => {
   assert.equal(matchTomlHeader('[]'), null, '空 section 名');
   assert.equal(matchTomlHeader('[a."unterminated]'), null, '引號未閉合');
   assert.equal(matchTomlHeader('[x] junk'), null, '尾端有非註解內容');
+});
+
+// -----------------------------------------------------------------------------
+// splitTomlKey：引號感知的 dotted 片段切段 + 去引號
+// safety-check 以此正規化 section 名，杜絕 `["mcp_servers"]` 繞過 hard block（見 A 修正）。
+// -----------------------------------------------------------------------------
+test('splitTomlKey：純識別字與 dotted section 名', () => {
+  assert.deepEqual(splitTomlKey('mcp_servers'), ['mcp_servers']);
+  assert.deepEqual(splitTomlKey('mcp_servers.openai'), ['mcp_servers', 'openai']);
+});
+
+test('splitTomlKey：包夾引號的片段被去引號（等同未引號語意）', () => {
+  assert.deepEqual(splitTomlKey('"mcp_servers"'), ['mcp_servers'], '基本字串 section 名');
+  assert.deepEqual(splitTomlKey("'model_providers'"), ['model_providers'], '字面字串 section 名');
+  assert.deepEqual(splitTomlKey('"mcp_servers".openai'), ['mcp_servers', 'openai'], '引號首段 + 子表');
+});
+
+test('splitTomlKey：引號內的 . 不視為分隔', () => {
+  assert.deepEqual(splitTomlKey('mcp_servers."a.b"'), ['mcp_servers', 'a.b']);
+  assert.deepEqual(splitTomlKey('projects."/home/a.b"'), ['projects', '/home/a.b']);
+});
+
+test('splitTomlKey：header 內部空白不影響片段', () => {
+  assert.deepEqual(splitTomlKey('mcp_servers . openai'), ['mcp_servers', 'openai']);
 });
 
 // -----------------------------------------------------------------------------

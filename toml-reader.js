@@ -117,6 +117,48 @@ function matchTomlHeader(trimmed) {
 }
 
 /**
+ * 去除單一 dotted 片段包夾的一層引號（基本 `"..."` 或字面 `'...'`），並 trim 未引號空白。
+ * @param {string} seg
+ * @returns {string}
+ */
+function dequoteTomlKey(seg) {
+  const t = seg.trim();
+  if (t.length >= 2 && (t[0] === '"' || t[0] === "'") && t[t.length - 1] === t[0]) {
+    return t.slice(1, -1);
+  }
+  return t;
+}
+
+/**
+ * 將 TOML section／key 名切成 dotted 片段（引號感知），每段去除包夾引號。
+ * 例：`mcp_servers."a.b"` → ['mcp_servers', 'a.b']；`"model_providers"` → ['model_providers']。
+ * 供 safety-check 正規化後比對機密 section 名——`["mcp_servers"]` 這種以引號包裝的
+ * 合法變體語意等同 `[mcp_servers]`，若不正規化就比對會靜默繞過 hard block。
+ * 引號內的 `.` 不視為分隔（TOML 語意），故不能用 String.split('.')。
+ * @param {string} name
+ * @returns {string[]}
+ */
+function splitTomlKey(name) {
+  const segments = [];
+  let buf = '';
+  let quote = null;
+  for (let i = 0; i < name.length; i += 1) {
+    const ch = name[i];
+    if (quote) {
+      if (quote === '"' && ch === '\\') { buf += name.slice(i, i + 2); i += 1; continue; }
+      buf += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; buf += ch; continue; }
+    if (ch === '.') { segments.push(buf); buf = ''; continue; }
+    buf += ch;
+  }
+  segments.push(buf);
+  return segments.map(dequoteTomlKey);
+}
+
+/**
  * 將 TOML 內容拆成邏輯語句 token：section header、key-value（含跨行多行陣列／
  * 三引號字串，`value`／`raw` 保留完整原文）、其餘（空行／註解／無法辨識）。
  * 逐行掃描，遇未閉合陣列或三引號字串時併入後續行，避免逐行截斷損毀。
@@ -162,5 +204,6 @@ module.exports = {
   scanTomlValueState,
   isIncompleteTomlValue,
   matchTomlHeader,
+  splitTomlKey,
   readTomlStatements,
 };
