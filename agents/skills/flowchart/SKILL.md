@@ -28,32 +28,26 @@ disable-model-invocation: true
 
 4. **輸出**:把圖放進 ```mermaid 圍籬直接回給使用者。預設**只輸出圖**,不逐節點複述文字(圖本身就是說明)。若使用者要存檔,寫成 `.md` 檔(內含 ```mermaid 區塊)。
 
-5. **一律附 mermaid.live 連結供確認**:每產一張圖,除了 ```mermaid 圍籬,都要接著跑腳本產出 mermaid.live 連結一併給使用者(見下節)。用意是讓使用者一鍵開瀏覽器親眼確認渲染無誤——不再是選配、不再等使用者開口。圖有改動要重產連結,連結永遠對應當前這張圖。
+5. **一律附 mermaid.live 連結**:每張圖都接著產一條連結給使用者,一鍵開瀏覽器親眼確認渲染(不是選配、不等使用者開口)。圖一改就重產,連結永遠對應當前這張。做法見下節。
 
-## 一律附上:mermaid.live 連結
+## 附上 mermaid.live 連結
 
-**每張圖都要附連結**——這是使用者要求的固定流程,不再判斷「有沒有渲染環境」。多數載體(Claude Code 終端、GitHub、Obsidian)雖能原生渲染 ```mermaid,但連結讓使用者能一鍵開瀏覽器確認、必要時線上微調,故一律產出。
+連結讓使用者一鍵開瀏覽器確認渲染、必要時線上微調,故每張圖都附(多數載體雖能原生渲染 ```mermaid,仍一律給)。**連結尾段是數百字 base64,手貼漏一字就 deflate 解成壞資料、圖渲染成亂碼且不報錯**,所以流程強制「產出即自我驗證 + 貼出後回驗」——三步照做:
 
-本 skill 目錄下有 `scripts/mermaid-live-link.mjs`,純 Node 內建 `zlib`(零相依)。**連結尾段是 ~數百字 base64,手貼漏一字就 deflate 解成壞資料、圖渲染成亂碼且不報錯**,故流程強制「產出即自我驗證 + 貼出後回驗」:
-
-**步驟(照做,別跳)**:
-
-1. **把 Mermaid 原始碼寫成檔**(如 `diagram.mmd`),不要用 `printf` 塞一長串——檔案才好餵給後續驗證。
-2. **產連結**:腳本編碼後會**自我解碼比對**,不符即 `exit 1`(擋腳本層錯);通過才輸出連結。
+1. **寫檔**:把 Mermaid 原始碼寫成 `diagram.mmd`(別用 `printf` 塞長串,有檔才好回驗)。
+2. **產連結**(腳本編碼後自我解碼比對,不符即 `exit 1`;通過才輸出):
    ```
    node <skill 目錄>/scripts/mermaid-live-link.mjs < diagram.mmd            # /view 唯讀(預設)
    node <skill 目錄>/scripts/mermaid-live-link.mjs edit < diagram.mmd       # /edit 線上可編輯
    ```
-3. **把連結貼進回覆**,用 markdown `[說明](url)` 格式(code block 裡的網址在終端不可點)。
-4. **回驗你剛貼的那條連結**:把貼出去的 URL 原樣餵回 `decode`,與來源檔 `diff`,**必須完全一致**才算數——這步在同一輪抓出手貼漏字:
+   **預設 `/view`**;只有使用者明講要線上改才給 `edit`。
+3. **貼上並回驗**:把連結用 markdown `[說明](url)` 貼進回覆(code block 裡的網址在終端不可點),接著把**你剛貼的那條 URL** 原樣餵回 `verify`:
    ```
-   node <skill 目錄>/scripts/mermaid-live-link.mjs decode "<你貼的 URL>" | diff - diagram.mmd
+   node <skill 目錄>/scripts/mermaid-live-link.mjs verify diagram.mmd "<你貼的 URL>"
    ```
-   diff 有輸出(或 decode 報「無法解碼」)= 貼錯了,重貼再驗,別交出去。
+   `exit 0`(印「✓ 一致」)才算數;`exit 1` = 貼漏了,重貼再驗,別交出去。step 2 的自我驗證只擔保「腳本產的連結對」,這步才涵蓋「從 stdout 手貼到回覆」這段轉錄——是唯一能抓人為漏字的關卡。
 
-命令 cwd 是使用者當前專案、非 skill 目錄,故用**絕對路徑**(取上方「Base directory for this skill」接 `scripts/mermaid-live-link.mjs`)。**預設 `/view`**;只有使用者明講要線上改才給 `edit`。
-
-> 為何要 step 4:step 2 的自我驗證只保證「腳本產的連結是對的」,但**從 stdout 手貼到回覆**這段仍可能漏字。step 4 對「實際貼出的字串」解碼回驗,是唯一能涵蓋人為轉錄錯的關卡。
+命令 cwd 是使用者當前專案、非 skill 目錄,故一律用**絕對路徑**(取上方「Base directory for this skill」接 `scripts/mermaid-live-link.mjs`)。腳本純 Node 內建 `zlib`,零相依。
 
 ## 預設風格:不套主題(最通用)
 
@@ -88,6 +82,8 @@ A -- 文字 --> C     等價寫法
 A -.-> D           虛線(次要/可選路徑)
 A ==> E            粗線(主幹)
 ```
+
+**長標籤用 `<br/>` 折行**:`A["讀取設定<br/>並驗證格式"]`。單一節點文字過長會把整張圖橫向撐爆、逼出捲軸,主動折行比讓渲染器硬撐好讀。
 
 **最容易生語法錯誤的四件事**——照這樣避開:
 

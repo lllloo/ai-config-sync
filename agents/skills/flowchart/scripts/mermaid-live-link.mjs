@@ -7,11 +7,13 @@
 //   cat diagram.mmd | node mermaid-live-link.mjs          # 預設 view(唯讀檢視)
 //   cat diagram.mmd | node mermaid-live-link.mjs edit      # edit(線上可編輯)
 //   node mermaid-live-link.mjs decode "<url|pako>"         # 把連結解回 Mermaid 原始碼(argv 或 stdin)
+//   node mermaid-live-link.mjs verify <file> "<url|pako>"  # 貼出的連結 vs 來源檔一致性檢查(exit 0 一致 / 1 不符)
 //
 // 連結不會錯的機制:
 //   1) 編碼後「自我驗證」——立刻把剛產的連結解碼回來比對原始碼,不符即 exit 1(擋腳本層錯)。
-//   2) decode 模式——貼出去的連結可再餵回來,與原始檔 `diff` 比對,手貼漏字當場現形(擋人為轉錄錯)。
+//   2) verify 模式——貼出去的連結連同來源檔一起餵回來,腳本內解碼並逐字比對,手貼漏字當場 exit 1(擋人為轉錄錯);把 decode+diff 收成單一命令,免得模型手組 pipe 反而出錯。
 import { deflateSync, inflateSync } from 'node:zlib';
+import { readFileSync } from 'node:fs';
 
 const arg = process.argv[2];
 
@@ -24,6 +26,35 @@ if (arg === 'decode') {
     process.exit(1);
   }
   process.exit(0);
+}
+
+if (arg === 'verify') {
+  const file = process.argv[3];
+  const url = process.argv[4];
+  if (!file || !url) {
+    process.stderr.write('用法:verify <來源檔> "<貼出的 url>"\n');
+    process.exit(2);
+  }
+  let source;
+  try {
+    source = readFileSync(file, 'utf8');
+  } catch {
+    process.stderr.write(`錯誤:讀不到來源檔 ${file}\n`);
+    process.exit(2);
+  }
+  let decoded;
+  try {
+    decoded = decodePako(url);
+  } catch {
+    process.stderr.write('不一致:連結無法解碼(base64/deflate 損毀,多半是手貼漏字)——請重貼再驗\n');
+    process.exit(1);
+  }
+  if (decoded === source) {
+    process.stdout.write('✓ 一致:貼出的連結與來源檔逐字相符\n');
+    process.exit(0);
+  }
+  process.stderr.write('不一致:連結解出的內容與來源檔不符(多半是手貼漏字)——請重貼再驗\n');
+  process.exit(1);
 }
 
 const mode = arg === 'edit' ? 'edit' : 'view';
