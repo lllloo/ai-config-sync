@@ -255,10 +255,10 @@ test('materializeSyncItem：fixedFlow 項目 src/dest 不隨方向交換', () =>
 
 test('materializeSyncItem：dir 型 exclude 欄位 propagate 為 excludePatterns', () => {
   const withExclude = materializeSyncItem(
-    { area: 'claude', label: 'skills', type: 'dir', exclude: ['*.tmp', 'draft/**'] }, 'to-repo');
+    { area: 'claude', label: 'rules', type: 'dir', exclude: ['*.tmp', 'draft/**'] }, 'to-repo');
   assert.deepEqual(withExclude.excludePatterns, ['*.tmp', 'draft/**']);
   // 無 exclude 的項目不帶該欄位（保持 item 精簡、下游 `|| []` fallback）
-  const noExclude = materializeSyncItem({ area: 'claude', label: 'skills', type: 'dir' }, 'to-repo');
+  const noExclude = materializeSyncItem({ area: 'claude', label: 'rules', type: 'dir' }, 'to-repo');
   assert.equal(Object.prototype.hasOwnProperty.call(noExclude, 'excludePatterns'), false);
 });
 
@@ -359,7 +359,7 @@ test('drift-guard：新增 opencode area 後 claude／codex 既有項目 materia
     const claudeLabels = byArea('claude/').map(i => i.label);
     const codexLabels = byArea('codex/').map(i => i.label);
     assert.deepEqual(claudeLabels,
-      ['CLAUDE.md', 'settings.json', 'statusline.sh', 'commands', 'skills', 'rules']);
+      ['CLAUDE.md', 'settings.json', 'statusline.sh', 'rules']);
     assert.deepEqual(codexLabels, ['AGENTS.md']);
     // 每個非 opencode 項目的 src/dest 皆不含 .config/opencode 路徑
     for (const it of [...byArea('claude/'), ...byArea('codex/')]) {
@@ -518,14 +518,23 @@ test('SYNC_AREAS：agents area 對應 ~/.agents，repoDir/prefix 正確', () => 
   assert.equal(a.prefix, 'agents/');
 });
 
-test('SYNC_MANIFEST：agents/skills 為 xtool-skills 型且排在 claude skills dir 之前', () => {
+test('SYNC_MANIFEST：agents/skills 為 xtool-skills 型（全域 skill 的唯一落點）', () => {
   const xtoolIdx = SYNC_MANIFEST.findIndex(e => e.area === 'agents' && e.label === 'skills');
-  const claudeSkillsIdx = SYNC_MANIFEST.findIndex(e => e.area === 'claude' && e.label === 'skills' && e.type === 'dir');
   assert.ok(xtoolIdx >= 0, 'SYNC_MANIFEST 應含 agents/skills 列');
   assert.equal(SYNC_MANIFEST[xtoolIdx].type, 'xtool-skills');
-  assert.ok(claudeSkillsIdx >= 0, 'SYNC_MANIFEST 應仍含 claude skills dir 列');
-  assert.ok(xtoolIdx < claudeSkillsIdx,
-    'xtool-skills 列必須排在 claude skills dir 列之前（順序即安全，見 design D5）');
+});
+
+// 回歸鎖（對稱於「不得含 config.toml」）：claude/skills 與 claude/commands 兩層已因
+// 無住戶移除（remove-tenantless-sync-layers）。claude/skills 若被加回，會連帶復活
+// 「xtool-skills 列須排在其之前」的順序不變式；claude/commands 則違反「一律使用
+// skill、不再新增 command」政策，且會讓他機殘留的舊 command 經 to-repo 復活。
+// 要恢復任一層須先重新評估上述後果，不得只塞回一列 manifest。
+test('SYNC_MANIFEST 回歸鎖：不得含 claude 區的 skills／commands dir 列', () => {
+  for (const label of ['skills', 'commands']) {
+    const found = SYNC_MANIFEST.find(e => e.area === 'claude' && e.label === label && e.type === 'dir');
+    assert.equal(found, undefined,
+      `SYNC_MANIFEST 不應含 { area: 'claude', label: '${label}', type: 'dir' } 列`);
+  }
 });
 
 test('README drift-guard：agents 同步區載於 README 同步項目表', () => {
@@ -694,25 +703,25 @@ test('collectSkillDiffSummary：非 skills 路徑回 false、不計入', () => {
 
 test('collectSkillDiffSummary：status 為 null（無差異）回 false', () => {
   const summary = {};
-  assert.equal(collectSkillDiffSummary({ label: 'claude/skills/ob/SKILL.md', status: null }, summary), false);
+  assert.equal(collectSkillDiffSummary({ label: 'agents/skills/ob/SKILL.md', status: null }, summary), false);
   assert.deepEqual(summary, {});
 });
 
 test('collectSkillDiffSummary：eol 狀態計入 changed（回歸：先前漏計顯示「共 0 個檔案」）', () => {
   const summary = {};
-  assert.equal(collectSkillDiffSummary({ label: 'claude/skills/ob/SKILL.md', status: 'eol' }, summary), true);
-  // key 為完整前綴（claude/skills/<name>），以區隔 agents/skills 的同名 skill
-  assert.deepEqual(summary['claude/skills/ob'], { added: 0, changed: 1, deleted: 0 });
+  assert.equal(collectSkillDiffSummary({ label: 'agents/skills/ob/SKILL.md', status: 'eol' }, summary), true);
+  // key 為完整前綴（agents/skills/<name>）
+  assert.deepEqual(summary['agents/skills/ob'], { added: 0, changed: 1, deleted: 0 });
 });
 
 test('collectSkillDiffSummary：new/changed/deleted 各自累加且依 skill 分組', () => {
   const summary = {};
-  collectSkillDiffSummary({ label: 'claude/skills/ob/a.md', status: 'new' }, summary);
-  collectSkillDiffSummary({ label: 'claude/skills/ob/b.md', status: 'changed' }, summary);
-  collectSkillDiffSummary({ label: 'claude/skills/ob/c.md', status: 'deleted' }, summary);
-  collectSkillDiffSummary({ label: 'claude/skills/pen/d.md', status: 'changed' }, summary);
-  assert.deepEqual(summary['claude/skills/ob'], { added: 1, changed: 1, deleted: 1 });
-  assert.deepEqual(summary['claude/skills/pen'], { added: 0, changed: 1, deleted: 0 });
+  collectSkillDiffSummary({ label: 'agents/skills/ob/a.md', status: 'new' }, summary);
+  collectSkillDiffSummary({ label: 'agents/skills/ob/b.md', status: 'changed' }, summary);
+  collectSkillDiffSummary({ label: 'agents/skills/ob/c.md', status: 'deleted' }, summary);
+  collectSkillDiffSummary({ label: 'agents/skills/pen/d.md', status: 'changed' }, summary);
+  assert.deepEqual(summary['agents/skills/ob'], { added: 1, changed: 1, deleted: 1 });
+  assert.deepEqual(summary['agents/skills/pen'], { added: 0, changed: 1, deleted: 0 });
 });
 
 test('collectSkillDiffSummary：agents/skills（xtool）逐檔亦歸摘要，key 前綴為 agents/skills', () => {

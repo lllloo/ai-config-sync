@@ -1102,12 +1102,7 @@ const SYNC_MANIFEST = [
   { area: 'claude', label: 'CLAUDE.md',     type: 'file' },
   { area: 'claude', label: 'settings.json', type: 'settings', fixedFlow: true },
   { area: 'claude', label: 'statusline.sh', type: 'file' },
-  { area: 'claude', label: 'commands',      type: 'dir' },
-  // xtool-skills 必須排在 claude skills dir 列之前：agents 端寫入與 dir→symlink
-  // 轉換先於 claude mirror，claude mirror 再跑時 dest 只剩 symlink（getFiles 跳過），
-  // 不會在 agents 端寫入前誤刪真實目錄（見 design D5 空目錄陷阱）
   { area: 'agents', label: 'skills',        type: 'xtool-skills' },
-  { area: 'claude', label: 'skills',        type: 'dir' },
   { area: 'claude', label: 'rules',         type: 'dir' },
   { area: 'codex',  label: 'AGENTS.md',     type: 'file' },
   { area: 'opencode', label: 'opencode.jsonc', type: 'file', variants: ['opencode.jsonc', 'opencode.json'] },
@@ -1810,17 +1805,18 @@ function runDiff(opts) {
 }
 
 /**
- * 收集 skills 目錄內細項差異，用於摘要顯示。涵蓋 claude/skills/（dir 型）與
- * agents/skills/（xtool-skills 型）兩類的**逐檔** entry；conflict（整個 skill 層級、
- * 無檔名尾段）與摘要行（label 以 `/` 結尾）不歸此摘要，交回 printDiffItem 處理。
+ * 收集 skills 目錄內細項差異，用於摘要顯示。涵蓋 agents/skills/（xtool-skills 型）
+ * 的**逐檔** entry；conflict（整個 skill 層級、無檔名尾段）、探索點 symlink entry
+ * （label 尾隨 `[claude 探索點]`、無檔名尾段）與摘要行（label 以 `/` 結尾）不歸此
+ * 摘要，交回 printDiffItem 處理。
  * @param {{label: string, status: string|null}} item
  * @param {Record<string, {added: number, changed: number, deleted: number}>} summary
  * @returns {boolean} 是否已收集為 skill 摘要
  */
 function collectSkillDiffSummary(item, summary) {
   if (item.status === null || item.status === 'conflict') return false;
-  // 需含檔名尾段（<area>/skills/<name>/<file...>），whole-skill 與摘要行不匹配
-  const m = /^((?:claude|agents)\/skills)\/([^/]+)\/.+/.exec(item.label);
+  // 需含檔名尾段（agents/skills/<name>/<file...>），whole-skill 與摘要行不匹配
+  const m = /^(agents\/skills)\/([^/]+)\/.+/.exec(item.label);
   if (!m) return false;
   const key = `${m[1]}/${m[2]}`;
   if (!summary[key]) summary[key] = { added: 0, changed: 0, deleted: 0 };
@@ -1865,7 +1861,7 @@ function printSkillDiffSummaries(summary) {
     if (counts.deleted) parts.push(`-${counts.deleted}`);
     const total = counts.added + counts.changed + counts.deleted;
     const status = counts.deleted && !counts.added ? 'deleted' : 'added';
-    // key 已是完整前綴（claude/skills/<name> 或 agents/skills/<name>）
+    // key 已是完整前綴（agents/skills/<name>）
     printStatusLine(status, key, `${parts.join(' ')}  共 ${total} 個檔案`);
   }
 }

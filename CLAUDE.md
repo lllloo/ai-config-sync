@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 目錄命名（重要）
 
-- **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、statusline.sh、commands、rules；**Claude-only** skill 放 `claude/skills/`），由 `sync.js` 管理。
+- **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、statusline.sh、rules），由 `sync.js` 管理。**全域 skill 不放這裡**（唯一落點為 `agents/skills/`，見下）。
 - **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（目前只有 AGENTS.md），由 `sync.js` 管理。`config.toml` **刻意不同步**（見下方）。
 - **`opencode/`**（無點）— 要同步到 `~/.config/opencode/` 的全域設定（`opencode.jsonc` 主設定、`AGENTS.md` 全域指示），由 `sync.js` 管理。opencode 採 XDG 佈局，設定家在 `~/.config/opencode`（非 `~/.opencode`）。
 - **`agents/`**（無點）— 要同步到 `~/.agents/` 的**跨工具全域** skill（`agents/skills/<name>/`），由 `sync.js` 的 `xtool-skills` 型管理。正典為 `~/.agents/skills/`（Codex 原生掃），apply 另於 `~/.claude/skills/<name>` 建 symlink 橋供 Claude Code 探索。與 `npx skills` **共管** `~/.agents/skills/`：非 prune、只認受管名字、撞名（`~/.agents/.skill-lock.json` 已登記）拒寫（見下方 Skills 管理）。
@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Codex 本地 skill** — **不需建 `.codex/skills`**。Codex CLI 會自動探索 `.agents/skills`：專案層由 `repo_agents_skill_roots` 從 project root 逐層掃 `<dir>/.agents/skills`，全域層掃 `~/.agents/skills`（原始碼 `codex-rs/core-skills/src/loader.rs` 的 `skill_roots()`）。故本 repo 的 `.agents/skills` 對 Codex 直接生效，無需 symlink。
 - **`.agents/skills/`** — 本地 skill **實體目錄**（已納入版控），跨工具（Claude Code / Codex）共用來源；遵循 [Agent Skills](https://agentskills.io) 開放標準。
 
-新增同步項目：Claude-only 設定放 `claude/`、Codex 放 `codex/`、opencode 放 `opencode/`、**跨工具全域 skill 放 `agents/skills/<name>/`**；新增**本地** skill 一律放 `.agents/skills/<name>/`（有點）。勿誤放到 `.claude/` 或 `.codex/`。`agents/`（無點，同步）與 `.agents/`（有點，本地）是兩回事，勿混淆。
+新增同步項目：Claude 設定放 `claude/`、Codex 放 `codex/`、opencode 放 `opencode/`、**全域 skill 一律放 `agents/skills/<name>/`**（跨工具，唯一落點）；新增**本地** skill 一律放 `.agents/skills/<name>/`（有點）。勿誤放到 `.claude/` 或 `.codex/`。`agents/`（無點，同步）與 `.agents/`（有點，本地）是兩回事，勿混淆。
 
 ## 執行環境
 
@@ -51,9 +51,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | 全文比對 |
 | `claude/settings.json` | `~/.claude/settings.json` | **top-level 採黑名單制**：預設同步，僅排除 `DEVICE_SETTINGS_KEYS` 黑名單（裝置偏好、平台綁定 `hooks`；只列本機實際存在的 key、不做預防性列名，憑證 helper 由 `safety:check` hard block 兜底；清單見 `sync.js` 常數與 README，有 drift-guard 測試把關）。敏感命名 key 與 `env` 全部依一般同步語意同步，安全審核改由 `safety:check`；`diff`／`status` 只輸出狀態行、不印設定內容。**首次出現的 top-level key** 由 `diff`／`to-repo` 印 key 名提示（`findNewSettingsTopKeys`，只比 key 集合差集），供人工查驗是否補列黑名單 |
 | `claude/statusline.sh` | `~/.claude/statusline.sh` | 全文比對 |
-| `claude/commands/` | `~/.claude/commands/` | 目錄鏡射 |
-| `claude/skills/` | `~/.claude/skills/` | 目錄鏡射（**Claude-only** skill；`dir` 型，prune-extras 語意，獨佔目錄） |
-| `agents/skills/` | `~/.agents/skills/` | **跨工具全域** skill（`xtool-skills` 型）。正典為 `~/.agents/skills/<name>/`（真實目錄，Codex 原生掃）；apply 另建 `~/.claude/skills/<name>` symlink 橋供 Claude 探索（官方支援、自動去重）。**非 prune、與 `npx skills` 共管**：只認 repo `agents/skills/` 登記的受管名字，不刪／不吸入 npx 住戶；撞名（`~/.agents/.skill-lock.json` 已登記）拒寫、`diff` 以 `conflict` 標示。`SYNC_MANIFEST` 中此列**必須排在 `claude` 區 `skills` dir 列之前**（順序即安全：agents 端寫入與 dir→symlink 轉換先於 claude mirror） |
+| `agents/skills/` | `~/.agents/skills/` | **跨工具全域** skill（`xtool-skills` 型，全域 skill 唯一落點）。正典為 `~/.agents/skills/<name>/`（真實目錄，Codex 原生掃）；apply 另建 `~/.claude/skills/<name>` symlink 橋供 Claude 探索（官方支援、自動去重）。**非 prune、與 `npx skills` 共管**：只認 repo `agents/skills/` 登記的受管名字，不刪／不吸入 npx 住戶；撞名（`~/.agents/.skill-lock.json` 已登記）拒寫、`diff` 以 `conflict` 標示。dir→symlink 轉換內生於此型的 apply，**不依賴與其他 manifest 列的相對順序** |
 | `claude/rules/` | `~/.claude/rules/` | 模組化全域規則（CLAUDE.md 的拆分檔），支援 frontmatter `paths:` 做 path-specific scoping |
 | `codex/AGENTS.md` | `~/.codex/AGENTS.md` | Codex 全域指示（跨專案規則），全文比對 |
 | `opencode/opencode.jsonc` | `~/.config/opencode/opencode.jsonc` | opencode 全域主設定，整檔 `file` 型同步。**XDG 佈局**：homeBase 為 `~/.config/opencode`。**檔名變體**：`.jsonc`／`.json` 由 manifest `variants` 欄位解析出兩端一致的 canonical label（`.jsonc` 優先），杜絕重複檔；機制見 `SYNC_MANIFEST`／`resolveVariantLabel` 註解 |
@@ -86,7 +84,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **統一錯誤處理**：`SyncError` class（`code` + `context`）+ 檔尾 `.catch(formatError)`，所有路徑經 `formatError`，**禁止**裸 `console.error + process.exit`
 - **Exit code 語義**：`EXIT_OK=0`（成功或 diff 無差異）、`EXIT_DIFF=1`（diff 有差異，可用於 CI）、`EXIT_ERROR=2`
 - **Relative path 遮罩**：`toRelativePath` 處理 REPO_ROOT 與 `$HOME` → `~/`，`logVerbosePaths` 與 `SyncError` context 的 path 顯示亦走此函式避免洩漏使用者名稱
-- **Skills lock 為純資料 manifest**：`skills-lock.json` 不參與同步流程；`runSkillsDiff` 直接讀 `~/.agents/.skill-lock.json`（`npx skills` CLI 的原生 lock 檔）與 repo `skills-lock.json` 做集合比對，**只輸出建議指令、不執行安裝/移除**。刻意不用 `npx skills list -g`，因為它會掃目錄並把 `sync.js` 同步管理的 `~/.claude/skills/` skill（如 `ob`、`pen-design`）也列入，造成誤報。本機多裝的 skills 會同時列出（A）`npm run skills:add` 加入 repo 與（B）`npx skills remove` 從本機移除兩種選項
+- **Skills lock 為純資料 manifest**：`skills-lock.json` 不參與同步流程；`runSkillsDiff` 直接讀 `~/.agents/.skill-lock.json`（`npx skills` CLI 的原生 lock 檔）與 repo `skills-lock.json` 做集合比對，**只輸出建議指令、不執行安裝/移除**。刻意不用 `npx skills list -g`，因為它會掃目錄並把 `sync.js` 同步管理的 skill（`agents/skills/` 的受管名字，於 `~/.agents/skills/` 為正典、於 `~/.claude/skills/` 為 symlink 橋，如 `pen-design`、`mini-research`）也列入，造成誤報。本機多裝的 skills 會同時列出（A）`npm run skills:add` 加入 repo 與（B）`npx skills remove` 從本機移除兩種選項
 
 **測試策略**：`test/` 下分七個檔案（`sync.test.js` 純函式、`settings.test.js` 設定欄位與 `mergeSettingsBetween` 同步心臟、`toml-reader.test.js` TOML 讀取器（`safety:check` section 歸屬的回歸網）、`skills.test.js` skills 模組純函式與 deps-bound helper（經 `createSkillsHandler` 注入測試，證明 `skills.js` 可獨立於 `sync.js` 測試）、`diff-integration.test.js` diff 整合、`apply-integration.test.js` 沙箱化 to-local/to-repo 端到端 apply、`boundary.test.js` 邊界情境與安全防線），共用 helper 在 `test/helpers.js`。drift-guard 測試涵蓋：`COMMANDS` ↔ `runCommand` dispatch、`COMMANDS` ↔ `COMMAND_ALIASES`、**README／package.json ↔ `COMMANDS`／黑名單常數**（`sync.test.js` 的 README drift-guard 區塊——指令別名表、`DEVICE_SETTINGS_KEYS`、`CODEX_CONFIG_HARD_BLOCK_SECTIONS`／`CODEX_CONFIG_DEVICE_WARN_SECTIONS` 增減未跟 README 即 fail），另有 `SYNC_MANIFEST` 不得含 `config.toml` 的回歸鎖。**破壞性 apply 與 direction-aware diff 走沙箱整合測試**：`apply-integration.test.js` 把 `sync.js` 與 `safety-check.js`、`toml-reader.js`、`skills.js` 四檔複製進 tmp 當 repo 並以 `HOME` 沙箱化本機，雙向皆不觸碰真實 `~/.claude` 或真實 repo；`boundary.test.js` 的 `safety:check` sandbox 同樣四檔並抄（`SAFETY_RUNTIME_FILES`）。`diff-integration.test.js`／`apply-integration.test.js` 的 `SYNC_RUNTIME_FILES` 與 `boundary.test.js` 的 `SAFETY_RUNTIME_FILES` 三處清單須含 `skills.js`，漏加則 tmp repo `Cannot find module './skills.js'` 直接紅燈。若改純函式，**必須**同步更新 unit test，維持全數通過（視同 100% 覆蓋）。
 
@@ -105,21 +103,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Skills 管理
 
-Skills 分三層（**以目錄位置分類**，不加 per-skill flag）：
+Skills 分兩層（**以目錄位置分類**，不加 per-skill flag）：
 
 | 位置 | 路徑 | 說明 |
 |---|---|---|
-| 全域·Claude-only（同步） | `claude/skills/<name>/SKILL.md` | `dir` 型鏡射到 `~/.claude/skills/`，只給 Claude Code，跨裝置共用 |
 | 全域·跨工具（同步） | `agents/skills/<name>/SKILL.md` | `xtool-skills` 型同步到 `~/.agents/skills/`（Codex 原生掃）+ `~/.claude/skills/<name>` symlink 橋（Claude 探索）。與 `npx skills` 共管、非 prune、撞名拒寫（判準：`~/.agents/.skill-lock.json` 登記；**「claude 側 symlink 存在」不得作為訊號**——與本機制自身產物無法區分，會破壞幂等） |
 | 本地（不同步） | `.agents/skills/<name>/SKILL.md` | 僅限本 repo 使用，跨工具共享（Codex 等） |
 
-要讓某 skill 對 Claude 與 Codex 同時可見，放 `agents/skills/`；只給 Claude 放 `claude/skills/`。
+全域 skill 一律放 `agents/skills/`，對 Claude 與 Codex 同時可見——**無 Claude-only 全域層**（原 `claude/skills/` 同步層因無住戶已移除，見 `SYNC_MANIFEST` 回歸鎖）。
 
 本地 skill 實體放在 `.agents/skills/`。**Claude Code 端**靠 `.claude/skills` symlink（→ `../.agents/skills`）讀取。**Codex 端無需 symlink**：Codex CLI 原生把 `.agents/skills`（專案層）與 `~/.agents/skills`（全域層）納入 skill 探索路徑，直接讀同一份實體。新增本地 skill 直接放進 `.agents/skills/<name>/SKILL.md` 即可。
 
 **Windows clone 注意**：`.claude/skills` 這個 git symlink 在 Windows 需「開發者模式」或管理員權限才會還原為真正的 symlink，否則會 fallback 成內容為路徑字串的純文字檔，導致 Claude Code 找不到 skill。在 Windows 11 設定 → 系統 → 開發人員選項中開啟即可。（Codex 不受此影響：它直接讀 `.agents/skills` 實體目錄，不經 symlink。）
 
 全域 skills 安裝狀態由 `skills-lock.json` 追蹤（`npm run skills:diff` 比對）。本地 skills 不需記錄於 `skills-lock.json`。
+
+**日後若要恢復 Claude-only 全域 skill 層**（`claude/skills/`）：在 `SYNC_MANIFEST` 加回 `{ area: 'claude', label: 'skills', type: 'dir' }` 一列，並同步更新 `test/sync.test.js` 的 claude label 清單 drift-guard 與**「不得含 claude 區 skills／commands dir 列」回歸鎖**、README 同步項目表與本段兩層表。**加回前須先重新評估**：該列會連帶復活「`xtool-skills` 列須排在其之前」的順序不變式（claude mirror 的 prune-extras 語意會與 agents 端的 symlink 橋競爭），完整推理見 `openspec/changes/archive/2026-07-15-cross-tool-global-skills/` 的 design D5 與 `2026-07-17-remove-tenantless-sync-layers`。不得只塞回一列 manifest。`commands` 層同理，且另違反「一律使用 skill、不再新增 command」政策。
 
 Skills 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具移植（Cursor、Gemini CLI、Codex 等）。新增 skill 一律使用此格式，不再新增 command。
 

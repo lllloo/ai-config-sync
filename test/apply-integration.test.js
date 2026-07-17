@@ -460,9 +460,9 @@ test('to-repo 中途失敗：已寫入項目照常列出、警告部分中斷', 
   const { repo, home, root } = setupSandbox();
   try {
     writeText(path.join(home, '.claude', 'CLAUDE.md'), 'GOOD-CONTENT');
-    // 讓 commands 目錄同步失敗：repo 端同名路徑是目錄，寫檔／比對必拋錯
-    writeText(path.join(home, '.claude', 'commands', 'pkg', 'zzz.md'), 'Z');
-    fs.mkdirSync(path.join(repo, 'claude', 'commands', 'pkg', 'zzz.md'), { recursive: true });
+    // 讓 dir 型項目（rules）同步失敗：repo 端同名路徑是目錄，寫檔／比對必拋錯
+    writeText(path.join(home, '.claude', 'rules', 'pkg', 'zzz.md'), 'Z');
+    fs.mkdirSync(path.join(repo, 'claude', 'rules', 'pkg', 'zzz.md'), { recursive: true });
 
     const r = run(repo, home, ['to-repo']);
     assert.equal(r.status, 2, `中途失敗應 exit 2\n${r.stdout}\n${r.stderr}`);
@@ -657,63 +657,6 @@ itNonRoot('xtool D5 遷移中途失敗：正典已先落 ~/.agents，partialChan
       '正典內容須已先安全落在 ~/.agents');
     assert.match(r.stdout, /agents\/skills\/foo/, '已寫入的正典變更須列出');
     assert.match(r.stderr, /同步因錯誤中斷|已寫入 \d+ 筆變更/, '應警告部分中斷');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('xtool + claude mirror 共存：claude 區 mirror 不誤刪 agents 探索點 symlink（P4 回歸）', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'FOO');       // 跨工具
-    writeText(path.join(repo, 'claude', 'skills', 'conly', 'SKILL.md'), 'CONLY');   // Claude-only
-
-    const r1 = run(repo, home, ['to-local', '--yes']);
-    assert.equal(r1.status, 0, `${r1.stdout}\n${r1.stderr}`);
-    assert.equal(fs.lstatSync(CLAUDE_SKILL_LINK(home, 'foo')).isSymbolicLink(), true, 'foo 為探索點 symlink');
-    assert.equal(fs.readFileSync(path.join(home, '.claude', 'skills', 'conly', 'SKILL.md'), 'utf8'),
-      'CONLY', 'Claude-only skill 為真實檔');
-
-    // 再跑一次：claude mirror（getFiles 跳過逃逸 symlink）不得刪掉 agents 探索點
-    const r2 = run(repo, home, ['to-local', '--yes']);
-    assert.equal(r2.status, 0, `${r2.stdout}\n${r2.stderr}`);
-    assert.equal(fs.lstatSync(CLAUDE_SKILL_LINK(home, 'foo')).isSymbolicLink(), true, '探索點 symlink 應存活');
-    assert.equal(fs.readFileSync(path.join(CLAUDE_SKILL_LINK(home, 'foo'), 'SKILL.md'), 'utf8'), 'FOO');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('xtool 空 claude/skills 情境：agents 端先轉 symlink，空 src claude mirror 不刪探索點', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'FOO');
-    fs.mkdirSync(path.join(repo, 'claude', 'skills'), { recursive: true }); // 存在但為空
-    // 舊機制：~/.claude/skills/foo 為真實目錄
-    writeText(path.join(home, '.claude', 'skills', 'foo', 'SKILL.md'), 'OLD');
-
-    const r = run(repo, home, ['to-local', '--yes']);
-    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
-    // xtool 列在前：先轉 symlink；空 src 的 claude mirror 不得刪除（getFiles 跳過逃逸 symlink）
-    const link = CLAUDE_SKILL_LINK(home, 'foo');
-    assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'foo 應被轉為並保留為 symlink');
-    assert.equal(fs.readFileSync(path.join(link, 'SKILL.md'), 'utf8'), 'FOO', '內容來自正典');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('xtool to-repo：~/.claude 探索點 symlink 不被吸回 repo claude/skills', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    // 先建立正典 + 探索點
-    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'FOO');
-    run(repo, home, ['to-local', '--yes']);
-    // to-repo：getFiles(~/.claude/skills) 應跳過 foo 探索點（逃逸 symlink），不寫進 repo claude/skills
-    const r = run(repo, home, ['to-repo']);
-    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
-    assert.equal(fs.existsSync(path.join(repo, 'claude', 'skills', 'foo')), false,
-      '探索點 symlink 不得被吸回 repo claude/skills');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

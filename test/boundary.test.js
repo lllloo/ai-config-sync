@@ -1197,20 +1197,27 @@ test('safety:check：claude/agents 已自豁免清單移除（agent 庫已不同
   }
 });
 
-test('safety:check：claude/skills 套件文件同樣豁免 text pattern；codex/agents 不再豁免', () => {
+test('safety:check：agents/skills 套件文件豁免 text pattern；claude/skills 與 codex/agents 不再豁免', () => {
   const { repo, root } = setupSafetySandbox();
   try {
-    writeSafetyText(repo, 'claude/skills/demo/SKILL.md', '範例：/home/bob/secret 與 ghp_' + 'y'.repeat(24) + '\n');
+    writeSafetyText(repo, 'agents/skills/demo/SKILL.md', '範例：/home/bob/secret 與 ghp_' + 'y'.repeat(24) + '\n');
     const r = runSafety(repo);
-    assert.equal(r.status, 0, `claude/skills 應豁免\n${r.stdout}\n${r.stderr}`);
+    assert.equal(r.status, 0, `agents/skills 應豁免\n${r.stdout}\n${r.stderr}`);
     assert.match(r.stdout, /未發現/);
 
-    // codex/agents/ 已自豁免清單移除（repo 目前無此目錄，排除屬預防性列名）：
+    // claude/skills/ 已隨同步層移除自豁免清單撤除（repo 已無此目錄，排除屬預防性列名）：
     // 若日後重新引入且含機密樣式，text pattern 應照常攔截
-    writeSafetyText(repo, 'codex/agents/pkg/role.toml', 'note = "sk-' + 'x'.repeat(20) + '"\n');
+    writeSafetyText(repo, 'claude/skills/demo/SKILL.md', '範例：ghp_' + 'z'.repeat(24) + '\n');
     const r2 = runSafety(repo);
-    assert.equal(r2.status, 2, `codex/agents 不再豁免，應 hard block\n${r2.stdout}\n${r2.stderr}`);
+    assert.equal(r2.status, 2, `claude/skills 不再豁免，應 hard block\n${r2.stdout}\n${r2.stderr}`);
     assert.match(r2.stdout, /疑似機密值/);
+    fs.rmSync(path.join(repo, 'claude', 'skills'), { recursive: true, force: true });
+
+    // codex/agents/ 同理（隨 agent 同步項移除一併撤除豁免）
+    writeSafetyText(repo, 'codex/agents/pkg/role.toml', 'note = "sk-' + 'x'.repeat(20) + '"\n');
+    const r3 = runSafety(repo);
+    assert.equal(r3.status, 2, `codex/agents 不再豁免，應 hard block\n${r3.stdout}\n${r3.stderr}`);
+    assert.match(r3.stdout, /疑似機密值/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
