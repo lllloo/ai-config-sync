@@ -44,4 +44,4 @@
 - [x] 6.3 `npm run safety:check` 與基準線一致（exit 1、僅既有 env warning，無新增命中）
 - [x] 6.4 `openspec validate remove-tenantless-sync-layers` 通過
 - [x] 6.5 函式行數守則：`sync.js` 僅縮不增（+7/−11），無函式因本變更超過 60 行
-- [ ] 6.6 commit（繁體中文訊息，`refactor` 型），不 push（`main` 為保護分支）
+- [x] 6.6 commit（繁體中文訊息，`refactor` 型）：`8f920c2`。未 push（`main` 為保護分支，需明確要求）
