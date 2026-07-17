@@ -220,6 +220,123 @@ test('skills:diff：本機有、repo 未記錄 → exit 1 並列出加入/移除
 });
 
 // -----------------------------------------------------------------------------
+// skills:add / skills:remove：實際寫入 skills-lock.json 的端到端行為
+// 此前只有 parseSkillSource 純函式與 skills:diff 被覆蓋，寫入路徑（撞名不覆寫、
+// lock 初始化、remove happy path、缺檔/缺引數錯誤）無任何回歸防護。
+// -----------------------------------------------------------------------------
+function readLock(repo) {
+  return JSON.parse(fs.readFileSync(path.join(repo, 'skills-lock.json'), 'utf8'));
+}
+
+test('skills:add：name+source 形式 → 寫入 lock、exit 0、印安裝指令', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    const r = run(repo, home, ['skills:add', 'foo', 'org/foo']);
+    assert.equal(r.status, 0, `應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.deepEqual(readLock(repo).skills.foo, { source: 'org/foo', sourceType: 'github' });
+    assert.match(r.stdout, /已加入/);
+    assert.match(r.stdout, /npx skills add org\/foo .*--skill foo/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('skills:add：lock 不存在時初始化 version:1 並寫入', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    assert.equal(fs.existsSync(path.join(repo, 'skills-lock.json')), false, '前提：無 lock');
+    const r = run(repo, home, ['skills:add', 'foo', 'org/foo']);
+    assert.equal(r.status, 0, `應 exit 0\n${r.stdout}\n${r.stderr}`);
+    const lock = readLock(repo);
+    assert.equal(lock.version, 1);
+    assert.equal(lock.skills.foo.source, 'org/foo');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('skills:add：URL 形式解析 name/source', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    const r = run(repo, home, ['skills:add', 'https://skills.sh/acme/repo/myskill']);
+    assert.equal(r.status, 0, `應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.deepEqual(readLock(repo).skills.myskill, { source: 'acme/repo', sourceType: 'github' });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('skills:add：撞名不覆寫既有 source、exit 0 並警告', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeJson(path.join(repo, 'skills-lock.json'),
+      { version: 1, skills: { foo: { source: 'orig/foo', sourceType: 'github' } } });
+    const r = run(repo, home, ['skills:add', 'foo', 'other/foo']);
+    assert.equal(r.status, 0, `撞名應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /已存在/);
+    assert.equal(readLock(repo).skills.foo.source, 'orig/foo', '不得覆寫既有 source');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('skills:add：缺來源引數 → INVALID_ARGS exit 2', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    const r = run(repo, home, ['skills:add']);
+    assert.equal(r.status, 2, `缺引數應 exit 2\n${r.stdout}\n${r.stderr}`);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('skills:remove：移除既有 skill、exit 0、印 npx remove 指令', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeJson(path.join(repo, 'skills-lock.json'), {
+      version: 1,
+      skills: {
+        foo: { source: 'org/foo', sourceType: 'github' },
+        bar: { source: 'org/bar', sourceType: 'github' },
+      },
+    });
+    const r = run(repo, home, ['skills:remove', 'foo']);
+    assert.equal(r.status, 0, `應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /已移除/);
+    assert.match(r.stdout, /npx skills remove foo/);
+    const lock = readLock(repo);
+    assert.equal(lock.skills.foo, undefined, 'foo 應被移除');
+    assert.ok(lock.skills.bar, 'bar 應保留');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('skills:remove：不在 lock → no-op、exit 0 並提示', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeJson(path.join(repo, 'skills-lock.json'),
+      { version: 1, skills: { bar: { source: 'org/bar', sourceType: 'github' } } });
+    const r = run(repo, home, ['skills:remove', 'foo']);
+    assert.equal(r.status, 0, `不存在應 no-op exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /不在 skills-lock\.json/);
+    assert.ok(readLock(repo).skills.bar, '既有項不受影響');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('skills:remove：lock 檔不存在 → FILE_NOT_FOUND exit 2', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    const r = run(repo, home, ['skills:remove', 'foo']);
+    assert.equal(r.status, 2, `缺 lock 應 exit 2\n${r.stdout}\n${r.stderr}`);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
 // 同步流程降責：敏感命名、known secret value 與 HOME 路徑不再讓同步中止
 // -----------------------------------------------------------------------------
 test('to-repo：敏感命名、known secret 與 HOME 路徑不再中止', () => {

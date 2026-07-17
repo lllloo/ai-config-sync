@@ -8,7 +8,8 @@
 // - loadSkillsFromLock／validateSkillName／validateSkillSource／parseSkillSource
 //   為 deps-bound，經 createSkillsHandler 注入 SyncError／ERR／readJson 後由回傳
 //   物件取得（runCommand 只用三個對外方法，這些 helper 是 re-export／測試 seam）。
-// runSkillsDiff／runSkillsAdd／runSkillsRemove 的端到端行為由整合／邊界測試覆蓋。
+// runSkillsDiff／runSkillsAdd／runSkillsRemove 的端到端行為（含寫入 skills-lock.json）
+// 由 apply-integration.test.js 沙箱 spawn 覆蓋，name 驗證拒絕路徑由 boundary.test.js 覆蓋。
 // =============================================================================
 
 const assert = require('node:assert');
