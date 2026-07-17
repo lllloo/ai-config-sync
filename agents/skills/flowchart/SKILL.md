@@ -1,6 +1,6 @@
 ---
 name: flowchart
-description: 把一段流程、決策邏輯或既有程式碼/文件,轉成一張乾淨可渲染的 Mermaid 圖(預設 flowchart,必要時 sequence/state);需要時可產生 mermaid.live 連結給沒有渲染環境的人檢視。僅由使用者明確輸入 /flowchart 或明講「畫流程圖／畫成 Mermaid／把這個流程畫出來」時使用,不自動觸發。
+description: 把一段流程、決策邏輯或既有程式碼/文件,轉成一張乾淨可渲染的 Mermaid 圖(預設 flowchart,必要時 sequence/state);每次都附上 mermaid.live 連結供使用者確認渲染結果。僅由使用者明確輸入 /flowchart 或明講「畫流程圖／畫成 Mermaid／把這個流程畫出來」時使用,不自動觸發。
 disable-model-invocation: true
 ---
 
@@ -28,28 +28,42 @@ disable-model-invocation: true
 
 4. **輸出**:把圖放進 ```mermaid 圍籬直接回給使用者。預設**只輸出圖**,不逐節點複述文字(圖本身就是說明)。若使用者要存檔,寫成 `.md` 檔(內含 ```mermaid 區塊)。
 
-5. **需要看實際渲染**時(選配、別預設就做):要把圖**傳給沒有 Mermaid 渲染環境的人**,或想**在瀏覽器即時微調**,產生 mermaid.live 連結(見下節)。
+5. **一律附 mermaid.live 連結供確認**:每產一張圖,除了 ```mermaid 圍籬,都要接著跑腳本產出 mermaid.live 連結一併給使用者(見下節)。用意是讓使用者一鍵開瀏覽器親眼確認渲染無誤——不再是選配、不再等使用者開口。圖有改動要重產連結,連結永遠對應當前這張圖。
 
-## 給沒有渲染環境的人看:mermaid.live 連結
+## 一律附上:mermaid.live 連結
 
-多數載體(Claude Code 終端、GitHub、Obsidian)都原生渲染 ```mermaid,所以**預設不必產連結**。但當對方沒有這些環境(貼進 email、Slack、純文字工具),或使用者想線上調整時,產一條 mermaid.live 連結最省事。
+**每張圖都要附連結**——這是使用者要求的固定流程,不再判斷「有沒有渲染環境」。多數載體(Claude Code 終端、GitHub、Obsidian)雖能原生渲染 ```mermaid,但連結讓使用者能一鍵開瀏覽器確認、必要時線上微調,故一律產出。
 
-本 skill 目錄下有 `scripts/mermaid-live-link.mjs`,純 Node 內建 `zlib` 編碼(零相依),把 Mermaid 原始碼經 stdin 餵進去即得連結:
+本 skill 目錄下有 `scripts/mermaid-live-link.mjs`,純 Node 內建 `zlib`(零相依)。**連結尾段是 ~數百字 base64,手貼漏一字就 deflate 解成壞資料、圖渲染成亂碼且不報錯**,故流程強制「產出即自我驗證 + 貼出後回驗」:
 
-```
-# 唯讀檢視連結(預設,給人看渲染結果用這個)
-printf '<mermaid 原始碼>' | node <本 skill 目錄>/scripts/mermaid-live-link.mjs
+**步驟(照做,別跳)**:
 
-# 線上可編輯連結
-printf '<mermaid 原始碼>' | node <本 skill 目錄>/scripts/mermaid-live-link.mjs edit
-```
+1. **把 Mermaid 原始碼寫成檔**(如 `diagram.mmd`),不要用 `printf` 塞一長串——檔案才好餵給後續驗證。
+2. **產連結**:腳本編碼後會**自我解碼比對**,不符即 `exit 1`(擋腳本層錯);通過才輸出連結。
+   ```
+   node <skill 目錄>/scripts/mermaid-live-link.mjs < diagram.mmd            # /view 唯讀(預設)
+   node <skill 目錄>/scripts/mermaid-live-link.mjs edit < diagram.mmd       # /edit 線上可編輯
+   ```
+3. **把連結貼進回覆**,用 markdown `[說明](url)` 格式(code block 裡的網址在終端不可點)。
+4. **回驗你剛貼的那條連結**:把貼出去的 URL 原樣餵回 `decode`,與來源檔 `diff`,**必須完全一致**才算數——這步在同一輪抓出手貼漏字:
+   ```
+   node <skill 目錄>/scripts/mermaid-live-link.mjs decode "<你貼的 URL>" | diff - diagram.mmd
+   ```
+   diff 有輸出(或 decode 報「無法解碼」)= 貼錯了,重貼再驗,別交出去。
 
-命令 cwd 是使用者當前專案、不是 skill 目錄,所以用**絕對路徑**(取上方「Base directory for this skill」接 `scripts/mermaid-live-link.mjs`)。從 heredoc 或檔案餵原始碼即可,不必手動轉義。**預設給 `/view`(唯讀)**——「給人看渲染結果」用 view;只有使用者明講要線上改才給 `edit`。
+命令 cwd 是使用者當前專案、非 skill 目錄,故用**絕對路徑**(取上方「Base directory for this skill」接 `scripts/mermaid-live-link.mjs`)。**預設 `/view`**;只有使用者明講要線上改才給 `edit`。
 
-**輸出連結的兩條鐵律**(踩過雷):
+> 為何要 step 4:step 2 的自我驗證只保證「腳本產的連結是對的」,但**從 stdout 手貼到回覆**這段仍可能漏字。step 4 對「實際貼出的字串」解碼回驗,是唯一能涵蓋人為轉錄錯的關卡。
 
-- **逐字原樣貼腳本的 stdout,絕不手動重打或截斷**。連結尾段是 base64,差一個字元 deflate 就解成壞資料、圖渲染成亂七八糟——而且看起來像「渲染出來但怪怪的」,不會報錯,很難察覺。要複製就整條複製,別自己重敲。
-- **用 markdown 連結格式 `[說明](url)` 給,別塞進 ``` 程式碼區塊**。code block 裡的網址在終端不可點;markdown 連結才能直接點開。
+## 預設風格:不套主題(最通用)
+
+**預設不放任何 `%%{init}%%` 主題指令**,直接用 default theme。這是最多人的做法,理由:GitHub / GitLab / Obsidian / Notion 都原生渲染,且 Mermaid 會**自動跟隨檢視者的 light/dark 模式**;一旦寫死 `theme`,就破壞這個自動適應(深色圖在淺色頁變成突兀的深色方塊,反之亦然)。所以除非使用者明確要某風格,**不主動加主題**。
+
+只在使用者**明講**要特定風格時才加,常見選項(給人挑,不預設):
+
+- **內建主題**:`%%{init: {'theme':'dark'}}%%`(或 `forest`／`neutral`／`base`)。`neutral` 適合黑白列印;`dark` 適合固定深色場景。
+- **原生新外觀(Mermaid ≥ 11.14)**:frontmatter `config: { look: neo }`(現代、加陰影)或 `look: handDrawn`(手繪素描感),可與任何 theme 併用。**注意相容性**:渲染端版本太舊會 fallback 成普通樣式(不會壞、只是沒效果),要「哪都一致」就別依賴。
+- **語意上色**:用 `classDef` + `class <id> <角色>` 只點重點節點,不必配整套主題。
 
 ## Mermaid 語法要點(踩雷區,務必守住)
 
