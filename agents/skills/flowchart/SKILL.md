@@ -34,11 +34,11 @@ disable-model-invocation: true
 
 連結讓使用者一鍵開瀏覽器確認渲染、必要時線上微調,故每張圖都附(多數載體雖能原生渲染 ```mermaid,仍一律給)。**連結尾段是數百字 base64,手貼漏一字就 deflate 解成壞資料、圖渲染成亂碼且不報錯**,所以流程強制「產出即自我驗證 + 貼出後回驗」——三步照做:
 
-1. **寫檔**:把 Mermaid 原始碼寫成 `diagram.mmd`(別用 `printf` 塞長串,有檔才好回驗)。
-2. **產連結**(腳本編碼後自我解碼比對,不符即 `exit 1`;通過才輸出):
+1. **寫檔**:用 Write 工具把 Mermaid 原始碼寫成 `diagram.mmd`(別用 `echo`/`printf` 經 shell 塞長串——引號逃逸是跨 shell 地雷;有檔才好回驗)。**放暫存處**(系統 temp 或 harness 給的 scratchpad),別寫進使用者專案目錄——這是驗證用中間檔,留在人家 repo 裡是垃圾;只有使用者說要存檔才寫進專案(此時直接寫成 `.md` 含 mermaid 圍籬)。
+2. **產連結**(腳本編碼後自我解碼比對,不符即 `exit 1`;通過才輸出)。檔案路徑用參數傳,**不要用 `< diagram.mmd` 重導向**——`<` 在 PowerShell 是保留運算子,Windows 上直接炸:
    ```
-   node <skill 目錄>/scripts/mermaid-live-link.mjs < diagram.mmd            # /view 唯讀(預設)
-   node <skill 目錄>/scripts/mermaid-live-link.mjs edit < diagram.mmd       # /edit 線上可編輯
+   node <skill 目錄>/scripts/mermaid-live-link.mjs diagram.mmd            # /view 唯讀(預設)
+   node <skill 目錄>/scripts/mermaid-live-link.mjs edit diagram.mmd       # /edit 線上可編輯
    ```
    **預設 `/view`**;只有使用者明講要線上改才給 `edit`。
 3. **貼上並回驗**:把連結用 markdown `[說明](url)` 貼進回覆(code block 裡的網址在終端不可點),接著把**你剛貼的那條 URL** 原樣餵回 `verify`:
@@ -87,7 +87,13 @@ A ==> E            粗線(主幹)
 
 **最容易生語法錯誤的四件事**——照這樣避開:
 
-- **標籤含特殊字元一律加引號**:括號 `()`、方括號 `[]`、冒號、`#`、`"`、`|` 出現在節點文字裡時,必須包引號:`A["回傳 payload (含 token)"]`。不包會 parse error 或截斷。
+- **標籤含特殊字元一律加引號**:括號 `()`、方括號 `[]`、冒號、`#`、`"`、`|` 出現在標籤文字裡時,必須包引號——**節點、邊標籤、subgraph 標題三處同規則**(實測 v11:邊標籤含括號不加引號直接 Syntax error):
+  ```
+  A["回傳 payload (含 token)"]
+  B -->|"是 (通過)"| C
+  subgraph sg1["前處理 (階段一)"]
+  ```
+  subgraph 比照節點:給英數 id,顯示文字放 `["..."]` 引號內。
 - **`end` 不能當節點 id**(Mermaid 保留字,小寫尤其會壞):用 `End`、`stop`、`done` 之類代替。
 - **節點 id 用英數**(`step1`、`checkAuth`),把中文/空白/符號放進**標籤**(`step1[驗證權限]`),別拿中文當 id。
 - **中文標點在引號內沒問題**,但引號本身要用直引號 `"`,別用全形 `「」` 當語法引號(當文字內容則無妨)。
@@ -96,12 +102,28 @@ A ==> E            粗線(主幹)
 
 ```
 flowchart TD
-  subgraph 前處理
+  subgraph pre[前處理]
     a[讀輸入] --> b{格式正確?}
   end
   b -->|否| err[報錯結束]
   b -->|是| c[進主流程]
 ```
+
+## sequence / state 圖的語法要點
+
+上面的引號與 id 規則是 flowchart 的;選了 sequenceDiagram / stateDiagram-v2 時,雷區換一套:
+
+**sequenceDiagram**:
+
+- **參與者先宣告、用 `as` 給顯示名**:`participant PSP as 金流商 (第三方)`——顯示名含括號直接寫,**不要包引號**(實測 v11:引號會被當成文字印在圖上,不是語法)。flowchart 的引號習慣別帶過來。
+- **箭頭有語意,選對才不誤導**:`->>` 同步請求、`-->>` 回應(虛線)、`-)` 非同步 fire-and-forget——webhook 回呼、推播通知這種「發了不等回」的用 `-)`,別一律 `->>`。
+- **區塊語法**:`alt 成功 ... else 失敗 ... end`、`opt`(可選)、`loop`(重複),每個區塊都要收 `end`(sequence 的 `end` 是合法關鍵字,跟 flowchart 禁拿 `end` 當節點 id 是兩回事)。
+- **訊息文字放冒號後,不需引號**:`API->>PSP: 建立交易 (含 token)`——括號在這裡不會壞。
+
+**stateDiagram-v2**:
+
+- `[*]` 代表開始/結束;轉移標籤用冒號:`pending --> running: 開始執行`。
+- 狀態顯示名含空白/特殊字元時先取別名:`state "等待中 (排隊)" as pending`。
 
 ## 範例
 

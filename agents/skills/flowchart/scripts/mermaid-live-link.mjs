@@ -3,11 +3,12 @@
 // 純 Node 內建(node:zlib),零外部相依。編碼格式對齊 mermaid-live-editor 的 `pako` serde:
 //   JSON state → zlib deflate(pako.deflate 相容)→ URL-safe base64(無 padding)→ 拼進 #pako:
 //
-// 用法:
-//   cat diagram.mmd | node mermaid-live-link.mjs          # 預設 view(唯讀檢視)
-//   cat diagram.mmd | node mermaid-live-link.mjs edit      # edit(線上可編輯)
+// 用法(產連結一律傳檔案路徑,別用 stdin 重導向——`<` 在 PowerShell 是保留運算子,跨 shell 不通):
+//   node mermaid-live-link.mjs diagram.mmd                 # 預設 view(唯讀檢視)
+//   node mermaid-live-link.mjs edit diagram.mmd            # edit(線上可編輯)
 //   node mermaid-live-link.mjs decode "<url|pako>"         # 把連結解回 Mermaid 原始碼(argv 或 stdin)
 //   node mermaid-live-link.mjs verify <file> "<url|pako>"  # 貼出的連結 vs 來源檔一致性檢查(exit 0 一致 / 1 不符)
+//   (無檔案參數時退回讀 stdin,保留舊呼叫方式的相容)
 //
 // 連結不會錯的機制:
 //   1) 編碼後「自我驗證」——立刻把剛產的連結解碼回來比對原始碼,不符即 exit 1(擋腳本層錯)。
@@ -58,9 +59,20 @@ if (arg === 'verify') {
 }
 
 const mode = arg === 'edit' ? 'edit' : 'view';
-const code = await readStdin();
+const fileArg = arg === 'edit' ? process.argv[3] : arg;
+let code;
+if (fileArg) {
+  try {
+    code = readFileSync(fileArg, 'utf8');
+  } catch {
+    process.stderr.write(`錯誤:讀不到來源檔 ${fileArg}\n`);
+    process.exit(2);
+  }
+} else {
+  code = await readStdin();
+}
 if (!code.trim()) {
-  process.stderr.write('錯誤:stdin 沒有 Mermaid 內容\n');
+  process.stderr.write(fileArg ? `錯誤:${fileArg} 沒有 Mermaid 內容\n` : '錯誤:stdin 沒有 Mermaid 內容\n');
   process.exit(1);
 }
 
