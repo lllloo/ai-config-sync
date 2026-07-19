@@ -22,7 +22,7 @@ const { COMMANDS } = require('../sync.js');
 
 // sync.js require('./safety-check.js')（後者 require('./toml-reader.js')）與
 // require('./skills.js')，任何 `node sync.js` 指令缺任一檔即崩，故四檔同抄。
-const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js'];
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'mcp.js'];
 
 /**
  * 建立沙箱：repo（含 sync.js + safety-check.js + toml-reader.js + skills.js 副本、git init）與 home。
@@ -106,6 +106,158 @@ test('to-local：本機已存在且內容相同時宣告一致、不寫入', () 
     const r = run(repo, home, ['to-local', '--dry-run']);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /完全一致|無需套用/, '內容相同應宣告一致');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// Codex MCP：section-level apply、state、stale 與雙向邊界
+// -----------------------------------------------------------------------------
+
+function seedMcpManifest(repo, servers) {
+  writeJson(path.join(repo, 'codex', 'mcp.json'), { version: 1, servers });
+}
+
+const MCP_SERVER = {
+  transport: 'streamable-http',
+  url: 'https://mcp.supermemory.ai/mcp',
+  enabled: true,
+};
+
+test('MCP to-local --dry-run：預覽新增但不寫 config 或 state', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    seedMcpManifest(repo, { supermemory: MCP_SERVER });
+    const r = run(repo, home, ['to-local', '--dry-run']);
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /mcp\.json\/supermemory.*將新增/);
+    assert.equal(fs.existsSync(path.join(home, '.codex', 'config.toml')), false);
+    assert.equal(fs.existsSync(path.join(home, '.codex', '.ai-config-sync-mcp-state.json')), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('MCP to-local：只 upsert 受管 section，保留非 MCP 與未受管 MCP', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    seedMcpManifest(repo, { supermemory: MCP_SERVER });
+    const config = 'personality = "friendly"\n\n[mcp_servers.local_tool]\ncommand = "node"\n';
+    writeText(path.join(home, '.codex', 'config.toml'), config);
+    const r = run(repo, home, ['to-local', '--yes']);
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    const written = fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8');
+    assert.match(written, /personality = "friendly"/);
+    assert.match(written, /\[mcp_servers\.local_tool\][\s\S]*command = "node"/);
+    assert.match(written, /\[mcp_servers\."supermemory"\]/);
+    const state = JSON.parse(fs.readFileSync(path.join(home, '.codex', '.ai-config-sync-mcp-state.json'), 'utf8'));
+    assert.deepEqual(state.managedServers, ['supermemory']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('MCP to-local：更新可攜欄位時原文保留本機 Authorization header', () => {
+  const { repo, home, root } = setupSandbox();
+  const marker = 'mcp-local-secret-must-not-appear';
+  const authLine = `http_headers = { Authorization = "Bearer ${marker}" } # device only`;
+  try {
+    seedMcpManifest(repo, { supermemory: MCP_SERVER });
+    writeText(path.join(home, '.codex', 'config.toml'), [
+      '[mcp_servers.supermemory]',
+      'url = "https://old.example/mcp"',
+      'enabled = false',
+      authLine,
+      '',
+    ].join('\n'));
+    writeJson(path.join(home, '.codex', '.ai-config-sync-mcp-state.json'), { version: 1, managedServers: ['supermemory'] });
+    const r = run(repo, home, ['to-local', '--yes']);
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    const written = fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8');
+    assert.match(written, /url = "https:\/\/mcp\.supermemory\.ai\/mcp"/);
+    assert.match(written, /enabled = true/);
+    assert.ok(written.includes(authLine));
+    assert.doesNotMatch(r.stdout + r.stderr, new RegExp(marker));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('MCP to-local：repo 移除後由 state 刪 stale，未受管 section 保留', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    seedMcpManifest(repo, {});
+    writeText(path.join(home, '.codex', 'config.toml'), [
+      '[mcp_servers.old]', 'url = "https://old.example/mcp"', '',
+      '[mcp_servers.keep]', 'command = "node"', '',
+    ].join('\n'));
+    writeJson(path.join(home, '.codex', '.ai-config-sync-mcp-state.json'), { version: 1, managedServers: ['old'] });
+    const r = run(repo, home, ['to-local', '--yes']);
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    const written = fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8');
+    assert.doesNotMatch(written, /mcp_servers\.old/);
+    assert.match(written, /mcp_servers\.keep/);
+    const state = JSON.parse(fs.readFileSync(path.join(home, '.codex', '.ai-config-sync-mcp-state.json'), 'utf8'));
+    assert.deepEqual(state.managedServers, []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('MCP to-repo：更新受管欄位且不吸入未受管本機 Server', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    seedMcpManifest(repo, { managed: { ...MCP_SERVER, url: 'https://old.example/mcp' } });
+    writeText(path.join(home, '.codex', 'config.toml'), [
+      '[mcp_servers.managed]', 'url = "https://new.example/mcp"', 'enabled = false', '',
+      '[mcp_servers.unmanaged]', 'url = "https://unmanaged.example/mcp"', '',
+    ].join('\n'));
+    writeJson(path.join(home, '.codex', '.ai-config-sync-mcp-state.json'), { version: 1, managedServers: ['managed'] });
+    const r = run(repo, home, ['to-repo']);
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    const result = JSON.parse(fs.readFileSync(path.join(repo, 'codex', 'mcp.json'), 'utf8'));
+    assert.equal(result.servers.managed.url, 'https://new.example/mcp');
+    assert.equal(result.servers.managed.enabled, false);
+    assert.equal(result.servers.unmanaged, undefined);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('MCP to-repo：忽略本機 Authorization header 且 repo／輸出不含值', () => {
+  const { repo, home, root } = setupSandbox();
+  const marker = 'mcp-local-secret-must-not-appear';
+  try {
+    seedMcpManifest(repo, { managed: MCP_SERVER });
+    writeText(path.join(home, '.codex', 'config.toml'), [
+      '[mcp_servers.managed]',
+      'url = "https://new.example/mcp"',
+      'enabled = false',
+      `http_headers = { Authorization = "Bearer ${marker}" }`,
+      '',
+    ].join('\n'));
+    writeJson(path.join(home, '.codex', '.ai-config-sync-mcp-state.json'), { version: 1, managedServers: ['managed'] });
+    const r = run(repo, home, ['to-repo']);
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    const repoText = fs.readFileSync(path.join(repo, 'codex', 'mcp.json'), 'utf8');
+    assert.doesNotMatch(repoText, /http_headers|Authorization/);
+    assert.doesNotMatch(repoText + r.stdout + r.stderr, new RegExp(marker));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('MCP to-repo：本機刪除受管 section 會移除 repo 定義', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    seedMcpManifest(repo, { managed: MCP_SERVER });
+    writeText(path.join(home, '.codex', 'config.toml'), 'personality = "friendly"\n');
+    writeJson(path.join(home, '.codex', '.ai-config-sync-mcp-state.json'), { version: 1, managedServers: ['managed'] });
+    const r = run(repo, home, ['to-repo']);
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    const result = JSON.parse(fs.readFileSync(path.join(repo, 'codex', 'mcp.json'), 'utf8'));
+    assert.deepEqual(result.servers, {});
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -675,4 +827,3 @@ test('dispatch guard：COMMANDS 每個指令皆可被 runCommand 分派（不落
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
-

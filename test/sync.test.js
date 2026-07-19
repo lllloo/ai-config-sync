@@ -253,6 +253,14 @@ test('materializeSyncItem：fixedFlow 項目 src/dest 不隨方向交換', () =>
   assert.match(toRepo.dest, /[\\/]claude[\\/]settings\.json$/);
 });
 
+test('materializeSyncItem：homeLabel 允許 repo 與本機使用不同檔名', () => {
+  const entry = { area: 'codex', label: 'mcp.json', homeLabel: 'config.toml', type: 'mcp', fixedFlow: true };
+  const item = materializeSyncItem(entry, 'to-local');
+  assert.equal(item.label, 'mcp.json');
+  assert.match(item.src, /[\/]\.codex[\/]config\.toml$/);
+  assert.match(item.dest, /[\/]codex[\/]mcp\.json$/);
+});
+
 test('materializeSyncItem：dir 型 exclude 欄位 propagate 為 excludePatterns', () => {
   const withExclude = materializeSyncItem(
     { area: 'claude', label: 'rules', type: 'dir', exclude: ['*.tmp', 'draft/**'] }, 'to-repo');
@@ -360,7 +368,7 @@ test('drift-guard：新增 opencode area 後 claude／codex 既有項目 materia
     const codexLabels = byArea('codex/').map(i => i.label);
     assert.deepEqual(claudeLabels,
       ['CLAUDE.md', 'settings.json', 'statusline.sh', 'rules']);
-    assert.deepEqual(codexLabels, ['AGENTS.md']);
+    assert.deepEqual(codexLabels, ['AGENTS.md', 'mcp.json']);
     // 每個非 opencode 項目的 src/dest 皆不含 .config/opencode 路徑
     for (const it of [...byArea('claude/'), ...byArea('codex/')]) {
       assert.doesNotMatch(it.src, /[\\/]\.config[\\/]opencode[\\/]/);
@@ -548,6 +556,13 @@ test('drift-guard：SYNC_MANIFEST 不含 codex config.toml', () => {
     'codex config.toml 已移除同步，不應重新出現在 SYNC_MANIFEST');
   assert.equal(SYNC_MANIFEST.some(e => e.type === 'codex-config'), false,
     'codex-config 型別已移除');
+});
+
+test('drift-guard：Codex MCP 唯一來源為 codex/mcp.json section-level 項目', () => {
+  const rows = SYNC_MANIFEST.filter(e => e.area === 'codex' && e.type === 'mcp');
+  assert.deepEqual(rows, [{
+    area: 'codex', label: 'mcp.json', homeLabel: 'config.toml', type: 'mcp', fixedFlow: true,
+  }]);
 });
 
 // -----------------------------------------------------------------------------

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "servers": {
+    "supermemory": {
+      "transport": "streamable-http",
+      "url": "https://mcp.supermemory.ai/mcp",
+      "enabled": true
+    }
+  }
+}

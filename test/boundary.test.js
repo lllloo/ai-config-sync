@@ -43,6 +43,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 const { withArgv, withTmpDir, noColorEnv } = require('./helpers');
+const { McpValidationError, parseMcpConfig } = require('../mcp.js');
 
 // =============================================================================
 // 安全：askConfirm 在非互動環境的行為（避免 to-local 卡死或靜默 no-op）
@@ -101,6 +102,21 @@ test('readJson：JSON 解析失敗的錯誤不洩漏內容片段（密鑰）', (
     assert.ok(!blob.includes('sk-ant-SECRET12345'), '錯誤不得含密鑰片段');
     assert.ok(!('parseError' in (err.context || {})), 'context 不得保留 parseError');
   });
+});
+
+test('MCP 本機 header：未知 header fail closed 且錯誤不含 Authorization 值', () => {
+  const marker = 'mcp-local-secret-must-not-appear';
+  const content = [
+    '[mcp_servers.supermemory]',
+    'url = "https://mcp.supermemory.ai/mcp"',
+    `http_headers = { Authorization = "Bearer ${marker}", X-Test = "bad" }`,
+    '',
+  ].join('\n');
+  let error;
+  try { parseMcpConfig(content, ['supermemory']); } catch (err) { error = err; }
+  assert.ok(error instanceof McpValidationError);
+  assert.ok(error.paths.includes('mcp_servers.supermemory.http_headers'));
+  assert.doesNotMatch(error.message + JSON.stringify(error.paths), new RegExp(marker));
 });
 
 // =============================================================================
@@ -873,7 +889,7 @@ test('ensureSymlink：Windows dir symlink 失敗時退回 junction（mock 覆蓋
 
 // safety:check 執行期依賴 sync.js + safety-check.js + toml-reader.js + skills.js 四檔，
 // sandbox 需同時複製，避免單檔假設回歸（sync.js require 缺任一檔會直接崩）。
-const SAFETY_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js'];
+const SAFETY_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'mcp.js'];
 
 function setupSafetySandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-safety-'));
@@ -915,6 +931,47 @@ test('safety:check：無問題時 exit 0，且不掃 test/openspec/README', () =
     const r = runSafety(repo);
     assert.equal(r.status, 0, `非同步來源不應觸發 safety:check\n${r.stdout}\n${r.stderr}`);
     assert.match(r.stdout, /未發現/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('safety:check：Codex MCP 未知敏感欄位為 hard block，且不顯示值', () => {
+  const { repo, root } = setupSafetySandbox();
+  const marker = 'authorization-value-must-stay-hidden';
+  try {
+    writeSafetyJson(repo, 'codex/mcp.json', {
+      version: 1,
+      servers: {
+        supermemory: {
+          transport: 'streamable-http',
+          url: 'https://mcp.supermemory.ai/mcp',
+          enabled: true,
+          Authorization: marker,
+        },
+      },
+    });
+    const r = runSafety(repo);
+    assert.equal(r.status, 2, `${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /servers\.supermemory\.Authorization/);
+    assert.doesNotMatch(r.stdout + r.stderr, new RegExp(marker));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('safety:check：Codex MCP 非 HTTPS URL 為 hard block', () => {
+  const { repo, root } = setupSafetySandbox();
+  try {
+    writeSafetyJson(repo, 'codex/mcp.json', {
+      version: 1,
+      servers: {
+        insecure: { transport: 'streamable-http', url: 'http://example.test/mcp', enabled: true },
+      },
+    });
+    const r = runSafety(repo);
+    assert.equal(r.status, 2, `${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /servers\.insecure\.url/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

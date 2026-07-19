@@ -14,6 +14,7 @@ const readline = require('readline');
 const { spawnSync } = require('child_process');
 const safetyCheckModule = require('./safety-check.js');
 const skillsModule = require('./skills.js');
+const mcpModule = require('./mcp.js');
 
 // =============================================================================
 // Section: Constants -- 全域常數與設定
@@ -30,6 +31,7 @@ const REPO_ROOT = __dirname;
 const HOME = os.homedir();
 const CLAUDE_HOME = path.join(HOME, '.claude');
 const CODEX_HOME = path.join(HOME, '.codex');
+const CODEX_MCP_STATE = path.join(CODEX_HOME, '.ai-config-sync-mcp-state.json');
 // opencode 採 XDG 佈局：設定家在 ~/.config/opencode（非 ~/.opencode）；
 // 機密（auth.json）與資料庫落在 ~/.local/share、~/.cache、~/.local/state，天生不在此射程。
 const OPENCODE_HOME = path.join(HOME, '.config', 'opencode');
@@ -108,7 +110,7 @@ const COMMAND_ALIASES = Object.fromEntries(
  * @property {string} label - 顯示名稱
  * @property {string} src - 來源路徑
  * @property {string} dest - 目的路徑
- * @property {'file'|'settings'|'dir'|'xtool-skills'} type - 項目類型
+ * @property {'file'|'settings'|'mcp'|'dir'|'xtool-skills'} type - 項目類型
  * @property {string[]} [excludePatterns] - dir 型項目的排除模式
  * @property {string} [prefix] - 顯示路徑前綴（預設 'claude/'，codex 同步項用 'codex/'）
  */
@@ -1090,13 +1092,14 @@ const SYNC_AREAS = {
  * 同步項目宣告式清單：一列 = 一個同步路徑，為所有同步項目的單一事實來源。
  * 新增同步內容只需在此加一列（不需改任何 builder 或 dispatch switch）。
  *   - area：對應 SYNC_AREAS 的 key（'claude' → ~/.claude ↔ repo claude/；'codex' → ~/.codex ↔ repo codex/）
- *   - type：'file'|'settings'|'dir'|'xtool-skills'（型別行為由 diffSyncItem／applySyncItem 分派）
+ *   - type：'file'|'settings'|'mcp'|'dir'|'xtool-skills'（型別行為由 diffSyncItem／applySyncItem 分派）
+ *   - homeLabel（選填）：本機端檔名與 repo label 不同時使用
  *   - fixedFlow：true 代表 src 恆為本機端、dest 恆為 repo 端，不隨 direction 交換
  *     （settings.json 由 mergeSettingsBetween 依 direction 決定流向）
  *   - exclude（選填，僅 dir 型）：glob 片段陣列，diffDir／mirrorDir 以 matchExclude 略過對應相對路徑
  *   - variants（選填，僅 file 型）：檔名變體優先序陣列（如 opencode.jsonc/.json），materializeSyncItem
  *     以兩端實際存在者決定 canonical label、皆不存在採 variants[0]；不影響無此欄位的既有列
- * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[], variants?: string[]}>}
+ * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, homeLabel?: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[], variants?: string[]}>}
  */
 const SYNC_MANIFEST = [
   { area: 'claude', label: 'CLAUDE.md',     type: 'file' },
@@ -1105,6 +1108,7 @@ const SYNC_MANIFEST = [
   { area: 'agents', label: 'skills',        type: 'xtool-skills' },
   { area: 'claude', label: 'rules',         type: 'dir' },
   { area: 'codex',  label: 'AGENTS.md',     type: 'file' },
+  { area: 'codex',  label: 'mcp.json', homeLabel: 'config.toml', type: 'mcp', fixedFlow: true },
   { area: 'opencode', label: 'opencode.jsonc', type: 'file', variants: ['opencode.jsonc', 'opencode.json'] },
   { area: 'opencode', label: 'AGENTS.md',      type: 'file' },
 ];
@@ -1141,14 +1145,14 @@ function resolveVariantLabel(variants, homeBase, repoBase) {
  * fixedFlow 項目 src/dest 固定（home→repo），其餘依 direction 交換。
  * dir 型可選 `exclude`：propagate 為 `excludePatterns`，供 diffDir／mirrorDir 略過（matchExclude）。
  * file 型可選 `variants`：以 resolveVariantLabel 取兩端實際存在的 canonical label（皆不存在採 variants[0]）。
- * @param {{area: keyof typeof SYNC_AREAS, label: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[], variants?: string[]}} entry
+ * @param {{area: keyof typeof SYNC_AREAS, label: string, homeLabel?: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[], variants?: string[]}} entry
  * @param {'to-repo'|'to-local'} direction
  * @returns {SyncItem}
  */
 function materializeSyncItem(entry, direction) {
   const { homeBase, repoBase, prefix } = resolveSyncArea(entry.area);
   const label = entry.variants ? resolveVariantLabel(entry.variants, homeBase, repoBase) : entry.label;
-  const homePath = path.join(homeBase, label);
+  const homePath = path.join(homeBase, entry.homeLabel || label);
   const repoPath = path.join(repoBase, label);
   const isToRepo = direction === 'to-repo';
   // fixedFlow：src 恆為本機端、dest 恆為 repo 端（由 merge 函式內部依 direction 決定流向）
@@ -1527,6 +1531,7 @@ function actionToIcon(action) {
 function diffSyncItem(item, direction) {
   switch (item.type) {
     case 'settings': return [diffSettingsItem(item, direction)];
+    case 'mcp': return mcpHandler().diffMcpItem(item, direction);
     case 'file': return [diffFileItem(item)];
     case 'dir': return diffDirItems(item);
     case 'xtool-skills': return diffXtoolItems(item, direction);
@@ -1544,6 +1549,7 @@ function diffSyncItem(item, direction) {
 function applySyncItem(item, direction, dryRun) {
   switch (item.type) {
     case 'settings': return applyMergeItem(() => mergeSettingsBetween(item.src, item.dest, direction, dryRun), 'settings.json');
+    case 'mcp': return mcpHandler().applyMcpItem(item, direction, dryRun);
     case 'file': return applyFileItem(item, dryRun);
     case 'dir': return applyDirItem(item, dryRun);
     case 'xtool-skills': return applyXtoolItem(item, direction, dryRun);
@@ -1683,6 +1689,22 @@ function runSafetyCheck() {
 }
 
 // =============================================================================
+// Section: MCP Handler -- Codex MCP 可攜來源與 section-level 合併
+// =============================================================================
+
+/** lazy singleton：延後建立，並以本機 CODEX_HOME state 隔離裝置受管資訊。 */
+let _mcpHandler = null;
+function mcpHandler() {
+  if (!_mcpHandler) {
+    _mcpHandler = mcpModule.createMcpHandler({
+      readJson, readFileSafe, writeFileSafe, SyncError, ERR,
+      statePath: CODEX_MCP_STATE,
+    });
+  }
+  return _mcpHandler;
+}
+
+// =============================================================================
 // Section: Commands -- 各指令的實作
 // diff, to-repo, to-local, safety:check, skills:diff, skills:add, help
 // =============================================================================
@@ -1715,6 +1737,7 @@ function buildFullDiffList(items, diffItems) {
   for (const item of items) {
     if (item.type === 'dir' || item.type === 'xtool-skills') continue;
     const label = itemLabel(item);
+    if (item.type === 'mcp' && result.some(d => d.label.startsWith(`${label}/`))) continue;
     if (!result.some(d => d.label === label)) {
       result.push({
         label,
@@ -1978,6 +2001,9 @@ async function confirmAndApply(items, autoYes = false) {
     if (changeLog.length > 0) {
       console.log('');
       for (const ch of changeLog) console.log(`    ${ch}`);
+    }
+    if (changeLog.some(ch => ch.startsWith('codex/mcp.json/'))) {
+      console.log(col.yellow('\n  Codex MCP 定義已套用；新裝置仍需執行：codex mcp login supermemory'));
     }
   } catch (e) {
     warnPartialApply(e, false);
@@ -2313,12 +2339,15 @@ if (require.main === module) {
     diffSyncItems,
     diffDirItems,
     diffFileItem,
+    diffSyncItem,
+    applySyncItem,
     printToLocalPreview,
     buildSyncItems,
     materializeSyncItem,
     resolveVariantLabel,
     SYNC_MANIFEST,
     SYNC_AREAS,
+    CODEX_MCP_STATE,
     actionToIcon,
     mergeSettingsBetween,
     readFileSafe,

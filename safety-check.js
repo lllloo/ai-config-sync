@@ -39,6 +39,7 @@
 const fs = require('fs');
 const path = require('path');
 const { readTomlStatements, splitTomlKey } = require('./toml-reader.js');
+const { validateMcpManifest, McpValidationError } = require('./mcp.js');
 
 /** 敏感命名 review pattern：僅供 safety:check warning，不參與同步剝除。 */
 const SENSITIVE_KEY_PATTERN = /(key|token|secret|credential|password|auth|cert|cookie|session|jwt|helper|refresh)/i;
@@ -171,6 +172,17 @@ function createSafetyChecker(deps) {
     scanSensitiveKeyPaths(readJson(filePath), filePath, issues);
   }
 
+  function scanMcpManifestSafety(filePath, issues) {
+    try {
+      validateMcpManifest(readJson(filePath));
+    } catch (err) {
+      if (!(err instanceof McpValidationError)) throw err;
+      for (const field of err.paths) {
+        addSafetyIssue(issues, 'hard', '不合法的 Codex MCP 來源欄位', filePath, field);
+      }
+    }
+  }
+
   function scanTomlKeyWarnings(filePath, issues) {
     const content = String(readFileSafe(filePath, '讀取 TOML 安全檢查檔案', 'utf8'));
     // 使用 toml-reader 的狀態感知語句讀取器：統一 header／kv 判斷、正確處理多行
@@ -218,6 +230,7 @@ function createSafetyChecker(deps) {
   function scanSafetyStructuredFile(filePath, issues) {
     const rel = toRelativePath(filePath).replace(/\\/g, '/');
     if (rel === 'claude/settings.json') scanClaudeSettingsSafety(filePath, issues);
+    else if (rel === 'codex/mcp.json') scanMcpManifestSafety(filePath, issues);
     else if (rel.endsWith('.json')) scanJsonKeyWarnings(filePath, issues);
     else if (rel.endsWith('.toml')) scanTomlKeyWarnings(filePath, issues);
   }
