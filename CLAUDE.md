@@ -62,7 +62,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### 刻意不同步（勿加入 `buildSyncItems`）
 
 - **`~/.codex/config.toml`** — 不進 repo、不做整檔同步，且**永不被本工具寫入**（advisory 收斂後連 section-level 投影也移除）。**不要新增 `codex/config.toml` 或整檔 manifest 列**，也**不要讓 `type: 'mcp'` 復活**（`sync.test.js` 兩條回歸鎖）。
-- **`~/.codex/.ai-config-sync-mcp-state.json`** — 舊版投影同步的受管 state，**已完全不再讀寫**；升級後為孤兒檔，README 註明可手動 `rm`（不代刪：為清理而寫本機檔會與「不寫入本機」自相矛盾）。Supermemory API Key 留在 `config.toml` 的本機 Authorization header；OAuth／ChatGPT 登入狀態亦不同步。
+- **`~/.codex/.ai-config-sync-mcp-state.json`** — 舊版投影同步的受管 state，**已完全不再讀寫**；升級後為孤兒檔，README 註明可手動 `rm`（不代刪：為清理而寫本機檔會與「不寫入本機」自相矛盾）。本機 MCP 的 API Key 一律留在 `config.toml` 的 Authorization header；OAuth／ChatGPT 登入狀態亦不同步。
 - **`~/.claude.json`** — 含 OAuth token、專案級歷史與 MCP 設定，屬高風險敏感活檔，**永不被寫入**；唯一放寬處是唯讀讀取 top-level `mcpServers` 作比對。
 - **opencode 機密與資料目錄** — `~/.local/share/opencode`（含 `auth.json`、`opencode.db`）、`~/.cache/opencode`、`~/.local/state/opencode`。因 opencode area 的 `homeBase` 鎖定 `~/.config/opencode`，這些分屬不同根目錄的機密與資料**天生不在同步射程**，無需顯式排除。
 - **opencode 執行期產物** — `~/.config/opencode` 內的 `node_modules/`、`package.json`、`package-lock.json`、`plugins/`（插件執行期產物）。因 `SYNC_MANIFEST` 只列 `opencode.jsonc`／`AGENTS.md` 兩個具名 `file`、未列任何 opencode `dir` 型項目，這些**未列入即不被同步**（無需 `exclude` 機制）。未來新增 opencode `dir`（如 `skills/`）時才需評估 `exclude`。
