@@ -1,6 +1,10 @@
 ## Purpose
 
-定義 Claude Code `settings.json` 跨裝置同步的安全邊界。top-level 欄位與 `env` 內部皆採黑名單混合制：預設同步，僅排除列於黑名單（top-level `DEVICE_SETTINGS_KEYS`／env `DEVICE_ENV_KEYS`）或命中敏感命名 pattern（`SENSITIVE_KEY_PATTERN`）的 key。另以值層防線遞迴掃描收斂結果、明細 diff 對 env 值遮罩，攔截巢狀敏感 key 名與機密樣式值，確保憑證、API key、token 與裝置綁定設定不進入 repo 內容、diff 或一般輸出。env 黑名單為已承擔的安全邊界弱化（乾淨名+乾淨值機密可能漏網進 repo）。
+定義 Claude Code `settings.json` 跨裝置同步的安全邊界。**top-level 採黑名單制**：預設同步，僅排除列於 `DEVICE_SETTINGS_KEYS`（裝置偏好、平台綁定 `hooks`）的 key，strip／preserve 由單一分區同源產出以保證雙向互補。**`env` 無任何黑名單**：所有 env key 一律依一般同步語意處理，唯一結構性動作是「`env` 為空物件時移除該鍵」。
+
+敏感命名 pattern 不再作為同步流程的自動排除條件——命中者照常同步，改由 `npm run safety:check` 以 warning 呈現供人工審核。此為刻意的職責分離：同步流程不宣稱能阻止機密進 repo，該保證由 commit 前的 `safety:check` 與人工審核承擔。這是已承擔的安全邊界弱化（乾淨名 + 乾淨值的機密可能漏網進 repo）。
+
+輸出面則採最強收斂：`diff`／`status` 對 `settings.json` 只輸出項目層級狀態行，不輸出任何設定內容（env 值、env key 名、被排除 key 的值皆不印）。不輸出內容者無需遮罩機制，也就不存在遮罩漏網導致外洩的路徑。
 ## Requirements
 ### Requirement: settings.json top-level 欄位採黑名單混合制同步
 

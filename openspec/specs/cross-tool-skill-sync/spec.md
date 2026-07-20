@@ -1,7 +1,7 @@
 # cross-tool-skill-sync Specification
 
 ## Purpose
-TBD - created by archiving change cross-tool-global-skills. Update Purpose after archive.
+定義跨工具全域 skill 同步（`xtool-skills` 型）的契約：正典為 `~/.agents/skills/<name>/`（Codex 原生掃描），`to-local` 另於 `~/.claude/skills/<name>` 建立 symlink 橋供 Claude Code 探索。與 `npx skills` **共管**同一目錄，故為**非 prune upsert**——只認 repo `agents/skills/` 登記的受管名字，不刪、不吸入 npx 住戶；單一 skill 目錄內的殘檔可清，但不影響任何 sibling。同名碰撞以 `~/.agents/.skill-lock.json` 登記為**唯一**判準（Claude 側 symlink 存在與本機制自身產物無法區分，作為訊號會破壞幂等），碰撞時拒寫並於 diff 以 `conflict` 標示、計入 `EXIT_DIFF`。涵蓋真實目錄→symlink 的遷移、懸空 symlink 修復、`to-repo` 只讀回受管名字，以及 Windows 無 symlink 權限時的 fallback。
 ## Requirements
 ### Requirement: 跨工具全域 skill 同步區
 

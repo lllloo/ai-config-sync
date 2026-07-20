@@ -1,7 +1,7 @@
 # safety-check Specification
 
 ## Purpose
-TBD - created by archiving change decouple-safety-check. Update Purpose after archive.
+定義 `npm run safety:check` 的檢查契約：唯讀、離線、不裝 git hook、不呼叫 LLM，掃描 repo 中會被同步或描述同步狀態的來源（`claude/`、`codex/`、`opencode/`、`agents/` 與 `skills-lock.json`），不掃 `test/`／`openspec/`／README 等非同步來源。分為 hard block（exit 2）與人工審核 warning（exit 1），exit code 表達最高嚴重度；輸出只列分類與位置，不得顯示 secret 原值、env 值或完整 HOME 路徑。text pattern 掃描排除原樣鏡射的外部套件文件目錄以避免整類 false positive，結構化 `.json`／`.toml` 掃描不受該排除影響。`.toml` 機密載體 section 的防線與 MCP 同步機制解耦——即使系統不再同步任何 MCP 設定仍須存在——其 section 名比對為去引號正規化、malformed header 為 fail-closed，兩者皆為防繞過的結構性設計。
 ## Requirements
 ### Requirement: safety check 為唯讀離線檢查
 

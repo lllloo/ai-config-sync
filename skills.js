@@ -127,9 +127,10 @@ function createSkillsHandler(deps) {
       console.log(col.bold('\n  -- 安裝缺少的 skills --'));
       for (const name of onlyInRepo) {
         const skill = repoSkills[name];
-        if (skill && skill.source) {
-          console.log(`    npx skills add ${sanitizeForTerminal(skill.source)} -g -y --skill ${sanitizeForTerminal(name)}`);
-        }
+        // 缺 source 時仍印建議、以 <source> 佔位（同 onlyInLocal 分支）：出現在狀態行的
+        // skill 都要有下一步，否則使用者看得到差異卻無從行動。
+        const source = skill && skill.source ? sanitizeForTerminal(skill.source) : '<source>';
+        console.log(`    npx skills add ${source} -g -y --skill ${sanitizeForTerminal(name)}`);
       }
     }
 

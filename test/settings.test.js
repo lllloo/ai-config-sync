@@ -113,8 +113,8 @@ test('loadStrippedSettings：env key 不因黑名單／pattern 被剝除', () =>
         EDITOR: 'nvim',                     // 乾淨名 → 同步
         MY_PREF: 'value',                   // 乾淨名未知 key → 預設同步（黑名單制的核心行為）
         ANTHROPIC_API_KEY: 'sk-secret',     // 命中 pattern（key）但照常同步
-        CLAUDE_CODE_USE_POWERSHELL_TOOL: '1', // 舊 DEVICE_ENV_KEYS 但照常同步
-        HTTPS_PROXY: 'http://u:p@h',        // 舊 DEVICE_ENV_KEYS 但照常同步
+        CLAUDE_CODE_USE_POWERSHELL_TOOL: '1', // 裝置特定，但 env 無黑名單、照常同步
+        HTTPS_PROXY: 'http://u:p@h',        // 裝置特定，但 env 無黑名單、照常同步
       },
       permissions: ['a'],
     });

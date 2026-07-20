@@ -1,7 +1,7 @@
 # declarative-sync-manifest Specification
 
 ## Purpose
-TBD - created by syncing change declarative-sync-manifest. Update Purpose after archive.
+定義同步項目的宣告式定義機制：`SYNC_MANIFEST` 為所有同步路徑的單一來源（一列 = 一路徑），area 的 base 路徑與顯示前綴由 `SYNC_AREAS` 資料表驅動，單一 materializer 依方向產生 `SyncItem`，新增同步內容只需加一列、不需改 builder 或 dispatch。manifest 的可選欄位（`homeLabel`／`homeRootFile`／`fixedFlow`／`variants`／`exclude`）語義須與實作一致。型別分派（`diffSyncItem`／`applySyncItem`／`buildFullDiffList`）與指令分派（`runCommand`）刻意維持明確 `switch`、不引入 handler 查表，換取分派可讀性；型別集合鎖定為 `file`／`dir`／`settings`／`xtool-skills`，`mcp` 與 `advisory` 兩型別的「不得復活」在此作為回歸鎖。另要求專案文件不得引用已不存在的架構元件，並由測試守護 `COMMANDS` 登錄與 `runCommand` 分派的一致性。
 ## Requirements
 ### Requirement: 同步項目以宣告式 manifest 為單一來源
 
