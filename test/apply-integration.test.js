@@ -783,6 +783,96 @@ itNonRoot('xtool D5 遷移中途失敗：正典已先落 ~/.agents，partialChan
   }
 });
 
+// -----------------------------------------------------------------------------
+// xtool 碰撞守門的方向對稱性：to-repo 與 to-local 同樣拒絕覆寫 npx 住戶
+// （守門若被綁死在 to-local，to-repo 會把 npx 安裝的內容吸進 repo、覆蓋受管版本）
+// -----------------------------------------------------------------------------
+test('xtool 碰撞守門（to-repo）：撞名 → 拒絕覆寫 repo、印 warning、repo 內容不變', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'REPO-KEEP');
+    writeJson(path.join(home, '.agents', '.skill-lock.json'),
+      { skills: { foo: { source: 'org/foo' } } });
+    writeText(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'NPX-INSTALLED');
+
+    const r = run(repo, home, ['to-repo']);
+    assert.equal(r.status, 0, `碰撞為 warning、apply 應續行 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.equal(fs.readFileSync(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'utf8'),
+      'REPO-KEEP', 'to-repo 方向亦不得被 npx 住戶覆寫');
+    assert.match(r.stderr + r.stdout, /拒絕覆寫|撞名/, '應印出碰撞 warning');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// status：exit code 為 diff 與 skills:diff 的聯集（任一有差異即 EXIT_DIFF）
+// -----------------------------------------------------------------------------
+test('status：設定一致但 skills 有差異 → exit 1（聚合 skills:diff 的退出碼）', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'claude', 'CLAUDE.md'), 'SAME');
+    writeText(path.join(home, '.claude', 'CLAUDE.md'), 'SAME');
+    writeJson(path.join(repo, 'skills-lock.json'),
+      { version: 1, skills: { foo: { source: 'org/foo', sourceType: 'github' } } });
+
+    const r = run(repo, home, ['status']);
+    assert.match(r.stdout, /本機與 repo 完全一致/, '前提：設定端無差異（diff 回 EXIT_OK）');
+    assert.match(r.stdout, /repo 有、本機未安裝/, '前提：skills 端有差異');
+    assert.equal(r.status, 1, `skills 有差異即應 exit 1\n${r.stdout}\n${r.stderr}`);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('status：設定與 skills 皆一致 → exit 0', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'claude', 'CLAUDE.md'), 'SAME');
+    writeText(path.join(home, '.claude', 'CLAUDE.md'), 'SAME');
+
+    const r = run(repo, home, ['status']);
+    assert.equal(r.status, 0, `兩端皆一致應 exit 0\n${r.stdout}\n${r.stderr}`);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 首次出現 top-level key 提示的接線：findNewSettingsTopKeys 有單元測試，但
+// 「diff／to-repo 真的呼叫它並印出」需端到端鎖住（漏接線時單元測試仍全綠）
+// -----------------------------------------------------------------------------
+test('diff：本機 settings 出現 repo 沒有的 top-level key → 印出該 key 名', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeJson(path.join(repo, 'claude', 'settings.json'), { permissions: { allow: ['Bash'] } });
+    writeJson(path.join(home, '.claude', 'settings.json'),
+      { permissions: { allow: ['Bash'] }, statusLine: { type: 'command' } });
+
+    const r = run(repo, home, ['diff']);
+    assert.match(r.stdout, /首次出現 top-level key/, 'diff 應印出首次出現 key 提示');
+    assert.match(r.stdout, /statusLine/, '提示應點名該 key');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('to-repo：本機 settings 出現 repo 沒有的 top-level key → 印出該 key 名', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeJson(path.join(repo, 'claude', 'settings.json'), { permissions: { allow: ['Bash'] } });
+    writeJson(path.join(home, '.claude', 'settings.json'),
+      { permissions: { allow: ['Bash'] }, statusLine: { type: 'command' } });
+
+    const r = run(repo, home, ['to-repo']);
+    assert.equal(r.status, 0, `to-repo 應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /首次出現 top-level key/, 'to-repo 應印出首次出現 key 提示');
+    assert.match(r.stdout, /statusLine/, '提示應點名該 key');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('dispatch guard：COMMANDS 每個指令皆可被 runCommand 分派（不落未知指令）', () => {
   const { repo, home, root } = setupSandbox();
   try {
