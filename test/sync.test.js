@@ -253,12 +253,14 @@ test('materializeSyncItem：fixedFlow 項目 src/dest 不隨方向交換', () =>
   assert.match(toRepo.dest, /[\\/]claude[\\/]settings\.json$/);
 });
 
+// homeLabel 目前無 manifest 使用者（隨 MCP 同步移除），但它是 materializer 的通用能力，
+// 以合成 entry 保留覆蓋，避免下次有人需要「repo 與本機檔名不同」時才發現壞掉
 test('materializeSyncItem：homeLabel 允許 repo 與本機使用不同檔名', () => {
-  const entry = { area: 'codex', label: 'mcp.json', homeLabel: 'config.toml', type: 'mcp', fixedFlow: true };
+  const entry = { area: 'codex', label: 'repo-name.json', homeLabel: 'local-name.toml', type: 'file', fixedFlow: true };
   const item = materializeSyncItem(entry, 'to-local');
-  assert.equal(item.label, 'mcp.json');
-  assert.match(item.src, /[\/]\.codex[\/]config\.toml$/);
-  assert.match(item.dest, /[\/]codex[\/]mcp\.json$/);
+  assert.equal(item.label, 'repo-name.json');
+  assert.match(item.src, /[\/]\.codex[\/]local-name\.toml$/);
+  assert.match(item.dest, /[\/]codex[\/]repo-name\.json$/);
 });
 
 test('materializeSyncItem：dir 型 exclude 欄位 propagate 為 excludePatterns', () => {
@@ -367,8 +369,8 @@ test('drift-guard：新增 opencode area 後 claude／codex 既有項目 materia
     const claudeLabels = byArea('claude/').map(i => i.label);
     const codexLabels = byArea('codex/').map(i => i.label);
     assert.deepEqual(claudeLabels,
-      ['CLAUDE.md', 'settings.json', 'statusline.sh', 'mcp.json', 'rules']);
-    assert.deepEqual(codexLabels, ['AGENTS.md', 'mcp.json']);
+      ['CLAUDE.md', 'settings.json', 'statusline.sh', 'rules']);
+    assert.deepEqual(codexLabels, ['AGENTS.md']);
     // 每個非 opencode 項目的 src/dest 皆不含 .config/opencode 路徑
     for (const it of [...byArea('claude/'), ...byArea('codex/')]) {
       assert.doesNotMatch(it.src, /[\\/]\.config[\\/]opencode[\\/]/);
@@ -558,17 +560,22 @@ test('drift-guard：SYNC_MANIFEST 不含 codex config.toml', () => {
     'codex-config 型別已移除');
 });
 
-test('drift-guard：兩端 MCP 皆為 advisory 型且各只有一列', () => {
-  const rows = SYNC_MANIFEST.filter(e => e.type === 'advisory');
-  assert.deepEqual(rows, [
-    { area: 'claude', label: 'mcp.json', homeRootFile: '.claude.json', type: 'advisory', fixedFlow: true },
-    { area: 'codex', label: 'mcp.json', homeLabel: 'config.toml', type: 'advisory', fixedFlow: true },
-  ]);
+// MCP 同步已整批移除（openspec/changes/archive/*-remove-mcp-sync），待重新設計。
+// 回歸鎖：兩種 MCP 型別皆不得復活——`mcp` 會投影寫入 config.toml、`advisory` 會讀本機
+// 設定產生建議指令；重新設計時應開新 change 明確決定形狀，而非讓舊型別悄悄回來。
+test('drift-guard：MCP 型別（mcp／advisory）皆不得復活', () => {
+  assert.equal(SYNC_MANIFEST.some(e => e.type === 'mcp'), false,
+    'type:\'mcp\'（TOML section 投影寫入）已移除，不得重新出現');
+  assert.equal(SYNC_MANIFEST.some(e => e.type === 'advisory'), false,
+    'type:\'advisory\'（MCP 諮詢式比對）已移除，不得重新出現');
 });
 
-test('drift-guard：投影寫入型 mcp 不得復活', () => {
-  // 回歸鎖：advisory 的核心承諾是「不寫本機 MCP 設定」，一列 type:'mcp' 就會破功
-  assert.equal(SYNC_MANIFEST.some(e => e.type === 'mcp'), false);
+// 回歸鎖：MCP 的 repo 來源與本機目標皆已移除，manifest 不得再指向它們
+test('drift-guard：SYNC_MANIFEST 不含 MCP 來源列', () => {
+  assert.equal(SYNC_MANIFEST.some(e => e.label === 'mcp.json'), false,
+    'claude/mcp.json 與 codex/mcp.json 已刪除，不應出現在 SYNC_MANIFEST');
+  assert.equal(SYNC_MANIFEST.some(e => e.homeRootFile === '.claude.json'), false,
+    '~/.claude.json 為高風險敏感活檔，不得再被任何 manifest 列指向');
 });
 
 // -----------------------------------------------------------------------------

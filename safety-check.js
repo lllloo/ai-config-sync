@@ -39,8 +39,6 @@
 const fs = require('fs');
 const path = require('path');
 const { readTomlStatements, splitTomlKey } = require('./toml-reader.js');
-const { validateMcpManifest, McpValidationError } = require('./mcp.js');
-const { validateClaudeMcpManifest } = require('./claude-mcp.js');
 
 /** 敏感命名 review pattern：僅供 safety:check warning，不參與同步剝除。 */
 const SENSITIVE_KEY_PATTERN = /(key|token|secret|credential|password|auth|cert|cookie|session|jwt|helper|refresh)/i;
@@ -66,6 +64,11 @@ const SETTINGS_HARD_BLOCK_KEYS = ['hooks', 'apiKeyHelper', 'awsCredentialExport'
  * repo `.toml` 內出現即為 hard block 的機密載體 section 前綴。config.toml 已不再
  * 同步（沒有同步層會先剝除），此為唯一防線——防人工把含 API key／MCP 憑證的
  * config.toml 放進 repo。比照 SETTINGS_HARD_BLOCK_KEYS 對 settings.json 的守備。
+ *
+ * 注意：本防線與 MCP 同步機制**無因果關係**。MCP 同步已整批移除（見
+ * openspec/changes/archive/*-remove-mcp-sync），但「有人手動複製 ~/.codex/config.toml
+ * 進 repo 備份」的風險並未因此降低，故 `mcp_servers` 仍留在清單中，`toml-reader.js`
+ * 亦隨之保留。不要把它們當成 MCP 同步的遺留物清掉。
  */
 const CODEX_CONFIG_HARD_BLOCK_SECTIONS = ['model_providers', 'mcp_servers'];
 
@@ -173,19 +176,6 @@ function createSafetyChecker(deps) {
     scanSensitiveKeyPaths(readJson(filePath), filePath, issues);
   }
 
-  // 判準與同步流程共用同一個 validator：兩者若各寫一份，遲早出現「同步擋下但
-  // safety 放行」的分歧，而分歧的那一側就是機密外洩的路徑。
-  function scanMcpManifestSafety(filePath, issues, validate, tool) {
-    try {
-      validate(readJson(filePath));
-    } catch (err) {
-      if (!(err instanceof McpValidationError)) throw err;
-      for (const field of err.paths) {
-        addSafetyIssue(issues, 'hard', `不合法的 ${tool} MCP 來源欄位`, filePath, field);
-      }
-    }
-  }
-
   function scanTomlKeyWarnings(filePath, issues) {
     const content = String(readFileSafe(filePath, '讀取 TOML 安全檢查檔案', 'utf8'));
     // 使用 toml-reader 的狀態感知語句讀取器：統一 header／kv 判斷、正確處理多行
@@ -233,8 +223,6 @@ function createSafetyChecker(deps) {
   function scanSafetyStructuredFile(filePath, issues) {
     const rel = toRelativePath(filePath).replace(/\\/g, '/');
     if (rel === 'claude/settings.json') scanClaudeSettingsSafety(filePath, issues);
-    else if (rel === 'codex/mcp.json') scanMcpManifestSafety(filePath, issues, validateMcpManifest, 'Codex');
-    else if (rel === 'claude/mcp.json') scanMcpManifestSafety(filePath, issues, validateClaudeMcpManifest, 'Claude');
     else if (rel.endsWith('.json')) scanJsonKeyWarnings(filePath, issues);
     else if (rel.endsWith('.toml')) scanTomlKeyWarnings(filePath, issues);
   }

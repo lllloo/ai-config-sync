@@ -11,6 +11,12 @@
 // （改由 README 列建議設定、使用者手動套用），過濾與序列化隨之刪除；讀取器
 // 因 safety:check 的 TOML 掃描仍依賴而保留，抽成本檔並改為通用 TOML 命名。
 //
+// 不要把本檔當成 MCP 同步的遺留物清掉：MCP 同步（advisory 型）已於
+// remove-mcp-sync 整批移除，但本檔與該機制**無因果關係**——它服務的是
+// safety-check.js 對 repo 內任何 `.toml` 的機密 section hard block，擋的是
+// 「有人手動把 ~/.codex/config.toml 複製進 repo 備份」，這風險不隨 MCP
+// 是否同步而改變。boundary.test.js 有專門的回歸測試鎖住這點。
+//
 // 跨行語法：逐行掃描，以 scanTomlValueState（追蹤陣列括號淨深度與三引號字串
 // 開閉，略過字串／註解內字元）偵測未閉合的多行陣列與 """／''' 三引號字串並併入
 // 續行，避免逐行截斷成無效 TOML。matchTomlHeader 顯式辨識 array-of-tables

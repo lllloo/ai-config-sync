@@ -18,7 +18,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { noColorEnv } = require('./helpers.js');
 
-const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'mcp.js', 'claude-mcp.js'];
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js'];
 
 // 沙箱 repo 的基準可攜 settings：repo 與本機共用此底，本機再疊 extra，
 // 使 settings 明細差異只落在測試指定的 key 上。
@@ -124,74 +124,6 @@ test('runDiff：settings 差異不外洩 env 值', () => {
     const result = runDiff(repo, home);
     assert.match(result.stdout, /claude\/settings\.json/, 'settings.json 應被列為有差異');
     assert.doesNotMatch(result.stdout, new RegExp(leakMarker), '輸出不得顯示 env 值');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// -----------------------------------------------------------------------------
-// Codex MCP：受管 Server 細粒度差異與輸出遮罩
-// -----------------------------------------------------------------------------
-
-test('runDiff：repo-only MCP 以 Server 名回報，輸出不顯示 URL', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    const marker = 'mcp-url-must-not-appear.example';
-    writeJson(path.join(repo, 'codex', 'mcp.json'), {
-      version: 1,
-      servers: { supermemory: { transport: 'streamable-http', url: `https://${marker}/mcp`, enabled: true } },
-    });
-    const result = runDiff(repo, home);
-    assert.match(result.stdout, /codex\/mcp\.json\/supermemory/);
-    assert.doesNotMatch(result.stdout, new RegExp(marker));
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('runDiff：受管 MCP 與 state 一致時不列 Server 差異', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    const server = { transport: 'streamable-http', url: 'https://mcp.example/mcp', enabled: true };
-    writeJson(path.join(repo, 'codex', 'mcp.json'), { version: 1, servers: { managed: server } });
-    writeFile(path.join(home, '.codex', 'config.toml'), '[mcp_servers.managed]\nurl = "https://mcp.example/mcp"\nenabled = true\n');
-    writeJson(path.join(home, '.codex', '.ai-config-sync-mcp-state.json'), { version: 1, managedServers: ['managed'] });
-    const result = runDiff(repo, home);
-    assert.doesNotMatch(result.stdout, /codex\/mcp\.json\/managed/);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('runDiff：本機 Authorization header 不造成差異且輸出不洩漏值', () => {
-  const { repo, home, root } = setupSandbox();
-  const marker = 'mcp-local-secret-must-not-appear';
-  try {
-    const server = { transport: 'streamable-http', url: 'https://mcp.example/mcp', enabled: true };
-    writeJson(path.join(repo, 'codex', 'mcp.json'), { version: 1, servers: { managed: server } });
-    writeFile(path.join(home, '.codex', 'config.toml'), [
-      '[mcp_servers.managed]',
-      'url = "https://mcp.example/mcp"',
-      'enabled = true',
-      `http_headers = { Authorization = "Bearer ${marker}" }`,
-      '',
-    ].join('\n'));
-    writeJson(path.join(home, '.codex', '.ai-config-sync-mcp-state.json'), { version: 1, managedServers: ['managed'] });
-    const result = runDiff(repo, home);
-    assert.doesNotMatch(result.stdout, /codex\/mcp\.json\/managed/);
-    assert.doesNotMatch(result.stdout + result.stderr, new RegExp(marker));
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('runDiff：本機未受管 MCP 不自動視為 repo 差異', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeJson(path.join(repo, 'codex', 'mcp.json'), { version: 1, servers: {} });
-    writeFile(path.join(home, '.codex', 'config.toml'), '[mcp_servers.local_only]\ncommand = "node"\n');
-    const result = runDiff(repo, home);
-    assert.doesNotMatch(result.stdout, /local_only/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

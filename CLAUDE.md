@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 目錄命名（重要）
 
 - **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、statusline.sh、rules），由 `sync.js` 管理。**全域 skill 不放這裡**（唯一落點為 `agents/skills/`，見下）。
-- **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（`AGENTS.md` 與可攜 MCP 來源 `mcp.json`），由 `sync.js` 管理。`config.toml` **不做整檔同步、也永不被寫入**：MCP 為 advisory 型，只唯讀比對並輸出 `codex mcp add` 指令。
+- **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（目前只有 `AGENTS.md`），由 `sync.js` 管理。`config.toml` **不做整檔同步、也永不被寫入或讀取**。MCP 同步已整批移除待重新設計（見 `openspec/changes/archive/*-remove-mcp-sync`）。
 - **`opencode/`**（無點）— 要同步到 `~/.config/opencode/` 的全域設定（`opencode.jsonc` 主設定、`AGENTS.md` 全域指示），由 `sync.js` 管理。opencode 採 XDG 佈局，設定家在 `~/.config/opencode`（非 `~/.opencode`）。
 - **`agents/`**（無點）— 要同步到 `~/.agents/` 的**跨工具全域** skill（`agents/skills/<name>/`），由 `sync.js` 的 `xtool-skills` 型管理。正典為 `~/.agents/skills/`（Codex 原生掃），apply 另於 `~/.claude/skills/<name>` 建 symlink 橋供 Claude Code 探索。與 `npx skills` **共管** `~/.agents/skills/`：非 prune、只認受管名字、撞名（`~/.agents/.skill-lock.json` 已登記）拒寫（見下方 Skills 管理）。
 - **`.claude/`**（有點）— 本 repo 專用的 Claude Code 本地設定（`settings.json` 等），**不參與同步、不映射到 `~/.claude/`**。`.claude/skills` 是 symlink 指向 `../.agents/skills`。
@@ -54,44 +54,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `agents/skills/` | `~/.agents/skills/` | **跨工具全域** skill（`xtool-skills` 型，全域 skill 唯一落點）。正典為 `~/.agents/skills/<name>/`（真實目錄，Codex 原生掃）；apply 另建 `~/.claude/skills/<name>` symlink 橋供 Claude 探索（官方支援、自動去重）。**非 prune、與 `npx skills` 共管**：只認 repo `agents/skills/` 登記的受管名字，不刪／不吸入 npx 住戶；撞名（`~/.agents/.skill-lock.json` 已登記）拒寫、`diff` 以 `conflict` 標示。dir→symlink 轉換內生於此型的 apply，**不依賴與其他 manifest 列的相對順序** |
 | `claude/rules/` | `~/.claude/rules/` | 模組化全域規則（CLAUDE.md 的拆分檔），支援 frontmatter `paths:` 做 path-specific scoping |
 | `codex/AGENTS.md` | `~/.codex/AGENTS.md` | Codex 全域指示（跨專案規則），全文比對 |
-| `claude/mcp.json` | `~/.claude.json` 的 top-level `mcpServers`（**唯讀**） | `advisory` fixed-flow 型（`homeRootFile: '.claude.json'`）；repo 只存 `type: http`／`sse`／`stdio`、HTTPS `url` 或白名單 `command`＋`args`、諮詢性 `envKeys`。`to-local` 只輸出 `claude mcp add --scope user ...` 指令，**不寫入 `~/.claude.json`** |
-| `codex/mcp.json` | `~/.codex/config.toml` 的受管 `[mcp_servers.*]`（**唯讀**） | `advisory` fixed-flow 型；repo 只存 `transport`／HTTPS `url`／`enabled`。`to-local` 只輸出 `codex mcp add` 指令，**不寫入 `config.toml`**。本機 `http_headers.Authorization` 解析時容忍、不讀值、不寫回 repo |
 | `opencode/opencode.jsonc` | `~/.config/opencode/opencode.jsonc` | opencode 全域主設定，整檔 `file` 型同步。**XDG 佈局**：homeBase 為 `~/.config/opencode`。**檔名變體**：`.jsonc`／`.json` 由 manifest `variants` 欄位解析出兩端一致的 canonical label（`.jsonc` 優先），杜絕重複檔；機制見 `SYNC_MANIFEST`／`resolveVariantLabel` 註解 |
 | `opencode/AGENTS.md` | `~/.config/opencode/AGENTS.md` | opencode 全域指示，`file` 型整檔同步，獨立於 Claude 的 `CLAUDE.md`（opencode 缺此檔時會 fallback 讀 `~/.claude/CLAUDE.md`，維護獨立一份可與 Claude 分歧） |
 
 ### 刻意不同步（勿加入 `buildSyncItems`）
 
-- **`~/.codex/config.toml`** — 不進 repo、不做整檔同步，且**永不被本工具寫入**（advisory 收斂後連 section-level 投影也移除）。**不要新增 `codex/config.toml` 或整檔 manifest 列**，也**不要讓 `type: 'mcp'` 復活**（`sync.test.js` 兩條回歸鎖）。
-- **`~/.codex/.ai-config-sync-mcp-state.json`** — 舊版投影同步的受管 state，**已完全不再讀寫**；升級後為孤兒檔，README 註明可手動 `rm`（不代刪：為清理而寫本機檔會與「不寫入本機」自相矛盾）。本機 MCP 的 API Key 一律留在 `config.toml` 的 Authorization header；OAuth／ChatGPT 登入狀態亦不同步。
-- **`~/.claude.json`** — 含 OAuth token、專案級歷史與 MCP 設定，屬高風險敏感活檔，**永不被寫入**；唯一放寬處是唯讀讀取 top-level `mcpServers` 作比對。
+- **`~/.codex/config.toml`** — 不進 repo、不做整檔同步，且**永不被本工具寫入或讀取**（MCP 移除後連唯讀 section 解析也不存在）。**不要新增 `codex/config.toml` 或整檔 manifest 列**，也**不要讓 `type: 'mcp'`／`type: 'advisory'` 復活**（`sync.test.js` 的回歸鎖）。
+- **MCP Server 定義（兩端）** — 已整批移除同步，待重新設計；請以官方 CLI 於各裝置手動維護。舊版投影同步的 `~/.codex/.ai-config-sync-mcp-state.json` 為孤兒檔，README 註明可手動 `rm`（不代刪：為清理而寫本機檔會與「不寫入本機」自相矛盾）。本機 MCP 的 API Key 一律留在 `config.toml` 的 Authorization header；OAuth／ChatGPT 登入狀態亦不同步。
+- **`~/.claude.json`** — 含 OAuth token、專案級歷史與 MCP 設定，屬高風險敏感活檔，**永不被寫入或讀取**（MCP 移除後已無任何觸碰它的程式路徑，`apply-integration.test.js` 有內容 + mtime 雙重斷言回歸鎖）。
 - **opencode 機密與資料目錄** — `~/.local/share/opencode`（含 `auth.json`、`opencode.db`）、`~/.cache/opencode`、`~/.local/state/opencode`。因 opencode area 的 `homeBase` 鎖定 `~/.config/opencode`，這些分屬不同根目錄的機密與資料**天生不在同步射程**，無需顯式排除。
 - **opencode 執行期產物** — `~/.config/opencode` 內的 `node_modules/`、`package.json`、`package-lock.json`、`plugins/`（插件執行期產物）。因 `SYNC_MANIFEST` 只列 `opencode.jsonc`／`AGENTS.md` 兩個具名 `file`、未列任何 opencode `dir` 型項目，這些**未列入即不被同步**（無需 `exclude` 機制）。未來新增 opencode `dir`（如 `skills/`）時才需評估 `exclude`。
 
 ## 架構重點
 
-**主入口 + safety／toml-reader／skills／MCP 模組**：`sync.js` 為主 CLI 入口；`safety-check.js`、`toml-reader.js`、`skills.js`、`mcp.js`、`claude-mcp.js` 各自承載安全掃描、TOML 語句、skills 與兩端 MCP。六檔零外部相依、只用 Node.js 內建模組，功能模組不反向 require `sync.js`：
+**主入口 + safety／toml-reader／skills 模組**：`sync.js` 為主 CLI 入口；`safety-check.js`、`toml-reader.js`、`skills.js` 各自承載安全掃描、TOML 語句與 skills。四檔零外部相依、只用 Node.js 內建模組，功能模組不反向 require `sync.js`：
 
 - `safety-check.js`：safety 專屬常數與掃描邏輯由本檔持有，測試直接 require 該模組（`sync.js` 不 re-export）。共用工具由 `sync.js` 經 `createSafetyChecker(deps)` 注入；TOML 解析改為**直接 require `toml-reader.js`**（純函式、零 IO，非 `sync.js` 故不違反反向 require 禁令）。text pattern 掃描排除外部套件文件目錄（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`，整類 false positive）。**注入邊界、掃描分層與取捨的完整說明見該檔檔頭註解**。
 - `toml-reader.js`：TOML 邏輯語句讀取器（`readTomlStatements`／`matchTomlHeader`／`scanTomlValueState`），純函式、零 IO、不被 `sync.js` 使用。唯一消費者是 `safety-check.js` 的 `.toml` 掃描——**section 歸屬正確性直接決定 hard block 判斷**，故 `test/toml-reader.test.js` 是安全防線的回歸網，不可刪。前身為 `codex-config.js` 的解析半部（config.toml 同步移除後，過濾／序列化／合併半部一併刪除）。
   - **header 解析為引號感知**（`findTomlHeaderEnd`）：TOML section 名可含帶 `]` 的引號 key（`[mcp_servers."a]b"]`）。用 `[^\]]+` 之類的 regex 會提前截斷、整行判為非 header，其下 key 誤掛前一 section，**機密 section 的 hard block 會靜默降級成 warning**。改動 header 解析須保住 `test/toml-reader.test.js` 與 `boundary.test.js` 的 F2 回歸測試。
   - **malformed header 為 fail-closed**：`[` 開頭但無法解析的行回傳 `{type:'section', name:null}`（不是 `other`），`safety-check.js` 據此 hard block 並清空 section。理由：section 名不可信時機密判斷失去依據，寧可擋下讓人工檢視，也不沿用前一 section 名而漏判。
 - `skills.js`：skills 指令族（`skills:diff`／`skills:add`／`skills:remove`）的 lock 檔讀取、三向集合差、name/source 驗證、terminal 清洗與輸出格式化。**不反向 require `sync.js`**：共用常數與工具（`REPO_ROOT`、`LOCAL_SKILL_LOCK`、`EXIT_OK`／`EXIT_DIFF`、`SyncError`／`ERR`、`readJson`／`writeJsonSafe`、`printSectionDivider`／`printStatusLine`、`col`）以 `createSkillsHandler(deps)` DI 注入，`fs`／`path` 由本檔自 require。`sync.js` 以 lazy singleton（照 `_safetyChecker` 樣式）建立 handler、經 `runCommand` 三個 case 分派。**對外契約**為回傳的 `{ runSkillsDiff, runSkillsAdd, runSkillsRemove }`；deps-bound helper（`loadSkillsFromLock`／`validateSkillName`／`validateSkillSource`／`parseSkillSource`）一併附在回傳物件上，僅作 `sync.js` re-export 與單元測試 seam（`runCommand` 不使用）。純函式 `computeSkillsDiff`／`sanitizeForTerminal` 於模組層直接匯出。`isNpxManagedSkill`（Sync Core）與 `runStatus` 對 skills 的呼叫亦經此 singleton 轉接。
-- `mcp.js`：MCP 來源 schema、**共用憑證判準**（`findUrlCredentialPaths`／`findArgsCredentialPaths`／`isSuspiciousToken`，兩端與 `safety:check` 共用）、Codex `config.toml` 的唯讀 section 解析與 `codex mcp add` 指令產生。`createMcpHandler(deps)` 注入的 `writeFileSafe` **只用於 repo 端**；本檔已無任何寫入 `config.toml` 的路徑（投影、state、Authorization surgical preservation 均已移除）。受管 section 的未知 key 仍 fail closed，理由是「比對結論不可信」而非「我們要重寫它」。
-- `claude-mcp.js`：Claude MCP 來源 schema、`~/.claude.json` 的唯讀 inspect（`JSON.parse` 整檔，不需字元級掃描器）與 `claude mcp add` 指令產生。`createClaudeMcpHandler(deps)` 同樣只對 repo 端寫入。憑證判準自 `mcp.js` 取得（純函式，非 `sync.js`，不違反反向 require 禁令）。**本檔刻意不存在寫入 `~/.claude.json` 的程式路徑**——那是架構選擇而非紀律要求。
 
 檔案結構採 section banner 分段，關鍵不變式：
 
-- **所有函式 ≤ 60 行**（經 iter4/iter5 稽核強制）— 新增函式若超過需拆分。**唯一例外**：DI factory（`createSafetyChecker`／`createSkillsHandler`／`createMcpHandler`／`createClaudeMcpHandler`）為「注入依賴後包住一組短小巢狀閉包」的命名空間包裝，本體行數為閉包集合的總和、非單一邏輯流程，不受此限；其內部各閉包仍須 ≤ 60 行
+- **所有函式 ≤ 60 行**（經 iter4/iter5 稽核強制）— 新增函式若超過需拆分。**唯一例外**：DI factory（`createSafetyChecker`／`createSkillsHandler`）為「注入依賴後包住一組短小巢狀閉包」的命名空間包裝，本體行數為閉包集合的總和、非單一邏輯流程，不受此限；其內部各閉包仍須 ≤ 60 行
 - **指令分派（switch）**：`COMMANDS` 物件為 `{ alias, desc }`（名稱／別名／說明的單一來源）；`main()` 先檢查 `COMMANDS[cmd]` 是否存在，再由 `runCommand(cmd, opts)` 以明確 `switch` 分派到各 `runXxx`。**新增指令需同步改 `COMMANDS`（登錄名稱／別名／說明）與 `runCommand` 的 `switch`（接上 handler）**——刻意不走 handler 注入表，換取分派可讀性
-- **宣告式同步項目 `SYNC_MANIFEST`**：一列 = 一路徑；可選 `homeLabel` 表示本機檔名不同於 repo `label`（`mcp.json → config.toml`），可選 `homeRootFile` 表示本機端在 `$HOME` 下、不套用 area `homeBase`（`~/.claude.json`）。`fixedFlow` 項目 src/dest 固定不交換，由 `settings`／`advisory` handler 依 direction 決定行為。
-- **型別行為分派（switch）**：`SyncItem.type`（`file`／`settings`／`advisory`／`dir`／`xtool-skills`）由 `diffSyncItem`／`applySyncItem` 明確分派；`advisory` 經 `advisoryHandler(item)` 依 `item.area` 選 Claude／Codex handler，以每個 Server 產生狀態行，禁止輸出設定值。apply 回傳 `action: 'advice'`，`applySyncItems` 不計入 stats、`runToLocal` 不納入確認閘門。
+- **宣告式同步項目 `SYNC_MANIFEST`**：一列 = 一路徑；可選 `homeLabel` 表示本機檔名不同於 repo `label`，可選 `homeRootFile` 表示本機端在 `$HOME` 下、不套用 area `homeBase`。兩欄目前皆無 manifest 使用者（隨 MCP 移除），但保留為 materializer 的通用能力（`sync.test.js` 以合成 entry 維持覆蓋）。`fixedFlow` 項目 src/dest 固定不交換，目前只有 `settings.json`，由 `settings` handler 依 direction 決定行為。
+- **型別行為分派（switch）**：`SyncItem.type`（`file`／`settings`／`dir`／`xtool-skills`）由 `diffSyncItem`／`applySyncItem` 明確分派。`advisory`（MCP 諮詢式）與 `mcp`（TOML section 投影）兩種型別皆已移除，`sync.test.js` 有回歸鎖擋其復活。
 - **Atomic write**：底層 `writeFileSafe` 先寫同目錄暫存檔（隨機尾碼 + `flag:'wx'` O_EXCL）再 rename（同檔系統避免 EXDEV），所有寫入路徑（`writeJsonSafe`、`writeTextSafe`、`copyFile`、`mirrorDir`）皆走此函式。提供**原子性**（避免半截損壞），但**不付 fsync 成本、不保證持久性**（設定檔對持久性需求低）。對稱的 `readFileSafe` 統一將讀取例外包成 `SyncError`（帶 path context），不讓裸 fs 例外穿透 `formatError`。diff 全程唯讀、只輸出狀態行，不產生任何暫存檔
 - **統一錯誤處理**：`SyncError` class（`code` + `context`）+ 檔尾 `.catch(formatError)`，所有路徑經 `formatError`，**禁止**裸 `console.error + process.exit`
 - **Exit code 語義**：`EXIT_OK=0`（成功或 diff 無差異）、`EXIT_DIFF=1`（diff 有差異，可用於 CI）、`EXIT_ERROR=2`
 - **Relative path 遮罩**：`toRelativePath` 處理 REPO_ROOT 與 `$HOME` → `~/`，`logVerbosePaths` 與 `SyncError` context 的 path 顯示亦走此函式避免洩漏使用者名稱
 - **Skills lock 為純資料 manifest**：`skills-lock.json` 不參與同步流程；`runSkillsDiff` 直接讀 `~/.agents/.skill-lock.json`（`npx skills` CLI 的原生 lock 檔）與 repo `skills-lock.json` 做集合比對，**只輸出建議指令、不執行安裝/移除**。刻意不用 `npx skills list -g`，因為它會掃目錄並把 `sync.js` 同步管理的 skill（`agents/skills/` 的受管名字，於 `~/.agents/skills/` 為正典、於 `~/.claude/skills/` 為 symlink 橋，如 `pen-design`、`mini-research`）也列入，造成誤報。本機多裝的 skills 會同時列出（A）`npm run skills:add` 加入 repo 與（B）`npx skills remove` 從本機移除兩種選項
 
-**測試策略**：`test/mcp.test.js` 與 `test/claude-mcp.test.js` 覆蓋兩端 schema、憑證判準、唯讀解析與指令產生；advisory 的「零寫入」由整合測試以**內容 + mtime 雙重斷言**把關（只驗內容會漏掉「寫入相同內容」的情況）。`diff-integration.test.js`／`apply-integration.test.js` 的 `SYNC_RUNTIME_FILES` 與 `boundary.test.js` 的 `SAFETY_RUNTIME_FILES` 必須同時包含 `sync.js`、`safety-check.js`、`toml-reader.js`、`skills.js`、`mcp.js`、`claude-mcp.js`，不得依賴真實 HOME。既有 drift guards（commands、README、`config.toml` 整檔禁入）與「兩端 MCP 皆 advisory」「`type: 'mcp'` 不得復活」兩條 guard 均須保持通過。
+**測試策略**：`~/.claude.json` 與 `~/.codex/config.toml` 的「零觸碰」由 `apply-integration.test.js` 以**內容 + mtime 雙重斷言**把關（只驗內容會漏掉「寫入相同內容」的情況）——重新設計 MCP 同步時這是第一道要面對的閘門。`diff-integration.test.js`／`apply-integration.test.js` 的 `SYNC_RUNTIME_FILES` 與 `boundary.test.js` 的 `SAFETY_RUNTIME_FILES` 必須同時包含 `sync.js`、`safety-check.js`、`toml-reader.js`、`skills.js`，不得依賴真實 HOME。既有 drift guards（commands、README、`config.toml` 整檔禁入）與「`mcp`／`advisory` 型別不得復活」「`SYNC_MANIFEST` 不含 MCP 來源列」等 guard 均須保持通過。
 
 ## 修改守則
 
@@ -100,8 +96,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **函式行數守則**：新增或重構後若某函式 > 60 行，需拆分。同步項目的宣告式資料改由 `SYNC_MANIFEST`／`SYNC_AREAS` 常數承載，`buildSyncItems`／`materializeSyncItem` 皆為小函式，無超行例外。
 - **禁止新增外部相依**：所有功能必須使用 Node.js 內建模組，不得 `npm install` 任何套件。
 - **settings.json top-level 採黑名單制**（`DEVICE_SETTINGS_KEYS`）：預設同步官方 top-level 欄位，僅排除黑名單列舉。敏感命名 key 不再被同步剝除或中止，改由 `safety:check` warning 供人工審核；`env` 區塊全部依一般同步語意同步，diff／status 不印任何設定內容。strip／preserve 由 `partitionSettingsTopLevel` 同源保證互補；增減黑名單欄位須改 `DEVICE_SETTINGS_KEYS` 常數與 README（drift-guard 測試把關）。
-- **MCP 不得寫入本機**：`to-local` 對兩端 MCP 只能輸出建議指令。不要新增 `codex/config.toml` 或整檔 manifest 列，不要讓 `type: 'mcp'` 復活，也不要為了「順便清理」而刪除孤兒 state 檔。可攜欄位只能改兩份 `mcp.json` 的白名單 schema，並同步更新 validator、safety、測試與 README；OAuth／headers／env 值／token 不得加入 repo。本機 `http_headers.Authorization` 只可容忍其存在，不得解析、比較、輸出或寫回 repo。
-- **憑證判準不得放寬**：`isSuspiciousToken` 的門檻與 fail-closed 語意是安全防線，不得為了通過某個合法長 URL 而加繞過旗標或例外清單；誤擋時改用 `envKeys` 或本機手動維護。
+- **本工具不同步 MCP**：`~/.claude.json` 與 `~/.codex/config.toml` 永不被寫入或讀取。不要新增 `codex/config.toml` 或整檔 manifest 列，不要讓 `type: 'mcp'`／`type: 'advisory'` 復活，也不要為了「順便清理」而刪除孤兒 state 檔。**重新設計 MCP 同步時**：憑證判準必須 fail closed（無法判定為安全即拒絕，不得加繞過旗標或例外清單），OAuth／headers／env 值／token 不得加入 repo——舊實作的完整推理見 `openspec/changes/archive/` 的三份 MCP change。
 - **安全審核由 `npm run safety:check` 承擔**：唯讀、離線掃描 `claude/`、`codex/`、`opencode/`、`skills-lock.json`，不掃 `test/`、`openspec/`、README 等非同步來源文件。hard block（exit 2）：secret value pattern、私鑰片段、絕對 HOME 路徑、repo settings.json 出現 `hooks`／credential helper、repo 內任何 `.toml` 出現機密載體 section（`CODEX_CONFIG_HARD_BLOCK_SECTIONS`）；warning（exit 1）：settings.json env key 清單、敏感命名 key path、`.toml` 出現裝置狀態 section（`CODEX_CONFIG_DEVICE_WARN_SECTIONS`）；clean exit 0。輸出只列分類與位置，不輸出值。text 掃描排除外部套件文件目錄（取捨與分層見 `safety-check.js` 檔頭）；增減排除目錄與兩份 section 常數須改常數與 README（drift-guard 測試把關）。
 - **構建規則**（來自全域 CLAUDE.md）：禁擅自執行 `npm run build`。
 - **嚴禁洩漏敏感資訊到輸出**：`diff`／`status` 不得顯示 env 值，`safety:check` 不得顯示 secret 原值或完整 HOME 路徑。同步流程本身不再宣稱能阻止所有機密寫入 repo；`file`／`dir` 型項目仍原樣同步，commit 前須執行 `npm run safety:check` 與人工審核。
