@@ -10,13 +10,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、statusline.sh、rules），由 `sync.js` 管理。**全域 skill 不放這裡**（唯一落點為 `agents/skills/`，見下）。
 - **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（目前只有 `AGENTS.md`），由 `sync.js` 管理。`config.toml` **不做整檔同步、也永不被寫入或讀取**。MCP 同步已整批移除待重新設計（見 `openspec/changes/archive/*-remove-mcp-sync`）。
-- **`opencode/`**（無點）— 要同步到 `~/.config/opencode/` 的全域設定（`opencode.jsonc` 主設定、`AGENTS.md` 全域指示），由 `sync.js` 管理。opencode 採 XDG 佈局，設定家在 `~/.config/opencode`（非 `~/.opencode`）。
 - **`agents/`**（無點）— 要同步到 `~/.agents/` 的**跨工具全域** skill（`agents/skills/<name>/`），由 `sync.js` 的 `xtool-skills` 型管理。正典為 `~/.agents/skills/`（Codex 原生掃），apply 另於 `~/.claude/skills/<name>` 建 symlink 橋供 Claude Code 探索。與 `npx skills` **共管** `~/.agents/skills/`：非 prune、只認受管名字、撞名（`~/.agents/.skill-lock.json` 已登記）拒寫（見下方 Skills 管理）。
 - **`.claude/`**（有點）— 本 repo 專用的 Claude Code 本地設定落點，**不參與同步、不映射到 `~/.claude/`**。目前只有 `.claude/skills`（symlink 指向 `../.agents/skills`）與本機執行期產物；日後若需 repo 專用的 `settings.json` 亦放這裡。
 - **Codex 本地 skill** — **不需建 `.codex/skills`**。Codex CLI 會自動探索 `.agents/skills`：專案層由 `repo_agents_skill_roots` 從 project root 逐層掃 `<dir>/.agents/skills`，全域層掃 `~/.agents/skills`（原始碼 `codex-rs/core-skills/src/loader.rs` 的 `skill_roots()`）。故本 repo 的 `.agents/skills` 對 Codex 直接生效，無需 symlink。
 - **`.agents/skills/`** — 本地 skill **實體目錄**（已納入版控），跨工具（Claude Code / Codex）共用來源；遵循 [Agent Skills](https://agentskills.io) 開放標準。
 
-新增同步項目：Claude 設定放 `claude/`、Codex 放 `codex/`、opencode 放 `opencode/`、**全域 skill 一律放 `agents/skills/<name>/`**（跨工具，唯一落點）；新增**本地** skill 一律放 `.agents/skills/<name>/`（有點）。勿誤放到 `.claude/` 或 `.codex/`。`agents/`（無點，同步）與 `.agents/`（有點，本地）是兩回事，勿混淆。
+新增同步項目：Claude 設定放 `claude/`、Codex 放 `codex/`、**全域 skill 一律放 `agents/skills/<name>/`**（跨工具，唯一落點）；新增**本地** skill 一律放 `.agents/skills/<name>/`（有點）。勿誤放到 `.claude/` 或 `.codex/`。`agents/`（無點，同步）與 `.agents/`（有點，本地）是兩回事，勿混淆。
 
 ## 執行環境
 
@@ -54,16 +53,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `agents/skills/` | `~/.agents/skills/` | **跨工具全域** skill（`xtool-skills` 型，全域 skill 唯一落點）。正典為 `~/.agents/skills/<name>/`（真實目錄，Codex 原生掃）；apply 另建 `~/.claude/skills/<name>` symlink 橋供 Claude 探索（官方支援、自動去重）。**非 prune、與 `npx skills` 共管**：只認 repo `agents/skills/` 登記的受管名字，不刪／不吸入 npx 住戶；撞名（`~/.agents/.skill-lock.json` 已登記）拒寫、`diff` 以 `conflict` 標示。dir→symlink 轉換內生於此型的 apply，**不依賴與其他 manifest 列的相對順序** |
 | `claude/rules/` | `~/.claude/rules/` | 模組化全域規則（CLAUDE.md 的拆分檔），支援 frontmatter `paths:` 做 path-specific scoping |
 | `codex/AGENTS.md` | `~/.codex/AGENTS.md` | Codex 全域指示（跨專案規則），全文比對 |
-| `opencode/opencode.jsonc` | `~/.config/opencode/opencode.jsonc` | opencode 全域主設定，整檔 `file` 型同步。**XDG 佈局**：homeBase 為 `~/.config/opencode`。**檔名變體**：`.jsonc`／`.json` 由 manifest `variants` 欄位解析出兩端一致的 canonical label（`.jsonc` 優先），杜絕重複檔；機制見 `SYNC_MANIFEST`／`resolveVariantLabel` 註解 |
-| `opencode/AGENTS.md` | `~/.config/opencode/AGENTS.md` | opencode 全域指示，`file` 型整檔同步，獨立於 Claude 的 `CLAUDE.md`（opencode 缺此檔時會 fallback 讀 `~/.claude/CLAUDE.md`，維護獨立一份可與 Claude 分歧） |
 
 ### 刻意不同步（勿加入 `buildSyncItems`）
 
 - **`~/.codex/config.toml`** — 不進 repo、不做整檔同步，且**永不被本工具寫入或讀取**（MCP 移除後連唯讀 section 解析也不存在）。**不要新增 `codex/config.toml` 或整檔 manifest 列**，也**不要讓 `type: 'mcp'`／`type: 'advisory'` 復活**（`sync.test.js` 的回歸鎖）。
 - **MCP Server 定義（兩端）** — 已整批移除同步，待重新設計；請以官方 CLI 於各裝置手動維護。舊版投影同步的 `~/.codex/.ai-config-sync-mcp-state.json` 為孤兒檔，README 註明可手動 `rm`（不代刪：為清理而寫本機檔會與「不寫入本機」自相矛盾）。本機 MCP 的 API Key 一律留在 `config.toml` 的 Authorization header；OAuth／ChatGPT 登入狀態亦不同步。
 - **`~/.claude.json`** — 含 OAuth token、專案級歷史與 MCP 設定，屬高風險敏感活檔，**永不被寫入或讀取**（MCP 移除後已無任何觸碰它的程式路徑，`apply-integration.test.js` 有內容 + mtime 雙重斷言回歸鎖）。
-- **opencode 機密與資料目錄** — `~/.local/share/opencode`（含 `auth.json`、`opencode.db`）、`~/.cache/opencode`、`~/.local/state/opencode`。因 opencode area 的 `homeBase` 鎖定 `~/.config/opencode`，這些分屬不同根目錄的機密與資料**天生不在同步射程**，無需顯式排除。
-- **opencode 執行期產物** — `~/.config/opencode` 內的 `node_modules/`、`package.json`、`package-lock.json`、`plugins/`（插件執行期產物）。因 `SYNC_MANIFEST` 只列 `opencode.jsonc`／`AGENTS.md` 兩個具名 `file`、未列任何 opencode `dir` 型項目，這些**未列入即不被同步**（無需 `exclude` 機制）。未來新增 opencode `dir`（如 `skills/`）時才需評估 `exclude`。
 
 ## 架構重點
 
@@ -97,7 +92,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **禁止新增外部相依**：所有功能必須使用 Node.js 內建模組，不得 `npm install` 任何套件。
 - **settings.json top-level 採黑名單制**（`DEVICE_SETTINGS_KEYS`）：預設同步官方 top-level 欄位，僅排除黑名單列舉。敏感命名 key 不再被同步剝除或中止，改由 `safety:check` warning 供人工審核；`env` 區塊全部依一般同步語意同步，diff／status 不印任何設定內容。strip／preserve 由 `partitionSettingsTopLevel` 同源保證互補；增減黑名單欄位須改 `DEVICE_SETTINGS_KEYS` 常數與 README（drift-guard 測試把關）。
 - **本工具不同步 MCP**：`~/.claude.json` 與 `~/.codex/config.toml` 永不被寫入或讀取。不要新增 `codex/config.toml` 或整檔 manifest 列，不要讓 `type: 'mcp'`／`type: 'advisory'` 復活，也不要為了「順便清理」而刪除孤兒 state 檔。**重新設計 MCP 同步時**：憑證判準必須 fail closed（無法判定為安全即拒絕，不得加繞過旗標或例外清單），OAuth／headers／env 值／token 不得加入 repo——舊實作的完整推理見 `openspec/changes/archive/` 的三份 MCP change。
-- **安全審核由 `npm run safety:check` 承擔**：唯讀、離線掃描 `claude/`、`codex/`、`opencode/`、`skills-lock.json`，不掃 `test/`、`openspec/`、README 等非同步來源文件。hard block（exit 2）：secret value pattern、私鑰片段、絕對 HOME 路徑、repo settings.json 出現 `hooks`／credential helper、repo 內任何 `.toml` 出現機密載體 section（`CODEX_CONFIG_HARD_BLOCK_SECTIONS`）；warning（exit 1）：settings.json env key 清單、敏感命名 key path、`.toml` 出現裝置狀態 section（`CODEX_CONFIG_DEVICE_WARN_SECTIONS`）；clean exit 0。輸出只列分類與位置，不輸出值。text 掃描排除外部套件文件目錄（取捨與分層見 `safety-check.js` 檔頭）；增減排除目錄與兩份 section 常數須改常數與 README（drift-guard 測試把關）。
+- **安全審核由 `npm run safety:check` 承擔**：唯讀、離線掃描 `claude/`、`codex/`、`agents/`、`skills-lock.json`，不掃 `test/`、`openspec/`、README 等非同步來源文件。hard block（exit 2）：secret value pattern、私鑰片段、絕對 HOME 路徑、repo settings.json 出現 `hooks`／credential helper、repo 內任何 `.toml` 出現機密載體 section（`CODEX_CONFIG_HARD_BLOCK_SECTIONS`）；warning（exit 1）：settings.json env key 清單、敏感命名 key path、`.toml` 出現裝置狀態 section（`CODEX_CONFIG_DEVICE_WARN_SECTIONS`）；clean exit 0。輸出只列分類與位置，不輸出值。text 掃描排除外部套件文件目錄（取捨與分層見 `safety-check.js` 檔頭）；增減排除目錄與兩份 section 常數須改常數與 README（drift-guard 測試把關）。
 - **構建規則**（來自全域 CLAUDE.md）：禁擅自執行 `npm run build`。
 - **嚴禁洩漏敏感資訊到輸出**：`diff`／`status` 不得顯示 env 值，`safety:check` 不得顯示 secret 原值或完整 HOME 路徑。同步流程本身不再宣稱能阻止所有機密寫入 repo；`file`／`dir` 型項目仍原樣同步，commit 前須執行 `npm run safety:check` 與人工審核。
 - **部分失敗可見度**：apply 中途拋例外時，`mirrorDir` 把已完成變更附掛到 `SyncError.context.partialChanges`，`applySyncItems` 補印、`warnPartialApply` 警告「已寫入 N 筆變更」——與 `handleSignal` 的訊號中斷警告互補，已寫入的檔案不得零可見度。操作歷史由 git 承載，不另寫 log 檔。

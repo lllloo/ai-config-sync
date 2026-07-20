@@ -1156,26 +1156,10 @@ test('safety:check：repo config.toml 裝置狀態 section（history 等）→ w
   }
 });
 
-test('safety:check：opencode 主設定含機密值 → hard block exit 2，遮罩原值', () => {
+test('safety:check：codex/AGENTS.md 含絕對 HOME 路徑 → hard block exit 2，遮罩路徑', () => {
   const { repo, root } = setupSafetySandbox();
   try {
-    const secret = 'sk-' + 'o'.repeat(24);
-    writeSafetyText(repo, 'opencode/opencode.jsonc',
-      `{\n  "$schema": "https://opencode.ai/config.json",\n  "apiKey": "${secret}"\n}\n`);
-    const r = runSafety(repo);
-    assert.equal(r.status, 2, `opencode 主設定機密應 hard block\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /疑似機密值/);
-    assert.match(r.stdout, /opencode[\\/]opencode\.jsonc/, '應指出 opencode 主設定檔');
-    assert.doesNotMatch(r.stdout, new RegExp(secret), '不得輸出 secret 原值');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('safety:check：opencode/AGENTS.md 含絕對 HOME 路徑 → hard block exit 2，遮罩路徑', () => {
-  const { repo, root } = setupSafetySandbox();
-  try {
-    writeSafetyText(repo, 'opencode/AGENTS.md', '# opencode\n見 /home/alice/.config/opencode/opencode.jsonc\n');
+    writeSafetyText(repo, 'codex/AGENTS.md', '# Codex\n見 /home/alice/.codex/config.toml\n');
     const r = runSafety(repo);
     assert.equal(r.status, 2, `AGENTS.md 內 HOME 路徑應 hard block\n${r.stdout}\n${r.stderr}`);
     assert.match(r.stdout, /絕對 HOME 路徑/);

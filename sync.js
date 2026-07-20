@@ -30,9 +30,6 @@ const REPO_ROOT = __dirname;
 const HOME = os.homedir();
 const CLAUDE_HOME = path.join(HOME, '.claude');
 const CODEX_HOME = path.join(HOME, '.codex');
-// opencode 採 XDG 佈局：設定家在 ~/.config/opencode（非 ~/.opencode）；
-// 機密（auth.json）與資料庫落在 ~/.local/share、~/.cache、~/.local/state，天生不在此射程。
-const OPENCODE_HOME = path.join(HOME, '.config', 'opencode');
 const AGENTS_HOME = path.join(HOME, '.agents');
 const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
 // 跨工具全域 skill（xtool-skills）用到的三個 skill 根：
@@ -1081,7 +1078,6 @@ function mergeSettingsBetween(localPath, repoPath, direction, dryRun = false) {
 const SYNC_AREAS = {
   claude:   { homeBase: CLAUDE_HOME,   repoDir: 'claude',   prefix: 'claude/'   },
   codex:    { homeBase: CODEX_HOME,    repoDir: 'codex',    prefix: 'codex/'    },
-  opencode: { homeBase: OPENCODE_HOME, repoDir: 'opencode', prefix: 'opencode/' },
   // 跨工具全域 skill 正典區：~/.agents（Codex 原生掃、Claude 透過 symlink 橋探索）
   agents:   { homeBase: AGENTS_HOME,   repoDir: 'agents',   prefix: 'agents/'   },
 };
@@ -1097,9 +1093,7 @@ const SYNC_AREAS = {
  *   - fixedFlow：true 代表 src 恆為本機端、dest 恆為 repo 端，不隨 direction 交換
  *     （settings.json 由 mergeSettingsBetween 依 direction 決定流向）
  *   - exclude（選填，僅 dir 型）：glob 片段陣列，diffDir／mirrorDir 以 matchExclude 略過對應相對路徑
- *   - variants（選填，僅 file 型）：檔名變體優先序陣列（如 opencode.jsonc/.json），materializeSyncItem
- *     以兩端實際存在者決定 canonical label、皆不存在採 variants[0]；不影響無此欄位的既有列
- * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, homeLabel?: string, homeRootFile?: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[], variants?: string[]}>}
+ * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, homeLabel?: string, homeRootFile?: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[]}>}
  */
 const SYNC_MANIFEST = [
   { area: 'claude', label: 'CLAUDE.md',     type: 'file' },
@@ -1108,8 +1102,6 @@ const SYNC_MANIFEST = [
   { area: 'agents', label: 'skills',        type: 'xtool-skills' },
   { area: 'claude', label: 'rules',         type: 'dir' },
   { area: 'codex',  label: 'AGENTS.md',     type: 'file' },
-  { area: 'opencode', label: 'opencode.jsonc', type: 'file', variants: ['opencode.jsonc', 'opencode.json'] },
-  { area: 'opencode', label: 'AGENTS.md',      type: 'file' },
 ];
 
 /**
@@ -1123,34 +1115,16 @@ function resolveSyncArea(area) {
 }
 
 /**
- * 解析檔名變體的 canonical label：以優先序掃 variants，任一端（本機／repo）實際存在即採之，
- * 皆不存在則回退 variants[0]（預設變體）。兩端共用單一 canonical label，杜絕產生重複檔。
- * @param {string[]} variants - 檔名變體，依優先序排列（如 ['opencode.jsonc', 'opencode.json']）
- * @param {string} homeBase - 本機端 base 路徑
- * @param {string} repoBase - repo 端 base 路徑
- * @returns {string} canonical 檔名
- */
-function resolveVariantLabel(variants, homeBase, repoBase) {
-  for (const cand of variants) {
-    if (fs.existsSync(path.join(homeBase, cand)) || fs.existsSync(path.join(repoBase, cand))) {
-      return cand;
-    }
-  }
-  return variants[0];
-}
-
-/**
  * 將一列 manifest 依同步方向 materialize 成 SyncItem。
  * fixedFlow 項目 src/dest 固定（home→repo），其餘依 direction 交換。
  * dir 型可選 `exclude`：propagate 為 `excludePatterns`，供 diffDir／mirrorDir 略過（matchExclude）。
- * file 型可選 `variants`：以 resolveVariantLabel 取兩端實際存在的 canonical label（皆不存在採 variants[0]）。
- * @param {{area: keyof typeof SYNC_AREAS, label: string, homeLabel?: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[], variants?: string[]}} entry
+ * @param {{area: keyof typeof SYNC_AREAS, label: string, homeLabel?: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[]}} entry
  * @param {'to-repo'|'to-local'} direction
  * @returns {SyncItem}
  */
 function materializeSyncItem(entry, direction) {
   const { homeBase, repoBase, prefix } = resolveSyncArea(entry.area);
-  const label = entry.variants ? resolveVariantLabel(entry.variants, homeBase, repoBase) : entry.label;
+  const label = entry.label;
   const homePath = entry.homeRootFile
     ? path.join(HOME, entry.homeRootFile)
     : path.join(homeBase, entry.homeLabel || label);
@@ -2323,7 +2297,6 @@ if (require.main === module) {
     printToLocalPreview,
     buildSyncItems,
     materializeSyncItem,
-    resolveVariantLabel,
     SYNC_MANIFEST,
     SYNC_AREAS,
     actionToIcon,

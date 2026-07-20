@@ -1,7 +1,7 @@
 # safety-check Specification
 
 ## Purpose
-定義 `npm run safety:check` 的檢查契約：唯讀、離線、不裝 git hook、不呼叫 LLM，掃描 repo 中會被同步或描述同步狀態的來源（`claude/`、`codex/`、`opencode/`、`agents/` 與 `skills-lock.json`），不掃 `test/`／`openspec/`／README 等非同步來源。分為 hard block（exit 2）與人工審核 warning（exit 1），exit code 表達最高嚴重度；輸出只列分類與位置，不得顯示 secret 原值、env 值或完整 HOME 路徑。text pattern 掃描排除原樣鏡射的外部套件文件目錄以避免整類 false positive，結構化 `.json`／`.toml` 掃描不受該排除影響。`.toml` 機密載體 section 的防線與 MCP 同步機制解耦——即使系統不再同步任何 MCP 設定仍須存在——其 section 名比對為去引號正規化、malformed header 為 fail-closed，兩者皆為防繞過的結構性設計。
+定義 `npm run safety:check` 的檢查契約：唯讀、離線、不裝 git hook、不呼叫 LLM，掃描 repo 中會被同步或描述同步狀態的來源（`claude/`、`codex/`、`agents/` 與 `skills-lock.json`），不掃 `test/`／`openspec/`／README 等非同步來源。分為 hard block（exit 2）與人工審核 warning（exit 1），exit code 表達最高嚴重度；輸出只列分類與位置，不得顯示 secret 原值、env 值或完整 HOME 路徑。text pattern 掃描排除原樣鏡射的外部套件文件目錄以避免整類 false positive，結構化 `.json`／`.toml` 掃描不受該排除影響。`.toml` 機密載體 section 的防線與 MCP 同步機制解耦——即使系統不再同步任何 MCP 設定仍須存在——其 section 名比對為去引號正規化、malformed header 為 fail-closed，兩者皆為防繞過的結構性設計。
 ## Requirements
 ### Requirement: safety check 為唯讀離線檢查
 
@@ -18,7 +18,7 @@
 
 ### Requirement: safety check 掃描同步來源
 
-系統 SHALL 掃描 repo 中會被同步或描述同步狀態的來源，包括 `claude/`、`codex/`、`opencode/`、`agents/` 與 `skills-lock.json`。系統 SHALL NOT 預設掃描 `test/`、`openspec/`、README 或其他純文件，以避免測試資料與範例造成噪音。
+系統 SHALL 掃描 repo 中會被同步或描述同步狀態的來源，包括 `claude/`、`codex/`、`agents/` 與 `skills-lock.json`。系統 SHALL NOT 預設掃描 `test/`、`openspec/`、README 或其他純文件，以避免測試資料與範例造成噪音。
 
 機密值／私鑰／絕對 HOME 路徑的 **text pattern 掃描** SHALL 只作用於本 repo 維護的設定同步來源，並 SHALL 排除原樣鏡射的外部套件文件目錄（`agents/skills/`），以避免這些「為說明而含 token／路徑樣式」的第三方文件造成整類 false positive。排除前綴 SHALL 只列舉 repo 中實際存在的目錄；同步層移除時其排除前綴 SHALL 一併撤除。結構化 `.json`／`.toml` 掃描（含 `settings.json` 與 repo 內任何 `.toml` 的 hard block 判斷）SHALL NOT 受此排除影響。
 
@@ -26,12 +26,6 @@
 - **WHEN** 使用者執行 `npm run safety:check`
 - **THEN** 系統 SHALL 檢查 `claude/` 與 `codex/` 下的同步來源內容
 - **AND** 系統 SHALL 檢查 `skills-lock.json`
-
-#### Scenario: 掃描 opencode 同步來源
-- **WHEN** repo 的 `opencode/` 下含有同步來源（如 `opencode.jsonc`、`AGENTS.md`）
-- **AND** 使用者執行 `npm run safety:check`
-- **THEN** 系統 SHALL 檢查 `opencode/` 下的同步來源內容
-- **AND** 若 opencode 主設定檔內含機密值樣式、私鑰片段或絕對 HOME 路徑，系統 SHALL 依既有規則回報 hard block
 
 #### Scenario: 掃描跨工具 skill 同步來源
 - **WHEN** repo 的 `agents/` 下含有同步來源（如 `agents/skills/<name>/SKILL.md`）
@@ -50,7 +44,7 @@
 - **THEN** 系統 SHALL NOT 因這些套件文件的 text pattern 命中回報 hard block
 
 #### Scenario: 設定來源檔仍觸發 text pattern hard block
-- **WHEN** 本 repo 維護的設定來源（如 `claude/statusline.sh`、`claude/CLAUDE.md`、`codex/AGENTS.md`、`opencode/AGENTS.md`）含有機密值樣式、私鑰片段或絕對 HOME 路徑
+- **WHEN** 本 repo 維護的設定來源（如 `claude/statusline.sh`、`claude/CLAUDE.md`、`codex/AGENTS.md`）含有機密值樣式、私鑰片段或絕對 HOME 路徑
 - **AND** 使用者執行 `npm run safety:check`
 - **THEN** 系統 SHALL 回報 hard block
 - **AND** 指令 SHALL 以 exit code `2` 結束
