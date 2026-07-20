@@ -56,6 +56,9 @@ const DEVICE_SETTINGS_KEYS = [
 /** 永遠排除的檔案名稱 */
 const GLOBAL_EXCLUDE = ['.DS_Store'];
 
+/** 探索點衝突時最多列出的檔名數（其餘以總數帶過，避免洗版） */
+const BRIDGE_CONFLICT_LIST_MAX = 5;
+
 /** help 指令排版用欄寬 */
 const CMD_COL_WIDTH = 14;
 const ALIAS_COL_WIDTH = 8;
@@ -299,23 +302,27 @@ process.on('exit', cleanupTempFiles);
 
 // =============================================================================
 // Section: Signal Handling -- 中斷訊號處理
-// 攔截 SIGINT/SIGTERM，在同步中斷時給出警告
+// 攔截 SIGINT/SIGTERM，清理暫存檔並以正確 exit code 退出
 // =============================================================================
-
-/** @type {boolean} 是否正在執行寫入操作 */
-let isWriting = false;
 
 /**
  * 處理中斷訊號：清理暫存檔後以 re-raise signal 方式退出，
- * 讓 OS 設定正確的 exit code
+ * 讓 OS 設定正確的 exit code。
+ *
+ * **不報告「部分寫入」**：signal handler 是 event loop 上的 JS callback，
+ * 而 applySyncItems 的寫入是一整段無 await 的同步程式碼——訊號在寫入期間送達時
+ * handler 排不進去，等它執行時該批寫入早已跑完。過去此處有個 `if (isWriting)`
+ * 分支想印中斷警告，但該旗標在 handler 實際執行時必為 false，是條永遠不成立的
+ * dead code（誤導成「訊號中斷已有可見度保證」）。
+ *
+ * 反過來說，這也表示**訊號不會造成寫到一半的狀態**：就 signal 而言，一批寫入
+ * 要嘛整批完成、要嘛尚未開始。真正可能產生部分寫入的只有例外路徑，其可見度由
+ * mirrorDir 的 partialChanges + warnPartialApply 承擔。
  * @param {string} signal
  * @returns {void}
  */
 function handleSignal(signal) {
   cleanupTempFiles();
-  if (isWriting) {
-    console.error(col.yellow('\n  [!] 同步中斷，部分檔案可能未更新'));
-  }
   // 移除自身 handler 後 re-raise signal，讓 OS 設定正確的 exit code
   process.removeListener(signal, handleSignal);
   // Windows 不支援 signal re-raise（會拋 ESRCH），改用慣例 exit code
@@ -736,11 +743,55 @@ function createSymlinkAtomic(target, linkPath) {
 }
 
 /**
+ * 列出 dir 內「repo 沒有對應來源」的檔案相對路徑。
+ *
+ * 用於 D5 真實目錄→symlink 轉換前的安全閘門。ensureSymlink 會遞迴 rm 掉 dir，
+ * 其 doc 要求「呼叫端須先確認正典內容已落在 target」——但 upsertOneSkill 只保證
+ * 「repo 有的檔案已落在正典」，不保證「dir 裡的每個檔案都在正典裡」。
+ * 使用者自寫、repo 從未有過的檔案落在這個差集內，靜默 rm 會永久遺失且無備援。
+ *
+ * 判準刻意是**路徑存在性、不比對內容**：本機同名檔內容較舊（repo 已更新該 skill）
+ * 是 D5 遷移的常態，覆蓋它就是 to-local 的正常語意，與 mirrorDir 對其他同步項的
+ * 處理一致；改用內容比對會把每次 skill 更新都誤報成衝突。真正無法復原的只有
+ * 「repo 從未有過的路徑」。
+ * @param {string} dir - 待檢查的真實目錄
+ * @param {string} srcDir - repo 端的來源目錄
+ * @returns {string[]} repo 無對應來源的相對路徑（空陣列代表 dir 可安全刪除）
+ */
+function findUnmirroredFiles(dir, srcDir) {
+  return getFiles(dir).filter(rel => !fs.existsSync(path.join(srcDir, rel)));
+}
+
+/**
+ * Claude 探索點被真實檔案／目錄佔用時，判斷轉成 symlink 是否會損失內容。
+ * diff 與 apply 共用此判斷，確保「預覽說會跳過」與「實際跳過」不會分歧。
+ *
+ * 比對基準刻意用 **repo 來源目錄**而非當下的 ~/.agents 正典：to-local 會先由
+ * upsertOneSkill（prune 型 mirrorDir）把 repo 內容寫成正典，故兩者在 apply 後等價；
+ * 但 diff 跑在 upsert 之前，此時正典可能還是空的，用它比對會把正常的 D5 遷移
+ * 全部誤判成衝突。
+ * @param {string} srcDir - repo 端的 skill 來源目錄（agents/skills/<name>）
+ * @param {string} name - skill 名稱
+ * @returns {{reason: string, files: string[]}|null} 不安全回原因，安全（或非真實目錄）回 null
+ */
+function bridgeUnsafeReason(srcDir, name) {
+  const link = path.join(CLAUDE_SKILLS_HOME, name);
+  const cur = lstatSyncSafe(link);
+  if (!cur || cur.isSymbolicLink()) return null;
+  // 一般檔案佔用：正典為目錄，該檔不可能是鏡射產物，一律視為未鏡射
+  if (!cur.isDirectory()) return { reason: '本機同名檔案非本工具產物', files: [name] };
+  const files = findUnmirroredFiles(link, srcDir);
+  if (!files.length) return null;
+  return { reason: `本機目錄有 ${files.length} 個檔案不在 repo 正典內`, files };
+}
+
+/**
  * 幂等建立／修復指向 target 的 symlink。型別判斷一律 lstat（見 lstatSyncSafe）：
  *   - 已是指向 target 的正確 symlink → 跳過（回 null）
  *   - symlink 指向錯誤／懸空 → unlink 後重建
  *   - 真實檔案／目錄佔用（舊機制產物，D5）→ rm 後建 symlink；呼叫端須先確認正典
- *     內容已落在 target（~/.agents），此處 rm 才安全（不可在刪目錄後、建 link 前掉內容）
+ *     內容已落在 target（~/.agents），此處 rm 才安全（不可在刪目錄後、建 link 前掉內容）。
+ *     skill 橋接的呼叫端以 bridgeUnsafeReason 把關，未鏡射者不會走到這裡
  *   - 不存在 → 直接建
  * @param {string} target - symlink 指向的絕對路徑
  * @param {string} linkPath - 要建立的 symlink 路徑
@@ -1048,8 +1099,13 @@ function mergeSettingsBetween(localPath, repoPath, direction, dryRun = false) {
     return true;
   } else {
     if (!fs.existsSync(repoPath)) return false;
-    const repo = readJson(repoPath);
-    const repoStr = serializeSettings(repo);
+    // repo 側同樣只取可攜部分：repo 可能殘留 device key（例如某 key 剛被補列
+    // DEVICE_SETTINGS_KEYS、但 repo 檔尚未經 to-repo 重寫）。若拿未過濾的 repo
+    // 當基底，(a) 該 key 會被寫進本機（本機無同名 key 時 device spread 擋不住），
+    // (b) 比對永遠不等於已剝除的 local，diff／to-local 恆為 changed、永不收斂。
+    const { portable: repoPortable } = partitionSettingsTopLevel(readJson(repoPath));
+    stripDeviceEnv(repoPortable);
+    const repoStr = serializeSettings(repoPortable);
 
     // 比對 repo 與 stripped local（兩邊皆使用 serializeSettings 確保結尾換行對稱）。
     const stripped = loadStrippedSettings(localPath);
@@ -1059,7 +1115,7 @@ function mergeSettingsBetween(localPath, repoPath, direction, dryRun = false) {
     // repo 可攜內容為準，本機 DEVICE_SETTINGS_KEYS 欄位整鍵保留（不與 repo 側同名物件合併）
     const local = fs.existsSync(localPath) ? readJson(localPath) : {};
     const { device } = partitionSettingsTopLevel(local);
-    writeJsonSafe(localPath, { ...repo, ...device });
+    writeJsonSafe(localPath, { ...repoPortable, ...device });
     return true;
   }
 }
@@ -1341,9 +1397,13 @@ function diffBridgeLink(item, name) {
     try { ok = fs.readlinkSync(link) === target; } catch (_) { ok = false; }
   }
   if (ok) return null;
-  const status = cur ? 'changed' : 'new';
   const label = `${itemLabel(item, name)} [claude 探索點]`;
-  return { label, status, src: target, dest: link, verboseSrc: target, verboseDest: link, itemType: 'xtool-skills' };
+  const entry = { label, src: target, dest: link, verboseSrc: target, verboseDest: link, itemType: 'xtool-skills' };
+  // 真實目錄／檔案佔用且含未鏡射內容：轉 symlink 會遞迴刪掉那些內容，
+  // 標為 conflict（拒寫、跳過）而非 changed（將更新），避免預覽把刪除說成更新
+  const unsafe = bridgeUnsafeReason(path.join(item.src, name), name);
+  if (unsafe) return { ...entry, status: 'conflict', conflictReason: `${unsafe.reason}，拒絕刪除、將跳過` };
+  return { ...entry, status: cur ? 'changed' : 'new' };
 }
 
 /**
@@ -1451,7 +1511,18 @@ function upsertOneSkill(item, name, dryRun) {
  * @param {boolean} dryRun
  * @returns {{rel: string, action: string}|null}
  */
-function bridgeSkillLink(name, dryRun) {
+function bridgeSkillLink(srcDir, name, dryRun) {
+  const unsafe = bridgeUnsafeReason(srcDir, name);
+  if (unsafe) {
+    console.warn(col.yellow(
+      `  [warn] skill「${name}」的 claude 探索點含未鏡射內容（${unsafe.reason}），拒絕刪除、跳過`
+    ));
+    for (const f of unsafe.files.slice(0, BRIDGE_CONFLICT_LIST_MAX)) console.warn(col.yellow(`         - ${f}`));
+    if (unsafe.files.length > BRIDGE_CONFLICT_LIST_MAX) {
+      console.warn(col.yellow(`         …等 ${unsafe.files.length} 個檔案`));
+    }
+    return null;
+  }
   const target = path.join(AGENTS_SKILLS_HOME, name);
   const link = path.join(CLAUDE_SKILLS_HOME, name);
   const res = ensureSymlink(target, link, dryRun);
@@ -1469,23 +1540,47 @@ function bridgeSkillLink(name, dryRun) {
  */
 function applyXtoolItem(item, direction, dryRun) {
   const changed = [];
+  let current = null;
   try {
     for (const name of managedSkillNames()) {
+      current = name;
       if (isNpxManagedSkill(name)) {
         console.warn(col.yellow(`  [warn] skill「${name}」已由 npx skills 登記於 ~/.agents/.skill-lock.json，拒絕覆寫、跳過`));
         continue;
       }
       for (const c of upsertOneSkill(item, name, dryRun)) changed.push(c);
       if (direction === 'to-local') {
-        const link = bridgeSkillLink(name, dryRun);
+        const link = bridgeSkillLink(path.join(item.src, name), name, dryRun);
         if (link) changed.push(link);
       }
     }
   } catch (e) {
-    if (e instanceof SyncError && changed.length) e.context.partialChanges = changed;
+    if (e instanceof SyncError) mergeXtoolPartialChanges(e, changed, current);
     throw e;
   }
   return changed.map(c => ({ action: c.action, label: itemLabel(item, c.rel) }));
+}
+
+/**
+ * 併入 xtool apply 的部分變更，供 applySyncItems 補印。
+ *
+ * 兩邊都要保住：`done` 是先前已完成 skill 的變更，`err.context.partialChanges` 是
+ * mirrorDir 附掛的「當前 skill 內部」已完成變更。直接指派會抹掉其中一邊，讓已寫入
+ * 磁碟的檔案零可見度（違反「部分寫入不得零可見度」）。
+ * mirrorDir 的 rel 是 skill 內部相對路徑（缺 `<name>/` 前綴），需補齊才能對上
+ * itemLabel 的顯示格式。
+ * @param {SyncError} err
+ * @param {Array<{rel: string, action: string}>} done - 先前已完成 skill 的變更
+ * @param {string|null} currentName - 失敗當下處理中的 skill 名
+ * @returns {void}
+ */
+function mergeXtoolPartialChanges(err, done, currentName) {
+  const inner = (err.context.partialChanges || []).map(c => ({
+    ...c,
+    rel: currentName ? `${currentName}/${c.rel}` : c.rel,
+  }));
+  const all = [...done, ...inner];
+  if (all.length) err.context.partialChanges = all;
 }
 
 /**
@@ -1822,7 +1917,7 @@ function printDiffItem(item, opts) {
   if (item.status === null) {
     printStatusLine('ok', item.label);
   } else if (statusMap[item.status]) {
-    printStatusLine(statusMap[item.status][0], item.label, statusMap[item.status][1]);
+    printStatusLine(statusMap[item.status][0], item.label, item.conflictReason || statusMap[item.status][1]);
   }
   if (opts.verbose && item.verboseSrc) logVerbosePaths(item.verboseSrc, item.verboseDest || item.dest);
   return item.status !== null;
@@ -1877,7 +1972,6 @@ function runToRepo(opts) {
     }
   }
 
-  isWriting = !dryRun;
   try {
     const items = buildSyncItems('to-repo');
     // 首次出現 key 須在 apply 前取樣（寫入後 repo 已含新 key，差集恆空），提示留到摘要後印
@@ -1900,8 +1994,6 @@ function runToRepo(opts) {
   } catch (e) {
     warnPartialApply(e, dryRun);
     throw e;
-  } finally {
-    isWriting = false;
   }
 
   return EXIT_OK;
@@ -1917,7 +2009,7 @@ function printToLocalPreview(diffResults) {
     if (d.status === 'new') printStatusLine('added', d.label, '將新增');
     else if (d.status === 'changed') printStatusLine('changed', d.label, '將更新');
     else if (d.status === 'eol') printStatusLine('eol', d.label, '將更新（僅檔尾換行）');
-    else if (d.status === 'conflict') printStatusLine('conflict', d.label, '撞名 npx skill，將跳過不覆寫');
+    else if (d.status === 'conflict') printStatusLine('conflict', d.label, d.conflictReason || '撞名 npx skill，將跳過不覆寫');
     else if (d.status === 'deleted' && d.preserved) printStatusLine('up', d.label, '本機保留（repo 無對應來源，不會刪除）');
     else if (d.status === 'deleted') printStatusLine('deleted', d.label, '將刪除');
   }
@@ -1947,7 +2039,6 @@ async function confirmAndApply(items, autoYes = false) {
   }
   console.log('');
 
-  isWriting = true;
   try {
     const { stats, changeLog } = applySyncItems(items, 'to-local', { dryRun: false });
 
@@ -1961,8 +2052,6 @@ async function confirmAndApply(items, autoYes = false) {
   } catch (e) {
     warnPartialApply(e, false);
     throw e;
-  } finally {
-    isWriting = false;
   }
 
   console.log('');

@@ -250,6 +250,90 @@ api_key = "sk-x"
     'key 須歸屬引號 section，而非誤掛 features');
 });
 
+// -----------------------------------------------------------------------------
+// 回歸（#4）：未閉合 value 不得吞掉後續 section header（fail-open → fail-closed）
+//
+// 舊實作在括號未平衡時無條件併吞後續每一行直到平衡或 EOF。`notify = [` 之下的
+// `[mcp_servers.acme]` 因此永不 emit 成 section，safety-check 的 isCodexSecretSection
+// 從未被呼叫，機密 section 的 hard block 靜默消失（實測退回 exit 1）。
+// -----------------------------------------------------------------------------
+test('readTomlStatements：未閉合陣列不吞掉其後的 section header', () => {
+  const content = `[tui]
+notify = [
+[mcp_servers.acme]
+bearer_token = "x"
+`;
+  const sts = readTomlStatements(content);
+  const sections = sts.filter(st => st.type === 'section');
+  assert.deepEqual(sections.map(s => s.name), ['tui', null, 'mcp_servers.acme'],
+    'header 必須仍被 emit 成 section，不得被吞進 value');
+  assert.equal(sections[1].reason, 'unterminated-value', '未閉合 value 應標明 reason');
+  assert.equal(sections[1].line, 2, 'malformed 標記帶未閉合 value 的行號');
+  assert.deepEqual(kvsWithSection(content).map(k => `${k.section}.${k.key}`),
+    ['mcp_servers.acme.bearer_token'], 'key 須正確歸屬機密 section');
+});
+
+test('readTomlStatements：未閉合陣列直到 EOF → fail closed（不得靜默 emit kv）', () => {
+  const sts = readTomlStatements('[tui]\nnotify = [\n  "a",\n');
+  const last = sts[sts.length - 1];
+  assert.equal(last.type, 'section', 'EOF 仍未平衡應標為不可信 section 邊界');
+  assert.equal(last.name, null);
+  assert.equal(last.reason, 'unterminated-value');
+  assert.equal(sts.filter(st => st.type === 'kv').length, 0, '不得 emit 半截 kv');
+});
+
+// 反向：header 中斷判斷不得誤傷合法多行陣列。`[3, 4]` 這種續行以 `[` 開頭、
+// 尾端亦無雜訊，若只用 matchTomlHeader 判斷會誤判為 header 而把合法檔報成 malformed。
+test('readTomlStatements：巢狀陣列續行（[3, 4]）不被誤判為 section header', () => {
+  const content = `[tui]
+matrix = [
+  [1, 2],
+  [3, 4]
+]
+theme = "x"
+`;
+  const sts = readTomlStatements(content);
+  assert.equal(sts.filter(st => st.type === 'section' && st.name === null).length, 0,
+    '合法巢狀陣列不得產生 malformed 標記');
+  assert.deepEqual(kvsWithSection(content).map(k => k.key), ['matrix', 'theme']);
+});
+
+// 反向：三引號字串內容對 TOML 不透明，其中的 `[x]` 樣式合法，不得中斷併吞
+test('readTomlStatements：三引號字串內的 header 樣式仍併吞，不報 malformed', () => {
+  const content = '[tui]\ndescription = """\n[mcp_servers]\n"""\napi_token = "x"\n';
+  const sts = readTomlStatements(content);
+  assert.equal(sts.filter(st => st.type === 'section' && st.name === null).length, 0);
+  assert.deepEqual(kvsWithSection(content).map(k => `${k.section}.${k.key}`),
+    ['tui.description', 'tui.api_token']);
+});
+
+// -----------------------------------------------------------------------------
+// 回歸（#15）：basic string 跳脫序列須解碼，否則 \uXXXX 可繞過 hard block
+// -----------------------------------------------------------------------------
+test('splitTomlKey：basic string 的 \\uXXXX 跳脫被解碼（不得成為繞過破口）', () => {
+  assert.deepEqual(splitTomlKey('"mcp\\u005Fservers"'), ['mcp_servers'],
+    '\\u005F 為底線，解碼後應等同 mcp_servers');
+  assert.deepEqual(splitTomlKey('"model\\u005Fproviders".openai'), ['model_providers', 'openai']);
+  assert.deepEqual(splitTomlKey('"a\\U0001F600b"'), ['a\u{1F600}b'], '\\U 八位形式亦解碼');
+});
+
+test('splitTomlKey：basic string 的單字元跳脫被解碼', () => {
+  assert.deepEqual(splitTomlKey('"a\\tb"'), ['a\tb']);
+  assert.deepEqual(splitTomlKey('"a\\\\b"'), ['a\\b']);
+  assert.deepEqual(splitTomlKey('"a\\"b"'), ['a"b']);
+});
+
+test('splitTomlKey：無法解碼的跳脫序列回 null（fail closed）', () => {
+  assert.equal(splitTomlKey('"mcp\\q_servers"'), null, '非標準跳脫');
+  assert.equal(splitTomlKey('"a\\u12"'), null, '\\u 位數不足');
+  assert.equal(splitTomlKey('"a\\uZZZZ"'), null, '\\u 非十六進位');
+  assert.equal(splitTomlKey('"a\\uD800"'), null, 'surrogate 非合法 scalar value');
+});
+
+test('splitTomlKey：字面字串（單引號）不解碼跳脫（TOML 語意）', () => {
+  assert.deepEqual(splitTomlKey("'a\\tb'"), ['a\\tb'], "字面字串的 \\t 是兩個字元");
+});
+
 test('readTomlStatements：statement 帶 1-indexed 行號', () => {
   const sts = readTomlStatements('[a]\nk = 1\n');
   assert.equal(sts[0].line, 1);

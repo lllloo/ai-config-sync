@@ -31,6 +31,8 @@ const {
   sanitizeForTerminal,
   buildSyncItems,
   materializeSyncItem,
+  getFiles,
+  mirrorDir,
   SYNC_MANIFEST,
   SYNC_AREAS,
   actionToIcon,
@@ -846,5 +848,68 @@ test('readJson：檔案不存在拋 FILE_NOT_FOUND（SyncError，非裸 Error）
 test('readJson：正常 JSON 解析為物件', () => {
   withTmpFile(JSON.stringify({ a: 1, nested: { b: 'x' } }), (fp) => {
     assert.deepEqual(readJson(fp), { a: 1, nested: { b: 'x' } });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// getFiles：非 ENOENT IO 錯誤必須拋出（不得靜默降級為空集）
+//
+// 空集在下游被當作「來源沒有任何檔案」，mirrorDir 據此把 dest 全體視為多餘檔刪除。
+// 若讀取失敗被吞成 []，一個暫時不可讀的 repo 目錄就會讓 to-local 清空本機對應目錄。
+// root 會繞過檔案權限（chmod 000 仍可讀），故權限相關測試在 root 下跳過。
+// -----------------------------------------------------------------------------
+const itNonRoot = (process.getuid && process.getuid() === 0) ? test.skip : test;
+
+itNonRoot('getFiles：目錄不可讀（EACCES）拋 SyncError，不得回空集', () => {
+  withTmpDir((dir) => {
+    const locked = path.join(dir, 'locked');
+    fs.mkdirSync(locked);
+    fs.writeFileSync(path.join(locked, 'a.md'), 'A');
+    fs.chmodSync(locked, 0o000);
+    try {
+      assert.throws(() => getFiles(locked), (e) => {
+        assert.ok(e instanceof SyncError, '應包成 SyncError 而非裸 fs 例外');
+        return true;
+      });
+    } finally {
+      fs.chmodSync(locked, 0o700); // 還原以便 withTmpDir 清理
+    }
+  });
+});
+
+itNonRoot('getFiles：遞迴進入不可讀子目錄時同樣拋出（錯誤不因層級被吞）', () => {
+  withTmpDir((dir) => {
+    const root = path.join(dir, 'root');
+    const sub = path.join(root, 'sub');
+    fs.mkdirSync(sub, { recursive: true });
+    fs.writeFileSync(path.join(root, 'top.md'), 'T');
+    fs.writeFileSync(path.join(sub, 'deep.md'), 'D');
+    fs.chmodSync(sub, 0o000);
+    try {
+      assert.throws(() => getFiles(root), (e) => e instanceof SyncError);
+    } finally {
+      fs.chmodSync(sub, 0o700);
+    }
+  });
+});
+
+// 後果層回歸鎖：來源不可讀時 mirrorDir 必須中止，而非把 dest 當多餘檔清空
+itNonRoot('mirrorDir：src 不可讀時拋錯中止，dest 既有檔案不得被當多餘檔刪除', () => {
+  withTmpDir((dir) => {
+    const src = path.join(dir, 'src');
+    const dest = path.join(dir, 'dest');
+    fs.mkdirSync(src);
+    fs.mkdirSync(dest);
+    fs.writeFileSync(path.join(src, 'a.md'), 'A');
+    fs.writeFileSync(path.join(dest, 'a.md'), 'A');
+    fs.writeFileSync(path.join(dest, 'b.md'), 'B');
+    fs.chmodSync(src, 0o000);
+    try {
+      assert.throws(() => mirrorDir(src, dest, [], false), (e) => e instanceof SyncError);
+      assert.equal(fs.existsSync(path.join(dest, 'a.md')), true, 'dest 檔案不得被刪');
+      assert.equal(fs.existsSync(path.join(dest, 'b.md')), true, 'dest 檔案不得被刪');
+    } finally {
+      fs.chmodSync(src, 0o700);
+    }
   });
 });

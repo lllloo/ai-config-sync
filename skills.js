@@ -23,6 +23,19 @@ const fs = require('fs');
 const path = require('path');
 
 /**
+ * 判斷 skill name 是否為物件的自有屬性（成員關係判定）
+ * 一律用 hasOwnProperty 而非真值索引：skill name 允許 constructor／valueOf／
+ * __proto__ 等字面，真值索引會走原型鏈誤判為存在；而值為 null／空字串的合法
+ * 登記項也會被誤判為不存在。同 sync.js 的 isNpxManagedSkill。
+ * @param {object} obj
+ * @param {string} key
+ * @returns {boolean}
+ */
+function hasSkill(obj, key) {
+  return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+/**
  * 計算 repo 與本機 skills 的三向集合差（純函式）
  * @param {Record<string, unknown>} repoSkills
  * @param {Record<string, unknown>} localSkills
@@ -30,9 +43,9 @@ const path = require('path');
  */
 function computeSkillsDiff(repoSkills, localSkills) {
   return {
-    onlyInRepo:  Object.keys(repoSkills).filter(n => !localSkills[n]),
-    onlyInLocal: Object.keys(localSkills).filter(n => !repoSkills[n]),
-    inBoth:      Object.keys(repoSkills).filter(n =>  localSkills[n]),
+    onlyInRepo:  Object.keys(repoSkills).filter(n => !hasSkill(localSkills, n)),
+    onlyInLocal: Object.keys(localSkills).filter(n => !hasSkill(repoSkills, n)),
+    inBoth:      Object.keys(repoSkills).filter(n =>  hasSkill(localSkills, n)),
   };
 }
 
@@ -119,9 +132,11 @@ function createSkillsHandler(deps) {
       return EXIT_OK;
     }
 
-    for (const name of inBoth)      printStatusLine('ok', name);
-    for (const name of onlyInRepo)  printStatusLine('down', name, 'repo 有、本機未安裝');
-    for (const name of onlyInLocal) printStatusLine('up', name, '本機有、repo 未記錄');
+    // 狀態行與下方建議指令同樣清洗：本機 lock 由第三方 npx skills 依上游目錄名寫入，
+    // 屬未驗證來源，name 直接進 console.log 會有 log injection 風險。
+    for (const name of inBoth)      printStatusLine('ok', sanitizeForTerminal(name));
+    for (const name of onlyInRepo)  printStatusLine('down', sanitizeForTerminal(name), 'repo 有、本機未安裝');
+    for (const name of onlyInLocal) printStatusLine('up', sanitizeForTerminal(name), '本機有、repo 未記錄');
 
     if (onlyInRepo.length > 0) {
       console.log(col.bold('\n  -- 安裝缺少的 skills --'));
@@ -248,8 +263,10 @@ function createSkillsHandler(deps) {
 
     if (!lock.skills || typeof lock.skills !== 'object' || Array.isArray(lock.skills)) lock.skills = {};
 
-    if (lock.skills[name]) {
-      console.log(col.yellow(`\n  [!] ${name} 已存在於 skills-lock.json（source: ${lock.skills[name].source}）`));
+    if (hasSkill(lock.skills, name)) {
+      const existing = lock.skills[name];
+      const existingSource = existing && existing.source ? sanitizeForTerminal(existing.source) : '<none>';
+      console.log(col.yellow(`\n  [!] ${name} 已存在於 skills-lock.json（source: ${existingSource}）`));
       console.log(col.dim('  若要更新來源，請手動編輯 skills-lock.json\n'));
       return EXIT_OK;
     }
@@ -286,7 +303,7 @@ function createSkillsHandler(deps) {
     }
 
     const lock = readJson(repoLockPath);
-    if (!lock.skills || !lock.skills[name]) {
+    if (!hasSkill(lock.skills, name)) {
       console.log(col.yellow(`\n  [!] ${name} 不在 skills-lock.json 中\n`));
       return EXIT_OK;
     }

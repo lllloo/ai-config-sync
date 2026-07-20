@@ -58,6 +58,7 @@ npm run to-local    # repo → 本機（套用，會先預覽再確認）
   - `agents/skills/`（跨工具全域）— repo 自帶、Git 版控、`xtool-skills` 型同步進 `~/.agents/skills/`（Codex 原生掃）並於 `~/.claude/skills/<name>` 建 symlink 橋（Claude 探索）。**全域 skill 的唯一落點**；不加 per-skill flag。
   - `.agents/skills/`（本地）— 已版控、跨工具共用、**不參與** to-repo／to-local；Claude Code 靠 `.claude/skills` symlink 讀取，Codex 原生探索（見 [刻意不同步](#刻意不同步) 的 Windows 注意）。
 - **`agents/skills/` 與 `npx skills` 共管 `~/.agents/skills/`**：`xtool-skills` 為**非 prune**、只認 repo `agents/skills/` 登記的「受管名字」——對 `~/.agents/skills/` 內的 npx 住戶一律不刪、不吸回 repo。撞名守門：upsert 前若 `<name>` 已登記於 `~/.agents/.skill-lock.json`（npx 安裝必登記，本機制永不登記），即判為碰撞、拒絕覆寫並印 warning，`diff` 階段以 `conflict` 狀態標示。**已知取捨**：手動複製進 `~/.agents/skills/`、未登記 lock 的同名目錄無 ownership 標記可辨，會被視為受管而覆寫。
+- **Claude 探索點的第二道守門**：`~/.claude/skills/<name>` 若是真實目錄（舊機制產物），to-local 會把它轉成 symlink——轉換含遞迴刪除，故轉換前先比對「該目錄內是否有 repo 沒有對應來源的檔案」。有的話（例如你自己在 `~/.claude/skills/` 手寫、剛好與受管 skill 同名的 skill）一律拒絕刪除、跳過並印 warning，`diff` 同樣以 `conflict` 標示。判準是**路徑存在性**而非內容比對：本機同名檔內容較舊屬正常遷移，會照 to-local 語意覆蓋。
 - **全域 Skill 與 `npx skills` 是兩套機制**：`agents/skills/` 是 repo 自帶、Git 版控、由 to-repo／to-local 同步的 skill；`skills-lock.json` 追蹤的是外部 `npx skills` CLI 安裝的 skill，不受 `sync.js` 管理，只能用 `npm run skills:diff` 比對後手動套用建議。
 - **規則拆分** `claude/rules/` 是 `CLAUDE.md` 的模組化拆分，支援 frontmatter `paths:` scoping。
 
@@ -174,9 +175,13 @@ npm run to-local
 
 **Hard block（exit 2）** — 明顯高風險，應擋下：
 
-- 已知 token 值樣式、私鑰片段、絕對 HOME 路徑
+- 已知 token 值樣式、私鑰片段、絕對 HOME 路徑（含 JSON 內跳脫的 Windows 路徑 `C:\\Users\\…`）
 - `claude/settings.json` 出現 `hooks` 或 credential helper 欄位
 - repo 內任何 `.toml` 出現機密載體 section（`model_providers.*`／`mcp_servers.*`），只印 section 路徑不印值
+- repo 內任何 `.toml` 出現**無法解析的結構**，只印行號不印值（fail closed——結構解不出來時 section 歸屬不可信，機密判斷失去依據）：
+  - 無法解析的 section header（如 `[mcp_servers` 未閉合）
+  - 未閉合的 TOML value（如 `notify = [` 之後直接接下一個 section header）
+  - section 名含無法解碼的跳脫序列
 
 **Warning（exit 1）** — 需人工審核，不自動阻斷：
 
@@ -184,7 +189,11 @@ npm run to-local
 - 結構化設定中命中敏感命名 pattern 的 key path
 - `.toml` 出現裝置狀態 section（`profiles.*`／`history`／`shell_environment_policy`）
 
-**text pattern 掃描的排除**：secret／私鑰／HOME 路徑的字串掃描會**排除外部套件文件目錄**（`agents/skills/`）。這些是原樣鏡射的第三方文件（skill 說明），為說明偵測規則本就含 token／路徑樣式，掃它們會製造整類誤判。排除清單只列 repo 實際存在的目錄——同步層移除時其排除前綴一併撤除，不做預防性列名。排除只作用於 text 掃描，結構化 `.json`／`.toml` 的 hard block 不受影響。取捨：上游套件文件若真含機密不再被攔屬可接受（公開來源、本 repo 不編輯），真正的機密載體與使用者手改的設定來源仍全覆蓋。
+**text pattern 掃描的排除**：secret／私鑰／HOME 路徑的字串掃描支援排除清單（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`），**目前為空——三個同步來源目錄全部受掃描**。
+
+排除的用途是原樣鏡射的上游套件文件：那類文件為說明偵測規則本就含 token／路徑樣式，掃它們會製造整類誤判。但**排除粒度必須是該 package 的具體子目錄**（如 `agents/skills/<pkg>/references/`），不得是同步來源根——清單曾誤列 `agents/skills/`，而那是三個來源根之一的全部內容且其下 skill 皆為本 repo 手寫，等於整棵跨工具全域 skill 樹不受掃描。排除只作用於 text 掃描，結構化 `.json`／`.toml` 的 hard block 不受影響。
+
+**輸出遮罩**：issue 的 detail（section 名、key path）除本機 HOME 遮罩外，另套通用家目錄遮罩——設定檔可能來自別台裝置，其 section 名內嵌的是**那台**裝置的家目錄（如 `[mcp_servers."C:\Users\<他人>\srv"]`），單靠本機 HOME 字串比對抓不到。
 
 ## 同步行為細節
 

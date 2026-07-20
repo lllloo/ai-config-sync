@@ -122,16 +122,49 @@ function matchTomlHeader(trimmed) {
   return { type: 'section', name, arrayTable };
 }
 
+/** TOML basic string 的單字元跳脫對照（`\uXXXX`／`\UXXXXXXXX` 另行處理） */
+const TOML_SIMPLE_ESCAPES = { b: '\b', t: '\t', n: '\n', f: '\f', r: '\r', '"': '"', '\\': '\\' };
+
+/**
+ * 解碼 TOML basic string 的跳脫序列。
+ * 不解碼會留下繞過破口：`["mcp_servers"]` 與 `[mcp_servers]` 在 TOML 語意上同名，
+ * Codex 照讀，但字面比對不會命中 hard block 清單。
+ * 遇非標準跳脫（TOML 本身即為 parse error）回傳 null，由呼叫端 fail closed。
+ * @param {string} body - 已去除包夾雙引號的內容
+ * @returns {string|null}
+ */
+function decodeTomlBasicString(body) {
+  let out = '';
+  for (let i = 0; i < body.length; i += 1) {
+    if (body[i] !== '\\') { out += body[i]; continue; }
+    const c = body[i + 1];
+    if (c !== undefined && Object.prototype.hasOwnProperty.call(TOML_SIMPLE_ESCAPES, c)) {
+      out += TOML_SIMPLE_ESCAPES[c];
+      i += 1;
+      continue;
+    }
+    if (c !== 'u' && c !== 'U') return null;
+    const len = c === 'u' ? 4 : 8;
+    const hex = body.slice(i + 2, i + 2 + len);
+    if (hex.length !== len || !/^[0-9A-Fa-f]+$/.test(hex)) return null;
+    const cp = parseInt(hex, 16);
+    if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return null;  // 非法 scalar value
+    out += String.fromCodePoint(cp);
+    i += 1 + len;
+  }
+  return out;
+}
+
 /**
  * 去除單一 dotted 片段包夾的一層引號（基本 `"..."` 或字面 `'...'`），並 trim 未引號空白。
+ * 基本字串另解碼跳脫序列；無法解碼回傳 null（fail closed，見 decodeTomlBasicString）。
  * @param {string} seg
- * @returns {string}
+ * @returns {string|null}
  */
 function dequoteTomlKey(seg) {
   const t = seg.trim();
-  if (t.length >= 2 && (t[0] === '"' || t[0] === "'") && t[t.length - 1] === t[0]) {
-    return t.slice(1, -1);
-  }
+  if (t.length >= 2 && t[0] === "'" && t[t.length - 1] === "'") return t.slice(1, -1);
+  if (t.length >= 2 && t[0] === '"' && t[t.length - 1] === '"') return decodeTomlBasicString(t.slice(1, -1));
   return t;
 }
 
@@ -141,8 +174,11 @@ function dequoteTomlKey(seg) {
  * 供 safety-check 正規化後比對機密 section 名——`["mcp_servers"]` 這種以引號包裝的
  * 合法變體語意等同 `[mcp_servers]`，若不正規化就比對會靜默繞過 hard block。
  * 引號內的 `.` 不視為分隔（TOML 語意），故不能用 String.split('.')。
+ *
+ * **回傳 null 表示不可信**：任一片段含無法解碼的跳脫序列時整體回 null，呼叫端須
+ * fail closed（比照 malformed header）——名字解不出來時機密判斷失去依據。
  * @param {string} name
- * @returns {string[]}
+ * @returns {string[]|null}
  */
 function splitTomlKey(name) {
   const segments = [];
@@ -161,7 +197,54 @@ function splitTomlKey(name) {
     buf += ch;
   }
   segments.push(buf);
-  return segments.map(dequoteTomlKey);
+  const parts = segments.map(dequoteTomlKey);
+  return parts.some(p => p === null) ? null : parts;
+}
+
+/**
+ * 合法 TOML key path 形狀（dotted 的 bare key／引號字串，允許週邊空白）。
+ * 用於區辨「真的 section header」與「多行陣列的續行剛好以 [ 開頭」（如 `[3, 4]`）。
+ */
+const TOML_KEY_PATH_SHAPE = /^\s*(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')\s*(?:\.\s*(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')\s*)*$/;
+
+/** 此行是否「看起來是 section header」——續行併吞不得跨越它（見 consumeTomlValue） */
+function looksLikeSectionHeader(trimmed) {
+  const header = matchTomlHeader(trimmed);
+  return header !== null && TOML_KEY_PATH_SHAPE.test(header.name);
+}
+
+/**
+ * 自 `index` 行起併吞未閉合 value 的續行，回傳停止位置與完整 value。
+ *
+ * **fail closed**：到 EOF 仍未閉合、或**未閉合陣列**的併吞會跨越一行「看起來是
+ * section header」的行時，回報 `malformed: true` 且**不消耗**那行 header。
+ * 無條件併吞是 fail-open——`notify = [`（未閉合）之下的 `[mcp_servers.acme]` 會被吞進
+ * value、永不 emit 成 section，機密 section 的 hard block 因此靜默消失。比照同檔
+ * malformed header 的 fail-closed 設計：解析不出來就交給人工檢視，不靜默吞掉。
+ *
+ * header 檢查**只在陣列未閉合時生效**：三引號字串的內容對 TOML 而言是不透明的，
+ * 其中出現 `[x]` 樣式的行完全合法（既有回歸測試涵蓋），在那裡中斷併吞會把合法檔
+ * 誤報成 malformed。未閉合的三引號字串仍會一路吞到 EOF，由 EOF 分支 fail closed。
+ * @param {string[]} lines
+ * @param {number} index - key-value 起始行索引
+ * @param {string} value - 該行 `=` 之後的初始 value 文字
+ * @returns {{ index: number, value: string, rawLines: string[], malformed: boolean }}
+ */
+function consumeTomlValue(lines, index, value) {
+  const rawLines = [lines[index]];
+  let i = index;
+  let text = value;
+  for (;;) {
+    const state = scanTomlValueState(text);
+    if (state.depth <= 0 && !state.openTriple) return { index: i, value: text, rawLines, malformed: false };
+    if (i + 1 >= lines.length) return { index: i, value: text, rawLines, malformed: true };
+    if (!state.openTriple && looksLikeSectionHeader(lines[i + 1].trim())) {
+      return { index: i, value: text, rawLines, malformed: true };
+    }
+    i += 1;
+    rawLines.push(lines[i]);
+    text += `\n${lines[i]}`;
+  }
 }
 
 /**
@@ -170,9 +253,13 @@ function splitTomlKey(name) {
  * 逐行掃描，遇未閉合陣列或三引號字串時併入後續行，避免逐行截斷損毀。
  *
  * **malformed section**：以 `[` 開頭卻無法解析為合法 header 的行，回傳
- * `{type:'section', name:null}`。這是 fail-closed 設計——若退回 `other`，該行
- * 之下的 key 會沿用前一個 section 而被錯誤歸屬（消費端據此判斷機密 section 時
- * 會漏判）。標為 section 可讓消費端知道「這裡有 section 邊界，但名字不可信」。
+ * `{type:'section', name:null, reason:'header'}`。這是 fail-closed 設計——若退回
+ * `other`，該行之下的 key 會沿用前一個 section 而被錯誤歸屬（消費端據此判斷機密
+ * section 時會漏判）。標為 section 可讓消費端知道「這裡有 section 邊界，但名字不可信」。
+ *
+ * **未閉合 value** 同樣回傳 `{type:'section', name:null, reason:'unterminated-value'}`
+ * （見 consumeTomlValue）：檔案已非合法 TOML，其後的 section 歸屬不可信。`reason`
+ * 供消費端區分回報分類，兩者皆須 fail closed。
  *
  * @param {string} content
  * @returns {Array<{type:'section',name:string|null,arrayTable:boolean,raw:string,line:number}|{type:'kv',key:string,value:string,raw:string,line:number}|{type:'other',raw:string,line:number}>}
@@ -189,19 +276,19 @@ function readTomlStatements(content) {
     if (header) { statements.push({ ...header, raw, line }); continue; }
     // `[` 開頭但解析失敗 → malformed section 邊界（不得退回 other 讓 key 誤掛前一 section）
     if (trimmed.startsWith('[')) {
-      statements.push({ type: 'section', name: null, arrayTable: false, raw, line });
+      statements.push({ type: 'section', name: null, arrayTable: false, reason: 'header', raw, line });
       continue;
     }
     const kv = trimmed.match(/^(.+?)\s*=(.*)$/);
     if (!kv) { statements.push({ type: 'other', raw, line }); continue; }
-    let value = kv[2].replace(/^[ \t]+/, '');
-    const rawLines = [raw];
-    while (isIncompleteTomlValue(value) && i + 1 < lines.length) {
-      i += 1;
-      rawLines.push(lines[i]);
-      value += `\n${lines[i]}`;
+    const consumed = consumeTomlValue(lines, i, kv[2].replace(/^[ \t]+/, ''));
+    i = consumed.index;
+    if (consumed.malformed) {
+      // 未閉合 value：標為不可信 section 邊界，且不吞掉其後的 header（見 consumeTomlValue）
+      statements.push({ type: 'section', name: null, arrayTable: false, reason: 'unterminated-value', raw, line });
+      continue;
     }
-    statements.push({ type: 'kv', key: kv[1].trim(), value, raw: rawLines.join('\n'), line });
+    statements.push({ type: 'kv', key: kv[1].trim(), value: consumed.value, raw: consumed.rawLines.join('\n'), line });
   }
   return statements;
 }

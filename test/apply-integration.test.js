@@ -208,6 +208,94 @@ test('to-local（非 TTY、無 --yes）：有差異時報錯退出而非 hang', 
 });
 
 // -----------------------------------------------------------------------------
+// 互動確認閘門：askConfirm 回 false 時 confirmAndApply 必須取消、一個檔案都不寫
+//
+// 這是使用者與「覆寫真實 ~/.claude」之間唯一的閘門，但真實 TTY 無法在 spawn 中取得
+// （零相依、不引入 pty）。改以 `node -r <preload>` 於子程序啟動前偽裝互動環境：
+// 設 stdin.isTTY 並替換 readline.createInterface，讓 askConfirm 走完整互動分支。
+// sync.js 於載入時 require('readline') 取得同一個 builtin 模組物件，且在呼叫時才
+// 讀 createInterface，故 preload 的覆寫生效。
+//   FAKE_CONFIRM=<answer> → question callback 以該答案回覆（模擬使用者輸入）
+//   FAKE_CONFIRM=__eof__  → 不作答、直接觸發 close 事件（模擬 Ctrl+D）
+// -----------------------------------------------------------------------------
+const FAKE_TTY_PRELOAD = `
+'use strict';
+process.stdin.isTTY = true;
+const readline = require('readline');
+readline.createInterface = () => ({
+  question(q, cb) {
+    process.stdout.write(q);
+    if (process.env.FAKE_CONFIRM !== '__eof__') setImmediate(() => cb(process.env.FAKE_CONFIRM));
+  },
+  close() {},
+  on(event, cb) {
+    if (event === 'close' && process.env.FAKE_CONFIRM === '__eof__') setImmediate(cb);
+  },
+});
+`;
+
+/** 以偽裝 TTY 執行 sync.js，answer 為使用者輸入（或 '__eof__' 模擬 Ctrl+D） */
+function runInteractive(repo, home, args, answer) {
+  const preload = path.join(repo, 'fake-tty-preload.js');
+  fs.writeFileSync(preload, FAKE_TTY_PRELOAD);
+  return spawnSync(process.execPath, ['-r', preload, path.join(repo, 'sync.js'), ...args], {
+    cwd: repo,
+    env: noColorEnv({ HOME: home, USERPROFILE: home, FAKE_CONFIRM: answer }),
+    encoding: 'utf8',
+  });
+}
+
+// 對照組：偽裝 TTY 下輸入 y 確實會套用（確保下方「拒絕」測試不是因 harness 失效而綠）
+test('to-local 互動：輸入 y → 實際套用', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'claude', 'CLAUDE.md'), 'REPO-YES');
+
+    const r = runInteractive(repo, home, ['to-local'], 'y');
+    assert.equal(r.status, 0, `應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.equal(fs.readFileSync(path.join(home, '.claude', 'CLAUDE.md'), 'utf8'),
+      'REPO-YES', '輸入 y 應套用到本機');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+for (const answer of ['n', '', 'nope']) {
+  test(`to-local 互動：輸入 ${JSON.stringify(answer)} → 取消、本機不得被寫入`, () => {
+    const { repo, home, root } = setupSandbox();
+    try {
+      writeText(path.join(repo, 'claude', 'CLAUDE.md'), 'REPO-ONLY');
+      writeText(path.join(home, '.claude', 'CLAUDE.md'), 'LOCAL-KEEP');
+
+      const r = runInteractive(repo, home, ['to-local'], answer);
+      assert.equal(r.status, 0, `取消為正常結束\n${r.stdout}\n${r.stderr}`);
+      assert.match(r.stdout, /已取消/, '應宣告已取消');
+      assert.equal(fs.readFileSync(path.join(home, '.claude', 'CLAUDE.md'), 'utf8'),
+        'LOCAL-KEEP', '拒絕確認後本機檔案不得被覆寫');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+// Ctrl+D（EOF）：未作答就關閉 readline，須視為未確認而非預設同意
+test('to-local 互動：EOF（未作答即 close）→ 取消、本機不得被寫入', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'claude', 'CLAUDE.md'), 'REPO-ONLY');
+    writeText(path.join(home, '.claude', 'CLAUDE.md'), 'LOCAL-KEEP');
+
+    const r = runInteractive(repo, home, ['to-local'], '__eof__');
+    assert.equal(r.status, 0, `取消為正常結束\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /已取消/, 'EOF 應視為未確認');
+    assert.equal(fs.readFileSync(path.join(home, '.claude', 'CLAUDE.md'), 'utf8'),
+      'LOCAL-KEEP', 'EOF 後本機檔案不得被覆寫');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
 // skills:diff：三向集合差 + 退出碼語義（供 CI）+ 建議指令
 // -----------------------------------------------------------------------------
 test('skills:diff：兩邊皆空 → 完全一致、exit 0', () => {

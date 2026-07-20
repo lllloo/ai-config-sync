@@ -64,10 +64,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **主入口 + safety／toml-reader／skills 模組**：`sync.js` 為主 CLI 入口；`safety-check.js`、`toml-reader.js`、`skills.js` 各自承載安全掃描、TOML 語句與 skills。四檔零外部相依、只用 Node.js 內建模組，功能模組不反向 require `sync.js`：
 
-- `safety-check.js`：safety 專屬常數與掃描邏輯由本檔持有，測試直接 require 該模組（`sync.js` 不 re-export）。共用工具由 `sync.js` 經 `createSafetyChecker(deps)` 注入；TOML 解析改為**直接 require `toml-reader.js`**（純函式、零 IO，非 `sync.js` 故不違反反向 require 禁令）。text pattern 掃描排除外部套件文件目錄（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`，整類 false positive）。**注入邊界、掃描分層與取捨的完整說明見該檔檔頭註解**。
-- `toml-reader.js`：TOML 邏輯語句讀取器（`readTomlStatements`／`matchTomlHeader`／`scanTomlValueState`），純函式、零 IO、不被 `sync.js` 使用。唯一消費者是 `safety-check.js` 的 `.toml` 掃描——**section 歸屬正確性直接決定 hard block 判斷**，故 `test/toml-reader.test.js` 是安全防線的回歸網，不可刪。前身為 `codex-config.js` 的解析半部（config.toml 同步移除後，過濾／序列化／合併半部一併刪除）。
+- `safety-check.js`：safety 專屬常數與掃描邏輯由本檔持有，測試直接 require 該模組（`sync.js` 不 re-export）。共用工具由 `sync.js` 經 `createSafetyChecker(deps)` 注入；TOML 解析改為**直接 require `toml-reader.js`**（純函式、零 IO，非 `sync.js` 故不違反反向 require 禁令）。text pattern 掃描的排除清單 `SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES` **目前為空**：排除粒度必須是「具體的上游鏡射子目錄」，不得是同步來源根（曾誤列 `agents/skills/`，等於整棵跨工具 skill 樹不受掃描）。**注入邊界、掃描分層與取捨的完整說明見該檔檔頭註解**。
+- `toml-reader.js`：TOML 邏輯語句讀取器，純函式、零 IO、不被 `sync.js` 使用。對外 exports 為 `readTomlStatements`／`matchTomlHeader`／`splitTomlKey`／`isIncompleteTomlValue`（`scanTomlValueState` 為內部實作細節、刻意不導出）。其中 **`splitTomlKey` 是機密 section 正規化的關鍵**（`safety-check.js` 的 `isCodexSecretSection`／`isCodexDeviceWarnSection` 依賴它去引號 + 解碼跳脫），勿誤判為無消費者而刪除。唯一消費者是 `safety-check.js` 的 `.toml` 掃描——**section 歸屬正確性直接決定 hard block 判斷**，故 `test/toml-reader.test.js` 是安全防線的回歸網，不可刪。前身為 `codex-config.js` 的解析半部（config.toml 同步移除後，過濾／序列化／合併半部一併刪除）。
   - **header 解析為引號感知**（`findTomlHeaderEnd`）：TOML section 名可含帶 `]` 的引號 key（`[mcp_servers."a]b"]`）。用 `[^\]]+` 之類的 regex 會提前截斷、整行判為非 header，其下 key 誤掛前一 section，**機密 section 的 hard block 會靜默降級成 warning**。改動 header 解析須保住 `test/toml-reader.test.js` 與 `boundary.test.js` 的 F2 回歸測試。
-  - **malformed header 為 fail-closed**：`[` 開頭但無法解析的行回傳 `{type:'section', name:null}`（不是 `other`），`safety-check.js` 據此 hard block 並清空 section。理由：section 名不可信時機密判斷失去依據，寧可擋下讓人工檢視，也不沿用前一 section 名而漏判。
+  - **malformed header 為 fail-closed**：`[` 開頭但無法解析的行回傳 `{type:'section', name:null, reason:'header'}`（不是 `other`），`safety-check.js` 據此 hard block 並清空 section。理由：section 名不可信時機密判斷失去依據，寧可擋下讓人工檢視，也不沿用前一 section 名而漏判。
+  - **未閉合 value 同為 fail-closed**（`reason:'unterminated-value'`）：續行併吞若跨越一行「看起來是 section header」的行、或到 EOF 仍未閉合，即標為不可信 section 邊界且**不消耗**那行 header。舊實作無條件併吞，`notify = [` 之下的 `[mcp_servers.*]` 會被吞進 value、永不 emit 成 section，機密 section 的 hard block 靜默消失。header 中斷判斷**只在陣列未閉合時生效**：三引號字串內容對 TOML 不透明，`[x]` 樣式合法，在那中斷會誤報合法檔。
+  - **basic string 跳脫須解碼**（`dequoteTomlKey`）：`["mcp_servers"]` 在 TOML 語意上等同 `[mcp_servers]`、Codex 照讀，不解碼則字面比對不命中 hard block 清單。無法解碼的跳脫序列使 `splitTomlKey` 回 `null`，`safety-check.js` 據此 hard block（fail closed）。
 - `skills.js`：skills 指令族（`skills:diff`／`skills:add`／`skills:remove`）的 lock 檔讀取、三向集合差、name/source 驗證、terminal 清洗與輸出格式化。**不反向 require `sync.js`**：共用常數與工具（`REPO_ROOT`、`LOCAL_SKILL_LOCK`、`EXIT_OK`／`EXIT_DIFF`、`SyncError`／`ERR`、`readJson`／`writeJsonSafe`、`printSectionDivider`／`printStatusLine`、`col`）以 `createSkillsHandler(deps)` DI 注入，`fs`／`path` 由本檔自 require。`sync.js` 以 lazy singleton（照 `_safetyChecker` 樣式）建立 handler、經 `runCommand` 三個 case 分派。**對外契約**為回傳的 `{ runSkillsDiff, runSkillsAdd, runSkillsRemove }`；deps-bound helper（`loadSkillsFromLock`／`validateSkillName`／`validateSkillSource`／`parseSkillSource`）一併附在回傳物件上，僅作 `sync.js` re-export 與單元測試 seam（`runCommand` 不使用）。純函式 `computeSkillsDiff`／`sanitizeForTerminal` 於模組層直接匯出。`isNpxManagedSkill`（Sync Core）與 `runStatus` 對 skills 的呼叫亦經此 singleton 轉接。
 
 檔案結構採 section banner 分段，關鍵不變式：
@@ -95,7 +97,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **安全審核由 `npm run safety:check` 承擔**：唯讀、離線掃描 `claude/`、`codex/`、`agents/`、`skills-lock.json`，不掃 `test/`、`openspec/`、README 等非同步來源文件。hard block（exit 2）：secret value pattern、私鑰片段、絕對 HOME 路徑、repo settings.json 出現 `hooks`／credential helper、repo 內任何 `.toml` 出現機密載體 section（`CODEX_CONFIG_HARD_BLOCK_SECTIONS`）；warning（exit 1）：settings.json env key 清單、敏感命名 key path、`.toml` 出現裝置狀態 section（`CODEX_CONFIG_DEVICE_WARN_SECTIONS`）；clean exit 0。輸出只列分類與位置，不輸出值。text 掃描排除外部套件文件目錄（取捨與分層見 `safety-check.js` 檔頭）；增減排除目錄與兩份 section 常數須改常數與 README（drift-guard 測試把關）。
 - **構建規則**（來自全域 CLAUDE.md）：禁擅自執行 `npm run build`。
 - **嚴禁洩漏敏感資訊到輸出**：`diff`／`status` 不得顯示 env 值，`safety:check` 不得顯示 secret 原值或完整 HOME 路徑。同步流程本身不再宣稱能阻止所有機密寫入 repo；`file`／`dir` 型項目仍原樣同步，commit 前須執行 `npm run safety:check` 與人工審核。
-- **部分失敗可見度**：apply 中途拋例外時，`mirrorDir` 把已完成變更附掛到 `SyncError.context.partialChanges`，`applySyncItems` 補印、`warnPartialApply` 警告「已寫入 N 筆變更」——與 `handleSignal` 的訊號中斷警告互補，已寫入的檔案不得零可見度。操作歷史由 git 承載，不另寫 log 檔。
+- **部分失敗可見度**：apply 中途拋例外時，`mirrorDir` 把已完成變更附掛到 `SyncError.context.partialChanges`，`applySyncItems` 補印、`warnPartialApply` 警告「已寫入 N 筆變更」，已寫入的檔案不得零可見度。`applyXtoolItem` 的 catch 須以 `mergeXtoolPartialChanges` **併入**兩邊（先前已完成的 skill + mirrorDir 附掛的當前 skill 內部變更，後者需補 `<name>/` 前綴），直接指派會抹掉其中一邊。操作歷史由 git 承載，不另寫 log 檔。
+  - **訊號中斷不在此機制內、也不需要在**：`handleSignal` 只做暫存檔清理與 re-raise，**不報告部分寫入**。signal handler 是 event loop 上的 JS callback，而 apply 的寫入是一整段無 await 的同步碼——訊號在寫入期間送達時 handler 排不進去，等它執行時該批寫入早已跑完。反過來說這也表示訊號不會造成寫到一半的狀態。舊版曾有 `if (isWriting)` 分支想印中斷警告，該旗標在 handler 實際執行時必為 false，是條永遠不成立的 dead code（且誤導成「訊號中斷已有可見度保證」），已移除。**不要再加回這類旗標**，除非先把寫入改成會讓出 event loop 的形式。
 
 ## Skills 管理
 
@@ -103,10 +106,15 @@ Skills 分兩層（**以目錄位置分類**，不加 per-skill flag）：
 
 | 位置 | 路徑 | 說明 |
 |---|---|---|
-| 全域·跨工具（同步） | `agents/skills/<name>/SKILL.md` | `xtool-skills` 型同步到 `~/.agents/skills/`（Codex 原生掃）+ `~/.claude/skills/<name>` symlink 橋（Claude 探索）。與 `npx skills` 共管、非 prune、撞名拒寫（判準：`~/.agents/.skill-lock.json` 登記；**「claude 側 symlink 存在」不得作為訊號**——與本機制自身產物無法區分，會破壞幂等） |
+| 全域·跨工具（同步） | `agents/skills/<name>/SKILL.md` | `xtool-skills` 型同步到 `~/.agents/skills/`（Codex 原生掃）+ `~/.claude/skills/<name>` symlink 橋（Claude 探索）。與 `npx skills` 共管、非 prune、撞名拒寫（判準：`~/.agents/.skill-lock.json` 登記；**「claude 側 symlink 存在」不得作為訊號**——與本機制自身產物無法區分，會破壞幂等）。**claude 探索點另有一道獨立守門**（`bridgeUnsafeReason`）：見下方 D5 轉換 |
 | 本地（不同步） | `.agents/skills/<name>/SKILL.md` | 僅限本 repo 使用，跨工具共享（Codex 等） |
 
 全域 skill 一律放 `agents/skills/`，對 Claude 與 Codex 同時可見——**無 Claude-only 全域層**（原 `claude/skills/` 同步層因無住戶已移除，見 `SYNC_MANIFEST` 回歸鎖）。
+
+**D5 真實目錄→symlink 轉換的守門**（`bridgeUnsafeReason`／`findUnmirroredFiles`）：`ensureSymlink` 遇 `~/.claude/skills/<name>` 為真實目錄時會遞迴 `rm` 它，其 doc 要求「呼叫端須先確認正典內容已落在 target」——但 `upsertOneSkill` 只保證「**repo 有的**檔案已落在正典」。使用者自寫、repo 從未有過的檔案不在該保證內，曾因此被靜默永久刪除（預覽還只印「將更新」）。現在 diff 與 apply 共用 `bridgeUnsafeReason` 把關：repo 無對應來源的檔案存在時標為 `conflict`、拒絕刪除並跳過。兩個判準細節：
+
+- **比對基準是 repo 來源目錄，不是當下的 `~/.agents` 正典**：diff 跑在 upsert 之前，此時正典可能還是空的，用它比對會把所有正常的 D5 遷移誤判成衝突。
+- **判準是路徑存在性，不比對內容**：本機同名檔內容較舊是 D5 遷移常態，覆蓋它就是 to-local 的正常語意（與 `mirrorDir` 對其他同步項一致）；改用內容比對會讓每次 skill 更新都誤報衝突。真正無法復原的只有「repo 從未有過的路徑」。
 
 本地 skill 實體放在 `.agents/skills/`。**Claude Code 端**靠 `.claude/skills` symlink（→ `../.agents/skills`）讀取。**Codex 端無需 symlink**：Codex CLI 原生把 `.agents/skills`（專案層）與 `~/.agents/skills`（全域層）納入 skill 探索路徑，直接讀同一份實體。新增本地 skill 直接放進 `.agents/skills/<name>/SKILL.md` 即可。
 

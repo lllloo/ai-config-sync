@@ -200,3 +200,143 @@ test('runSkillsDiff：repo lock 項目有 source 時輸出實際來源', () => {
   assert.match(out, /npx skills add org\/repo -g -y --skill foo/);
   assert.doesNotMatch(out, /<source>/, '有 source 時不應退回佔位符');
 });
+
+// --- 成員關係一律以 hasOwnProperty 判定，不用真值索引 --------------------------
+// 回歸：以 `!localSkills[n]` 判成員會走原型鏈，且以真值而非存在性判定。
+// validateSkillName 的 regex 允許 constructor／valueOf／__proto__ 等字面，路徑可達。
+
+test('computeSkillsDiff：原型鏈屬性名不得被誤判為存在（constructor / toString）', () => {
+  const r = computeSkillsDiff({ constructor: { source: 'org/repo' }, toString: {} }, {});
+  assert.deepEqual(r.onlyInRepo.sort(), ['constructor', 'toString'],
+    '本機沒有的 skill 即使名為 constructor 也須歸 onlyInRepo');
+  assert.deepEqual(r.inBoth, []);
+});
+
+test('computeSkillsDiff：__proto__ 經 JSON.parse 為 own property，須正常參與比對', () => {
+  const repo = JSON.parse('{"__proto__": {"source": "org/repo"}}');
+  const local = JSON.parse('{"__proto__": {"source": "org/repo"}}');
+  assert.deepEqual(computeSkillsDiff(repo, local).inBoth, ['__proto__']);
+  assert.deepEqual(computeSkillsDiff(repo, {}).onlyInRepo, ['__proto__']);
+});
+
+test('computeSkillsDiff：值為 falsy 的登記項仍算存在', () => {
+  const r = computeSkillsDiff({ nulled: {} }, JSON.parse('{"nulled": null}'));
+  assert.deepEqual(r.inBoth, ['nulled'], '本機 lock 值為 null 仍是已安裝');
+  assert.deepEqual(r.onlyInRepo, []);
+});
+
+// --- runSkillsDiff 狀態行須經 sanitizeForTerminal -----------------------------
+// 回歸：狀態行原本把 lock 檔的 name 原樣傳給 printStatusLine，未清洗；
+// ~/.agents/.skill-lock.json 由第三方 npx skills 寫入，屬未驗證來源。
+
+/**
+ * 以 tmp 目錄同時提供 repo 與本機 lock，攔截 printStatusLine 收到的 label
+ * @param {object} repoLock
+ * @param {object} localLock
+ * @returns {string[]} printStatusLine 收到的 label 清單
+ */
+function captureStatusLabels(repoLock, localLock) {
+  return withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local-lock.json');
+    fs.writeFileSync(path.join(dir, 'skills-lock.json'), JSON.stringify(repoLock));
+    fs.writeFileSync(localPath, JSON.stringify(localLock));
+    const labels = [];
+    const handler = createSkillsHandler({
+      REPO_ROOT: dir,
+      LOCAL_SKILL_LOCK: localPath,
+      EXIT_OK, EXIT_DIFF,
+      SyncError, ERR, readJson,
+      writeJsonSafe: () => {},
+      printSectionDivider: () => {},
+      printStatusLine: (_type, label) => { labels.push(label); },
+      col: new Proxy({}, { get: () => (s) => s }),
+    });
+    const original = console.log;
+    console.log = () => {};
+    try { handler.runSkillsDiff(); } finally { console.log = original; }
+    return labels;
+  });
+}
+
+test('runSkillsDiff：三種狀態行的 name 皆經 sanitizeForTerminal 清洗', () => {
+  const labels = captureStatusLabels(
+    { version: 1, skills: { 'both\x1b[2K': {}, 'repo\ronly': {} } },
+    { version: 1, skills: { 'both\x1b[2K': {}, 'local\nonly': {} } },
+  );
+  assert.deepEqual(labels.sort(), ['both[2K', 'localonly', 'repoonly'],
+    `狀態行不得含控制字元，實際：${JSON.stringify(labels)}`);
+});
+
+// --- runSkillsAdd / runSkillsRemove 的成員判定與副作用 ------------------------
+// 回歸：兩者原本以 `lock.skills[name]` 真值索引判定，名為 constructor 的 skill
+// 會被誤判為「已存在」（add 永遠加不進去）／「存在」（remove 空轉卻回報成功）。
+
+/**
+ * 在 tmp REPO_ROOT 執行 add/remove，回傳輸出、exit code 與實際落盤的 lock
+ * @param {'add'|'remove'} kind
+ * @param {object} repoLock - 初始 skills-lock.json 內容
+ * @param {string[]} extraArgs
+ * @returns {{ out: string, code: number, written: object|null }}
+ */
+function runSkillsMutation(kind, repoLock, extraArgs) {
+  return withTmpDir((dir) => {
+    fs.writeFileSync(path.join(dir, 'skills-lock.json'), JSON.stringify(repoLock));
+    let written = null;
+    const handler = createSkillsHandler({
+      REPO_ROOT: dir,
+      LOCAL_SKILL_LOCK: path.join(dir, 'nonexistent-local.json'),
+      EXIT_OK, EXIT_DIFF,
+      SyncError, ERR, readJson,
+      writeJsonSafe: (_fp, data) => { written = data; },
+      printSectionDivider: () => {},
+      printStatusLine: () => {},
+      col: new Proxy({}, { get: () => (s) => s }),
+    });
+    const lines = [];
+    const original = console.log;
+    console.log = (...args) => { lines.push(args.join(' ')); };
+    try {
+      const run = kind === 'add' ? handler.runSkillsAdd : handler.runSkillsRemove;
+      const code = run({ extraArgs });
+      return { out: lines.join('\n'), code, written };
+    } finally { console.log = original; }
+  });
+}
+
+test('runSkillsAdd：名為 constructor 的 skill 不被原型鏈誤判為已存在', () => {
+  const { out, written } = runSkillsMutation('add', { version: 1, skills: {} }, ['constructor', 'org/repo']);
+  assert.match(out, /已加入 constructor/, `應實際加入，實際輸出：\n${out}`);
+  assert.deepEqual(written.skills.constructor, { source: 'org/repo', sourceType: 'github' });
+});
+
+test('runSkillsAdd：已存在時輸出經清洗的 source、不覆寫', () => {
+  const { out, written } = runSkillsMutation(
+    'add',
+    { version: 1, skills: { foo: { source: 'org/re\x1b[2Kpo' } } },
+    ['foo', 'other/repo'],
+  );
+  assert.match(out, /source: org\/re\[2Kpo/, `重複提示的 source 須清洗，實際：\n${out}`);
+  assert.equal(written, null, '已存在時不得寫檔');
+});
+
+test('runSkillsAdd：已存在但缺 source 時提示不印 undefined', () => {
+  const { out } = runSkillsMutation('add', { version: 1, skills: { foo: {} } }, ['foo', 'org/repo']);
+  assert.doesNotMatch(out, /undefined/, `缺 source 不應 echo undefined，實際：\n${out}`);
+});
+
+test('runSkillsRemove：名為 constructor 但未登記時視為不存在、不寫檔', () => {
+  const { out, code, written } = runSkillsMutation('remove', { version: 1, skills: {} }, ['constructor']);
+  assert.match(out, /constructor 不在 skills-lock\.json 中/, `實際輸出：\n${out}`);
+  assert.equal(code, EXIT_OK);
+  assert.equal(written, null, '不存在時不得重寫 skills-lock.json');
+});
+
+test('runSkillsRemove：已登記的 skill 正常移除', () => {
+  const { out, written } = runSkillsMutation(
+    'remove',
+    { version: 1, skills: { foo: { source: 'org/repo' }, bar: { source: 'org/repo' } } },
+    ['foo'],
+  );
+  assert.match(out, /已移除 foo/, `實際輸出：\n${out}`);
+  assert.deepEqual(Object.keys(written.skills), ['bar']);
+});

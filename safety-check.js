@@ -30,10 +30,9 @@
 // 未來新同步項），機密 section 與敏感命名 key 仍被攔下。
 //
 // text pattern 掃描（scanSafetyTextFile：secret／私鑰／HOME 路徑）於
-// runSafetyChecks 逐檔迴圈中對命中 SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES 的檔略過
-// ——那些是原樣鏡射的外部套件文件，為說明偵測規則本就含 token／路徑樣式，掃它們
-// 天生整類 false positive；排除只作用於 text 掃描，結構化 .json／.toml 掃描
-// （含 hard block）不受影響（這些目錄下也無設定檔）。
+// runSafetyChecks 逐檔迴圈中對命中 SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES 的檔略過。
+// **該清單目前為空**——排除的粒度必須是「具體的上游鏡射子目錄」，不得是整個
+// 同步來源根（曾誤列 agents/skills/，等於整棵跨工具 skill 樹不受掃描），詳見常數註解。
 // =============================================================================
 
 const fs = require('fs');
@@ -51,8 +50,23 @@ const SENSITIVE_KEY_PATTERN = /(key|token|secret|credential|password|auth|cert|c
  */
 const SECRET_VALUE_PATTERN = /\b(sk-[\w-]{8,}|sk_(?:live|test)_\w{8,}|ghp_\w{20,}|github_pat_|glpat-|AKIA[0-9A-Z]{16}|AIza[\w-]{16,}|SG\.[\w-]{16,}|npm_\w{20,}|xox[baprs]-|xapp-|eyJ[\w-]{10,}\.)/;
 
-/** 絕對家目錄路徑偵測（C:\Users\、/Users/、/home/、/root/）——完整使用者路徑不得進 repo */
-const HOME_PATH_PATTERN = /[A-Za-z]:[\\/]Users[\\/]|\/(?:home|Users)\/\w|\/root\//;
+/**
+ * 絕對家目錄路徑偵測（C:\Users\、/Users/、/home/、/root/）——完整使用者路徑不得進 repo。
+ * Windows 分支的分隔類別必須吃 1~2 個反斜線：主力平台是 Windows 11，而路徑落在
+ * JSON（settings.json）時磁碟原文是跳脫過的 `C:\\Users\\name`，只吃單一分隔字元會漏掉。
+ */
+const HOME_PATH_PATTERN = /[A-Za-z]:(?:\\{1,2}|\/)Users(?:\\{1,2}|\/)|\/(?:home|Users)\/\w|\/root\//;
+
+/**
+ * 通用 HOME 路徑遮罩（不限本機 HOME）：把任何裝置的家目錄前綴 + 使用者名稱段替換為 `~`。
+ * `maskHome` 只做本機 HOME 字串替換，對「從別台裝置來的設定檔」無效——例如
+ * `[mcp_servers."C:\\Users\\alice\\srv"]` 的 section 名會被原樣印出，洩漏 alice。
+ */
+const ANY_HOME_PATH_PATTERN = /(?:[A-Za-z]:(?:\\{1,2}|\/)Users|\/home|\/Users|\/root)(?:\\{1,2}|\/)[^\\/"'\s]+/g;
+
+function maskAnyHomePath(text) {
+  return text.replace(ANY_HOME_PATH_PATTERN, '~');
+}
 
 /** 私鑰片段偵測（只回報位置，不輸出內容） */
 const PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
@@ -84,12 +98,17 @@ const SAFETY_SCAN_FILES = ['skills-lock.json'];
 
 /**
  * text pattern 掃描（secret／私鑰／HOME 路徑）排除的外部套件文件目錄前綴
- * （相對 REPO_ROOT 的 POSIX 前綴）。這些目錄是原樣鏡射的第三方套件文件
- * （skill 說明），為說明偵測規則本就會含 token／路徑樣式，用機密 pattern
- * 掃它們天生整類 false positive。排除只作用於 text 掃描；結構化 .json／.toml
- * 掃描（settings.json／config.toml 的 hard block）不受影響（這些目錄下也無設定檔）。
+ * （相對 REPO_ROOT 的 POSIX 前綴）。**目前為空**：唯一的排除項曾是 `agents/skills/`，
+ * 但那是三個同步來源根目錄之一的**全部內容**，且其下的 skill 皆為本 repo 手寫、
+ * 非「原樣鏡射的第三方套件文件」——整個跨工具全域 skill 樹因此完全不受 secret／
+ * 私鑰／HOME 路徑掃描，等同在最大的同步來源上開了個洞。
+ *
+ * 日後若真的引入原樣鏡射的上游套件文件（為說明偵測規則本就含 token／路徑樣式，
+ * 掃它天生整類 false positive），只列**該 package 的具體子目錄**（如
+ * `agents/skills/<pkg>/references/`），不得整棵樹排除。排除只作用於 text 掃描；
+ * 結構化 .json／.toml 掃描（含 hard block）不受影響。
  */
-const SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES = ['agents/skills/'];
+const SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES = [];
 
 /** 純函式：回傳第一個命中 pattern 的行號（1-based），無則 null */
 function findFirstMatchingLine(content, pattern) {
@@ -118,8 +137,10 @@ function findFirstMatchingLine(content, pattern) {
 function createSafetyChecker(deps) {
   const { REPO_ROOT, getFiles, readFileSafe, readJson, toRelativePath, maskHome, col, EXIT_OK, EXIT_DIFF, EXIT_ERROR } = deps;
 
+  // detail 除本機 HOME 遮罩外，再套一次通用 HOME 路徑遮罩：section／key path 原文
+  // 可能內嵌**別台裝置**的家目錄，maskHome 的字串比對抓不到（見 ANY_HOME_PATH_PATTERN）
   function addSafetyIssue(issues, severity, category, filePath, detail = '') {
-    issues.push({ severity, category, file: toRelativePath(filePath), detail: maskHome(detail) });
+    issues.push({ severity, category, file: toRelativePath(filePath), detail: maskAnyHomePath(maskHome(detail)) });
   }
 
   function collectSafetyScanFiles() {
@@ -187,29 +208,44 @@ function createSafetyChecker(deps) {
     // 沿用前一個 section 名（那會讓機密 section 的 hard block 靜默降級成 warning）。
     let section = '';
     for (const st of readTomlStatements(content)) {
-      if (st.type === 'section') {
-        if (st.name === null) {
-          addSafetyIssue(issues, 'hard', '無法解析的 TOML section header', filePath, `line ${st.line}`);
-          section = '';
-          continue;
-        }
-        section = st.name;
-        if (isCodexSecretSection(section)) {
-          addSafetyIssue(issues, 'hard', '不應同步 codex 機密 section', filePath, section);
-        } else if (isCodexDeviceWarnSection(section)) {
-          addSafetyIssue(issues, 'warning', 'codex 裝置狀態 section 需人工審核', filePath, section);
-        }
-        continue;
-      }
+      if (st.type === 'section') { section = handleTomlSection(st, filePath, issues); continue; }
       if (st.type !== 'kv') continue;
       const keyPath = section ? `${section}.${st.key}` : st.key;
       if (SENSITIVE_KEY_PATTERN.test(keyPath)) addSafetyIssue(issues, 'warning', '敏感命名 key path', filePath, keyPath);
     }
   }
 
-  // 比對 section 的第一個 dotted 片段（引號感知去引號後）：`[mcp_servers]`／
-  // `[mcp_servers.foo]`／`["mcp_servers"]`／`["mcp_servers".foo]` 均命中，杜絕以引號
-  // 包裝繞過 hard block（splitTomlKey 正規化，見 toml-reader.js）。
+  /**
+   * 處理一筆 section statement，回傳其後 kv 應歸屬的 section 名（不可信時回 ''）。
+   * 三條 fail-closed 路徑（皆 hard block + 清空 section）：
+   * 1. malformed header（reason 'header'）
+   * 2. 未閉合 value 造成的不可信邊界（reason 'unterminated-value'）
+   * 3. section 名含無法解碼的跳脫序列（splitTomlKey 回 null）
+   */
+  function handleTomlSection(st, filePath, issues) {
+    if (st.name === null) {
+      const category = st.reason === 'unterminated-value'
+        ? '未閉合的 TOML value（其後 section 歸屬不可信）'
+        : '無法解析的 TOML section header';
+      addSafetyIssue(issues, 'hard', category, filePath, `line ${st.line}`);
+      return '';
+    }
+    if (splitTomlKey(st.name) === null) {
+      addSafetyIssue(issues, 'hard', '無法解碼的 TOML section 名', filePath, `line ${st.line}`);
+      return '';
+    }
+    if (isCodexSecretSection(st.name)) {
+      addSafetyIssue(issues, 'hard', '不應同步 codex 機密 section', filePath, st.name);
+    } else if (isCodexDeviceWarnSection(st.name)) {
+      addSafetyIssue(issues, 'warning', 'codex 裝置狀態 section 需人工審核', filePath, st.name);
+    }
+    return st.name;
+  }
+
+  // 比對 section 的第一個 dotted 片段（引號感知去引號 + 跳脫解碼後）：`[mcp_servers]`／
+  // `[mcp_servers.foo]`／`["mcp_servers"]`／`["mcp_servers"]` 均命中，杜絕以引號
+  // 包裝或跳脫序列繞過 hard block（splitTomlKey 正規化，見 toml-reader.js）。
+  // 呼叫端已先擋掉 splitTomlKey 回 null 的情況（handleTomlSection）。
   function isCodexSecretSection(section) {
     const [first] = splitTomlKey(section);
     return CODEX_CONFIG_HARD_BLOCK_SECTIONS.includes(first);
