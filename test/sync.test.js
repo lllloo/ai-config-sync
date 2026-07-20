@@ -8,6 +8,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const {
@@ -261,6 +262,29 @@ test('materializeSyncItem：homeLabel 允許 repo 與本機使用不同檔名', 
   assert.equal(item.label, 'repo-name.json');
   assert.match(item.src, /[\/]\.codex[\/]local-name\.toml$/);
   assert.match(item.dest, /[\/]codex[\/]repo-name\.json$/);
+});
+
+// homeRootFile 同樣無 manifest 使用者，以合成 entry 保留覆蓋。
+// 語意為「本機端落在 $HOME 下、不套用 area 的 homeBase」，故本例的 codex area
+// 不應出現 .codex 中繼目錄——這正是它與 homeLabel 的差別所在
+test('materializeSyncItem：homeRootFile 讓本機端直接落在 $HOME 下、略過 homeBase', () => {
+  const entry = { area: 'codex', label: 'repo-name.json', homeRootFile: '.root-level.json', type: 'file', fixedFlow: true };
+  const item = materializeSyncItem(entry, 'to-local');
+  assert.equal(item.label, 'repo-name.json');
+  assert.equal(item.src, path.join(os.homedir(), '.root-level.json'));
+  assert.doesNotMatch(item.src, /\.codex/);
+  assert.match(item.dest, /[\/]codex[\/]repo-name\.json$/);
+});
+
+// homeRootFile 優先於 homeLabel：兩者同時存在時走 $HOME 分支，homeLabel 不生效
+test('materializeSyncItem：homeRootFile 與 homeLabel 並存時以 homeRootFile 為準', () => {
+  const entry = {
+    area: 'codex', label: 'repo-name.json', homeLabel: 'ignored.json',
+    homeRootFile: '.root-level.json', type: 'file', fixedFlow: true,
+  };
+  const item = materializeSyncItem(entry, 'to-local');
+  assert.equal(item.src, path.join(os.homedir(), '.root-level.json'));
+  assert.doesNotMatch(item.src, /ignored/);
 });
 
 test('materializeSyncItem：dir 型 exclude 欄位 propagate 為 excludePatterns', () => {

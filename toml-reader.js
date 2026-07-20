@@ -206,8 +206,8 @@ function readTomlStatements(content) {
   return statements;
 }
 
+// scanTomlValueState 僅為 isIncompleteTomlValue 的內部實作細節，無外部消費者、不導出
 module.exports = {
-  scanTomlValueState,
   isIncompleteTomlValue,
   matchTomlHeader,
   splitTomlKey,

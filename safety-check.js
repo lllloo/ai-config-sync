@@ -276,17 +276,15 @@ function createSafetyChecker(deps) {
   return { runSafetyCheck, runSafetyChecks, printSafetyReport };
 }
 
+// 只導出有外部消費者（sync.js 或 test/）的成員。findFirstMatchingLine／HOME_PATH_PATTERN／
+// PRIVATE_KEY_PATTERN／SAFETY_SCAN_FILES 僅供本檔內部使用，刻意不導出以縮小對外契約面
 module.exports = {
   createSafetyChecker,
-  findFirstMatchingLine,
   SENSITIVE_KEY_PATTERN,
   SECRET_VALUE_PATTERN,
-  HOME_PATH_PATTERN,
-  PRIVATE_KEY_PATTERN,
   SETTINGS_HARD_BLOCK_KEYS,
   CODEX_CONFIG_HARD_BLOCK_SECTIONS,
   CODEX_CONFIG_DEVICE_WARN_SECTIONS,
   SAFETY_SCAN_DIRS,
-  SAFETY_SCAN_FILES,
   SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES,
 };

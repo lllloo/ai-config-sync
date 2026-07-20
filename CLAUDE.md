@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（目前只有 `AGENTS.md`），由 `sync.js` 管理。`config.toml` **不做整檔同步、也永不被寫入或讀取**。MCP 同步已整批移除待重新設計（見 `openspec/changes/archive/*-remove-mcp-sync`）。
 - **`opencode/`**（無點）— 要同步到 `~/.config/opencode/` 的全域設定（`opencode.jsonc` 主設定、`AGENTS.md` 全域指示），由 `sync.js` 管理。opencode 採 XDG 佈局，設定家在 `~/.config/opencode`（非 `~/.opencode`）。
 - **`agents/`**（無點）— 要同步到 `~/.agents/` 的**跨工具全域** skill（`agents/skills/<name>/`），由 `sync.js` 的 `xtool-skills` 型管理。正典為 `~/.agents/skills/`（Codex 原生掃），apply 另於 `~/.claude/skills/<name>` 建 symlink 橋供 Claude Code 探索。與 `npx skills` **共管** `~/.agents/skills/`：非 prune、只認受管名字、撞名（`~/.agents/.skill-lock.json` 已登記）拒寫（見下方 Skills 管理）。
-- **`.claude/`**（有點）— 本 repo 專用的 Claude Code 本地設定（`settings.json` 等），**不參與同步、不映射到 `~/.claude/`**。`.claude/skills` 是 symlink 指向 `../.agents/skills`。
+- **`.claude/`**（有點）— 本 repo 專用的 Claude Code 本地設定落點，**不參與同步、不映射到 `~/.claude/`**。目前只有 `.claude/skills`（symlink 指向 `../.agents/skills`）與本機執行期產物；日後若需 repo 專用的 `settings.json` 亦放這裡。
 - **Codex 本地 skill** — **不需建 `.codex/skills`**。Codex CLI 會自動探索 `.agents/skills`：專案層由 `repo_agents_skill_roots` 從 project root 逐層掃 `<dir>/.agents/skills`，全域層掃 `~/.agents/skills`（原始碼 `codex-rs/core-skills/src/loader.rs` 的 `skill_roots()`）。故本 repo 的 `.agents/skills` 對 Codex 直接生效，無需 symlink。
 - **`.agents/skills/`** — 本地 skill **實體目錄**（已納入版控），跨工具（Claude Code / Codex）共用來源；遵循 [Agent Skills](https://agentskills.io) 開放標準。
 
@@ -79,7 +79,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **所有函式 ≤ 60 行**（經 iter4/iter5 稽核強制）— 新增函式若超過需拆分。**唯一例外**：DI factory（`createSafetyChecker`／`createSkillsHandler`）為「注入依賴後包住一組短小巢狀閉包」的命名空間包裝，本體行數為閉包集合的總和、非單一邏輯流程，不受此限；其內部各閉包仍須 ≤ 60 行
 - **指令分派（switch）**：`COMMANDS` 物件為 `{ alias, desc }`（名稱／別名／說明的單一來源）；`main()` 先檢查 `COMMANDS[cmd]` 是否存在，再由 `runCommand(cmd, opts)` 以明確 `switch` 分派到各 `runXxx`。**新增指令需同步改 `COMMANDS`（登錄名稱／別名／說明）與 `runCommand` 的 `switch`（接上 handler）**——刻意不走 handler 注入表，換取分派可讀性
-- **宣告式同步項目 `SYNC_MANIFEST`**：一列 = 一路徑；可選 `homeLabel` 表示本機檔名不同於 repo `label`，可選 `homeRootFile` 表示本機端在 `$HOME` 下、不套用 area `homeBase`。兩欄目前皆無 manifest 使用者（隨 MCP 移除），但保留為 materializer 的通用能力（`sync.test.js` 以合成 entry 維持覆蓋）。`fixedFlow` 項目 src/dest 固定不交換，目前只有 `settings.json`，由 `settings` handler 依 direction 決定行為。
+- **宣告式同步項目 `SYNC_MANIFEST`**：一列 = 一路徑；可選 `homeLabel` 表示本機檔名不同於 repo `label`，可選 `homeRootFile` 表示本機端在 `$HOME` 下、不套用 area `homeBase`。兩欄目前皆無 manifest 使用者（隨 MCP 移除），但保留為 materializer 的通用能力，兩者各以合成 entry 在 `sync.test.js` 維持正向覆蓋（`homeRootFile` 另有一條「manifest 不得出現 `.claude.json`」的反向回歸鎖，兩者互補、不可互相取代）。`fixedFlow` 項目 src/dest 固定不交換，目前只有 `settings.json`，由 `settings` handler 依 direction 決定行為。
 - **型別行為分派（switch）**：`SyncItem.type`（`file`／`settings`／`dir`／`xtool-skills`）由 `diffSyncItem`／`applySyncItem` 明確分派。`advisory`（MCP 諮詢式）與 `mcp`（TOML section 投影）兩種型別皆已移除，`sync.test.js` 有回歸鎖擋其復活。
 - **Atomic write**：底層 `writeFileSafe` 先寫同目錄暫存檔（隨機尾碼 + `flag:'wx'` O_EXCL）再 rename（同檔系統避免 EXDEV），所有寫入路徑（`writeJsonSafe`、`writeTextSafe`、`copyFile`、`mirrorDir`）皆走此函式。提供**原子性**（避免半截損壞），但**不付 fsync 成本、不保證持久性**（設定檔對持久性需求低）。對稱的 `readFileSafe` 統一將讀取例外包成 `SyncError`（帶 path context），不讓裸 fs 例外穿透 `formatError`。diff 全程唯讀、只輸出狀態行，不產生任何暫存檔
 - **統一錯誤處理**：`SyncError` class（`code` + `context`）+ 檔尾 `.catch(formatError)`，所有路徑經 `formatError`，**禁止**裸 `console.error + process.exit`
