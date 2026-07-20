@@ -40,6 +40,7 @@ const fs = require('fs');
 const path = require('path');
 const { readTomlStatements, splitTomlKey } = require('./toml-reader.js');
 const { validateMcpManifest, McpValidationError } = require('./mcp.js');
+const { validateClaudeMcpManifest } = require('./claude-mcp.js');
 
 /** 敏感命名 review pattern：僅供 safety:check warning，不參與同步剝除。 */
 const SENSITIVE_KEY_PATTERN = /(key|token|secret|credential|password|auth|cert|cookie|session|jwt|helper|refresh)/i;
@@ -172,13 +173,15 @@ function createSafetyChecker(deps) {
     scanSensitiveKeyPaths(readJson(filePath), filePath, issues);
   }
 
-  function scanMcpManifestSafety(filePath, issues) {
+  // 判準與同步流程共用同一個 validator：兩者若各寫一份，遲早出現「同步擋下但
+  // safety 放行」的分歧，而分歧的那一側就是機密外洩的路徑。
+  function scanMcpManifestSafety(filePath, issues, validate, tool) {
     try {
-      validateMcpManifest(readJson(filePath));
+      validate(readJson(filePath));
     } catch (err) {
       if (!(err instanceof McpValidationError)) throw err;
       for (const field of err.paths) {
-        addSafetyIssue(issues, 'hard', '不合法的 Codex MCP 來源欄位', filePath, field);
+        addSafetyIssue(issues, 'hard', `不合法的 ${tool} MCP 來源欄位`, filePath, field);
       }
     }
   }
@@ -230,7 +233,8 @@ function createSafetyChecker(deps) {
   function scanSafetyStructuredFile(filePath, issues) {
     const rel = toRelativePath(filePath).replace(/\\/g, '/');
     if (rel === 'claude/settings.json') scanClaudeSettingsSafety(filePath, issues);
-    else if (rel === 'codex/mcp.json') scanMcpManifestSafety(filePath, issues);
+    else if (rel === 'codex/mcp.json') scanMcpManifestSafety(filePath, issues, validateMcpManifest, 'Codex');
+    else if (rel === 'claude/mcp.json') scanMcpManifestSafety(filePath, issues, validateClaudeMcpManifest, 'Claude');
     else if (rel.endsWith('.json')) scanJsonKeyWarnings(filePath, issues);
     else if (rel.endsWith('.toml')) scanTomlKeyWarnings(filePath, issues);
   }

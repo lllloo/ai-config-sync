@@ -367,7 +367,7 @@ test('drift-guard：新增 opencode area 後 claude／codex 既有項目 materia
     const claudeLabels = byArea('claude/').map(i => i.label);
     const codexLabels = byArea('codex/').map(i => i.label);
     assert.deepEqual(claudeLabels,
-      ['CLAUDE.md', 'settings.json', 'statusline.sh', 'rules']);
+      ['CLAUDE.md', 'settings.json', 'statusline.sh', 'mcp.json', 'rules']);
     assert.deepEqual(codexLabels, ['AGENTS.md', 'mcp.json']);
     // 每個非 opencode 項目的 src/dest 皆不含 .config/opencode 路徑
     for (const it of [...byArea('claude/'), ...byArea('codex/')]) {
@@ -558,11 +558,17 @@ test('drift-guard：SYNC_MANIFEST 不含 codex config.toml', () => {
     'codex-config 型別已移除');
 });
 
-test('drift-guard：Codex MCP 唯一來源為 codex/mcp.json section-level 項目', () => {
-  const rows = SYNC_MANIFEST.filter(e => e.area === 'codex' && e.type === 'mcp');
-  assert.deepEqual(rows, [{
-    area: 'codex', label: 'mcp.json', homeLabel: 'config.toml', type: 'mcp', fixedFlow: true,
-  }]);
+test('drift-guard：兩端 MCP 皆為 advisory 型且各只有一列', () => {
+  const rows = SYNC_MANIFEST.filter(e => e.type === 'advisory');
+  assert.deepEqual(rows, [
+    { area: 'claude', label: 'mcp.json', homeRootFile: '.claude.json', type: 'advisory', fixedFlow: true },
+    { area: 'codex', label: 'mcp.json', homeLabel: 'config.toml', type: 'advisory', fixedFlow: true },
+  ]);
+});
+
+test('drift-guard：投影寫入型 mcp 不得復活', () => {
+  // 回歸鎖：advisory 的核心承諾是「不寫本機 MCP 設定」，一列 type:'mcp' 就會破功
+  assert.equal(SYNC_MANIFEST.some(e => e.type === 'mcp'), false);
 });
 
 // -----------------------------------------------------------------------------

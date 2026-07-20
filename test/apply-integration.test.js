@@ -22,7 +22,7 @@ const { COMMANDS } = require('../sync.js');
 
 // sync.js require('./safety-check.js')（後者 require('./toml-reader.js')）與
 // require('./skills.js')，任何 `node sync.js` 指令缺任一檔即崩，故四檔同抄。
-const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'mcp.js'];
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'mcp.js', 'claude-mcp.js'];
 
 /**
  * 建立沙箱：repo（含 sync.js + safety-check.js + toml-reader.js + skills.js 副本、git init）與 home。
@@ -125,81 +125,113 @@ const MCP_SERVER = {
   enabled: true,
 };
 
-test('MCP to-local --dry-run：預覽新增但不寫 config 或 state', () => {
+test('MCP to-local --dry-run：輸出建議指令，不建立 config 或 state', () => {
   const { repo, home, root } = setupSandbox();
   try {
     seedMcpManifest(repo, { supermemory: MCP_SERVER });
     const r = run(repo, home, ['to-local', '--dry-run']);
     assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /mcp\.json\/supermemory.*將新增/);
+    assert.match(r.stdout, /codex mcp add supermemory --url https:\/\/mcp\.supermemory\.ai\/mcp/);
     assert.equal(fs.existsSync(path.join(home, '.codex', 'config.toml')), false);
+    // advisory 不再有 state 檔；它若重新出現代表投影寫入被復活了
     assert.equal(fs.existsSync(path.join(home, '.codex', '.ai-config-sync-mcp-state.json')), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('MCP to-local：只 upsert 受管 section，保留非 MCP 與未受管 MCP', () => {
+test('MCP to-local --yes：既有 config.toml 內容與 mtime 均不變', () => {
   const { repo, home, root } = setupSandbox();
   try {
     seedMcpManifest(repo, { supermemory: MCP_SERVER });
+    const configPath = path.join(home, '.codex', 'config.toml');
     const config = 'personality = "friendly"\n\n[mcp_servers.local_tool]\ncommand = "node"\n';
-    writeText(path.join(home, '.codex', 'config.toml'), config);
+    writeText(configPath, config);
+    const before = fs.statSync(configPath).mtimeMs;
+
     const r = run(repo, home, ['to-local', '--yes']);
+
     assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
-    const written = fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8');
-    assert.match(written, /personality = "friendly"/);
-    assert.match(written, /\[mcp_servers\.local_tool\][\s\S]*command = "node"/);
-    assert.match(written, /\[mcp_servers\."supermemory"\]/);
-    const state = JSON.parse(fs.readFileSync(path.join(home, '.codex', '.ai-config-sync-mcp-state.json'), 'utf8'));
-    assert.deepEqual(state.managedServers, ['supermemory']);
+    assert.equal(fs.readFileSync(configPath, 'utf8'), config);
+    assert.equal(fs.statSync(configPath).mtimeMs, before);
+    assert.equal(fs.existsSync(path.join(home, '.codex', '.ai-config-sync-mcp-state.json')), false);
+    assert.match(r.stdout, /codex mcp add supermemory/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('MCP to-local：更新可攜欄位時原文保留本機 Authorization header', () => {
+test('MCP to-local：本機 Authorization 值不出現於輸出且原檔不被改寫', () => {
   const { repo, home, root } = setupSandbox();
   const marker = 'mcp-local-secret-must-not-appear';
   const authLine = `http_headers = { Authorization = "Bearer ${marker}" } # device only`;
   try {
     seedMcpManifest(repo, { supermemory: MCP_SERVER });
-    writeText(path.join(home, '.codex', 'config.toml'), [
+    const configPath = path.join(home, '.codex', 'config.toml');
+    const original = [
       '[mcp_servers.supermemory]',
       'url = "https://old.example/mcp"',
       'enabled = false',
       authLine,
       '',
-    ].join('\n'));
-    writeJson(path.join(home, '.codex', '.ai-config-sync-mcp-state.json'), { version: 1, managedServers: ['supermemory'] });
+    ].join('\n');
+    writeText(configPath, original);
+
     const r = run(repo, home, ['to-local', '--yes']);
+
     assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
-    const written = fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8');
-    assert.match(written, /url = "https:\/\/mcp\.supermemory\.ai\/mcp"/);
-    assert.match(written, /enabled = true/);
-    assert.ok(written.includes(authLine));
+    assert.equal(fs.readFileSync(configPath, 'utf8'), original);
     assert.doesNotMatch(r.stdout + r.stderr, new RegExp(marker));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('MCP to-local：repo 移除後由 state 刪 stale，未受管 section 保留', () => {
+test('MCP to-local：repo 未登記的本機 Server 只被標示，不產生移除指令', () => {
   const { repo, home, root } = setupSandbox();
   try {
     seedMcpManifest(repo, {});
-    writeText(path.join(home, '.codex', 'config.toml'), [
+    const configPath = path.join(home, '.codex', 'config.toml');
+    const original = [
       '[mcp_servers.old]', 'url = "https://old.example/mcp"', '',
       '[mcp_servers.keep]', 'command = "node"', '',
-    ].join('\n'));
-    writeJson(path.join(home, '.codex', '.ai-config-sync-mcp-state.json'), { version: 1, managedServers: ['old'] });
+    ].join('\n');
+    writeText(configPath, original);
+
     const r = run(repo, home, ['to-local', '--yes']);
+
     assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
-    const written = fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8');
-    assert.doesNotMatch(written, /mcp_servers\.old/);
-    assert.match(written, /mcp_servers\.keep/);
-    const state = JSON.parse(fs.readFileSync(path.join(home, '.codex', '.ai-config-sync-mcp-state.json'), 'utf8'));
-    assert.deepEqual(state.managedServers, []);
+    assert.equal(fs.readFileSync(configPath, 'utf8'), original);
+    assert.doesNotMatch(r.stdout, /codex mcp remove/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Claude MCP to-local：~/.claude.json 內容與 mtime 均不變', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeJson(path.join(repo, 'claude', 'mcp.json'), {
+      version: 1,
+      servers: { supermemory: { type: 'http', url: 'https://mcp.supermemory.ai/mcp' } },
+    });
+    const localPath = path.join(home, '.claude.json');
+    // 帶上活檔才有的內容：這正是不能被我們改寫的東西
+    const original = JSON.stringify({
+      oauthAccount: { accessToken: 'claude-json-secret-must-not-appear' },
+      projects: { '/x': { history: ['keep me'] } },
+      mcpServers: {},
+    }, null, 2);
+    writeText(localPath, original);
+    const before = fs.statSync(localPath).mtimeMs;
+
+    const r = run(repo, home, ['to-local', '--yes']);
+
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    assert.equal(fs.readFileSync(localPath, 'utf8'), original);
+    assert.equal(fs.statSync(localPath).mtimeMs, before);
+    assert.match(r.stdout, /claude mcp add --transport http --scope user supermemory/);
+    assert.doesNotMatch(r.stdout + r.stderr, /claude-json-secret-must-not-appear/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

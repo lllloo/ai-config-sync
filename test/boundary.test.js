@@ -889,7 +889,7 @@ test('ensureSymlink：Windows dir symlink 失敗時退回 junction（mock 覆蓋
 
 // safety:check 執行期依賴 sync.js + safety-check.js + toml-reader.js + skills.js 四檔，
 // sandbox 需同時複製，避免單檔假設回歸（sync.js require 缺任一檔會直接崩）。
-const SAFETY_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'mcp.js'];
+const SAFETY_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'mcp.js', 'claude-mcp.js'];
 
 function setupSafetySandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-safety-'));
@@ -972,6 +972,57 @@ test('safety:check：Codex MCP 非 HTTPS URL 為 hard block', () => {
     const r = runSafety(repo);
     assert.equal(r.status, 2, `${r.stdout}\n${r.stderr}`);
     assert.match(r.stdout, /servers\.insecure\.url/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('safety:check：Claude MCP URL pathname 挾帶憑證為 hard block', () => {
+  const { repo, root } = setupSafetySandbox();
+  const marker = 'NjQ4MWZhZDgtY2YyMS00NDIz';
+  try {
+    writeSafetyJson(repo, 'claude/mcp.json', {
+      version: 1,
+      servers: { leaky: { type: 'http', url: `https://mcp.example.com/s/${marker}/mcp` } },
+    });
+    const r = runSafety(repo);
+    assert.equal(r.status, 2, `${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /servers\.leaky\.url/);
+    assert.doesNotMatch(r.stdout + r.stderr, new RegExp(marker));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('safety:check：Claude MCP args 挾帶憑證為 hard block，指出索引不顯示值', () => {
+  const { repo, root } = setupSafetySandbox();
+  const marker = 'AbCd1234EfGh5678IjKl';
+  try {
+    writeSafetyJson(repo, 'claude/mcp.json', {
+      version: 1,
+      servers: { s: { type: 'stdio', command: 'npx', args: ['-y', 'mcp-remote@latest', marker] } },
+    });
+    const r = runSafety(repo);
+    assert.equal(r.status, 2, `${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /servers\.s\.args\[2\]/);
+    assert.doesNotMatch(r.stdout + r.stderr, new RegExp(marker));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('safety:check：Claude MCP 憑證載體欄位為 hard block，且不顯示值', () => {
+  const { repo, root } = setupSafetySandbox();
+  const marker = 'claude-mcp-header-must-stay-hidden';
+  try {
+    writeSafetyJson(repo, 'claude/mcp.json', {
+      version: 1,
+      servers: { s: { type: 'http', url: 'https://e.test/mcp', headers: { Authorization: marker } } },
+    });
+    const r = runSafety(repo);
+    assert.equal(r.status, 2, `${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /servers\.s\.headers/);
+    assert.doesNotMatch(r.stdout + r.stderr, new RegExp(marker));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
