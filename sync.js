@@ -2239,7 +2239,7 @@ function runHelp() {
   console.log(`    ${col.cyan('--no-color')}             關閉色彩輸出（亦支援 NO_COLOR 環境變數）`);
   console.log(`    ${col.cyan('--verbose')}              顯示詳細路徑與檔案大小`);
   console.log(`    ${col.cyan('--version')}              顯示版本號（別名 -v）`);
-  console.log(`    ${col.cyan('--help')}                 顯示此說明`);
+  console.log(`    ${col.cyan('--help')}                 顯示此說明（別名 -h）`);
 
   console.log(col.bold('\n  範例：'));
   console.log(col.dim('    node sync.js diff'));

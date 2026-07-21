@@ -471,6 +471,73 @@ test('README drift-guard：safety 掃描來源目錄皆載於 README', () => {
   }
 });
 
+// -----------------------------------------------------------------------------
+// 旗標 drift-guard：CLI 旗標清單目前手抄三處——`parseArgs` 白名單、`runHelp` 的
+// 旗標輸出、README 旗標表——彼此無守門，新增旗標時漏改後兩者不會紅燈（指令別名
+// 已有上方那組守門，旗標則否）。此組測試以 `parseArgs` 白名單為單一事實來源，
+// 反向斷言另外兩處逐一涵蓋。`runHelp` 未匯出，故與 README 一樣走原始碼字面比對。
+// 同一個 else if 分支內的旗標視為一組（首個為正名、其餘為別名，如 --yes/--force）。
+// -----------------------------------------------------------------------------
+const SYNC_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'sync.js'), 'utf8');
+
+/** 取出 sync.js 中某個 top-level 函式的原始碼（以行首 `}` 為結尾） */
+function sliceFunctionSource(name) {
+  const start = SYNC_SOURCE.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `找不到 ${name} 函式原始碼`);
+  const end = SYNC_SOURCE.indexOf('\n}', start);
+  assert.notEqual(end, -1, `${name} 函式原始碼未正常結束`);
+  return SYNC_SOURCE.slice(start, end);
+}
+
+/** parseArgs 白名單旗標組：[['--dry-run'], ['--yes', '--force'], ...] */
+const FLAG_GROUPS = sliceFunctionSource('parseArgs')
+  .split(/\belse if\s*\(/)
+  .slice(1)
+  .map(branch => branch.slice(0, branch.indexOf('{')))
+  .map(cond => [...cond.matchAll(/arg === '(-[^']+)'/g)].map(m => m[1]))
+  .filter(flags => flags.length > 0);
+
+/** 旗標字面比對：`-h` 不可被 `--help` 的尾段誤命中，故兩側須為非 [\w-] */
+function mentionsFlag(text, flag) {
+  return new RegExp(`(?<![\\w-])${flag}(?![\\w-])`).test(text);
+}
+
+// 抽取器若因 parseArgs 重構而抓不到東西，上述兩條守門會靜默全過；此測試守住抽取器本身
+test('旗標 drift-guard：parseArgs 白名單抽取結果合理（守住抽取器本身）', () => {
+  assert.ok(FLAG_GROUPS.length >= 6, `parseArgs 白名單旗標組過少：${FLAG_GROUPS.length}`);
+  for (const [canonical] of FLAG_GROUPS) {
+    assert.match(canonical, /^--[a-z][a-z-]*$/, `旗標正名應為長格式：${canonical}`);
+  }
+  const all = FLAG_GROUPS.flat();
+  for (const flag of ['--dry-run', '--yes', '--force', '--version', '--help']) {
+    assert.ok(all.includes(flag), `parseArgs 白名單抽取遺漏已知旗標：${flag}`);
+  }
+});
+
+test('旗標 drift-guard：--help 輸出涵蓋 parseArgs 白名單全部旗標（含別名）', () => {
+  const helpSource = sliceFunctionSource('runHelp');
+  for (const [canonical, ...aliases] of FLAG_GROUPS) {
+    assert.ok(mentionsFlag(helpSource, canonical), `runHelp 未列出旗標：${canonical}`);
+    for (const alias of aliases) {
+      assert.ok(mentionsFlag(helpSource, alias),
+        `runHelp 未載明 ${canonical} 的別名：${alias}`);
+    }
+  }
+});
+
+test('旗標 drift-guard：README 旗標表涵蓋 parseArgs 白名單全部旗標（含別名）', () => {
+  const section = README.slice(README.indexOf('### 旗標'));
+  const table = section.slice(0, section.indexOf('\n## '));
+  assert.ok(table.includes('| 旗標 | 說明 |'), 'README 找不到旗標表');
+  for (const [canonical, ...aliases] of FLAG_GROUPS) {
+    assert.ok(table.includes(`| \`${canonical}\` |`), `README 旗標表缺列：${canonical}`);
+    for (const alias of aliases) {
+      assert.ok(mentionsFlag(table, alias),
+        `README 旗標表未載明 ${canonical} 的別名：${alias}`);
+    }
+  }
+});
+
 // 5.4 drift-guard：新增 agents 同步區（SYNC_AREAS + SYNC_MANIFEST 的 xtool-skills 列）
 // 須與 README 同步項目表一致；且 xtool 列必須排在 claude skills dir 列之前（順序即安全）
 test('SYNC_AREAS：agents area 對應 ~/.agents，repoDir/prefix 正確', () => {
