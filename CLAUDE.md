@@ -134,6 +134,6 @@ Skills 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具
 
 ## 注意事項
 
-- `.DS_Store` 在 `.gitignore`；`.agents/skills/` 為本地 skill 實體目錄，**已納入版控**
+- `.DS_Store` 由 `sync.js` 的 `GLOBAL_EXCLUDE` 常數在**同步時**排除（不進 repo、也不寫到本機），與 `.gitignore` 無關——`.gitignore` 只列 `node_modules/` 與 `*.log`；`.agents/skills/` 為本地 skill 實體目錄，**已納入版控**
 - Skills 不在自動同步範圍，`skills-lock.json` 為各裝置參考清單（source of truth）
 - 上游 `npx skills` 功能追蹤見 `UPSTREAM.md`（跨裝置還原、Claude Code symlink bug 等，修改 skills 流程前先查）

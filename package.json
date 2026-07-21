@@ -13,5 +13,8 @@
     "to-local": "node sync.js to-local",
     "test": "node --test \"test/*.test.js\""
   },
+  "engines": {
+    "node": ">=18"
+  },
   "private": true
 }
