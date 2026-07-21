@@ -21,8 +21,8 @@ const { noColorEnv } = require('./helpers.js');
 const { COMMANDS } = require('../sync.js');
 
 // sync.js require('./safety-check.js')（後者 require('./toml-reader.js')）與
-// require('./skills.js')，任何 `node sync.js` 指令缺任一檔即崩，故四檔同抄。
-const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js'];
+// require('./skills.js')／require('./xtool-skills.js')，任何 `node sync.js` 指令缺任一檔即崩，故五檔同抄。
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'xtool-skills.js'];
 
 /**
  * 建立沙箱：repo（含 sync.js + safety-check.js + toml-reader.js + skills.js 副本、git init）與 home。

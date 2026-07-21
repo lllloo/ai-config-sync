@@ -871,9 +871,9 @@ test('ensureSymlink：Windows dir symlink 失敗時退回 junction（mock 覆蓋
 // safety:check：獨立、唯讀、安全輸出與 exit code
 // =============================================================================
 
-// safety:check 執行期依賴 sync.js + safety-check.js + toml-reader.js + skills.js 四檔，
+// safety:check 執行期依賴 sync.js + safety-check.js + toml-reader.js + skills.js + xtool-skills.js 五檔，
 // sandbox 需同時複製，避免單檔假設回歸（sync.js require 缺任一檔會直接崩）。
-const SAFETY_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js'];
+const SAFETY_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'xtool-skills.js'];
 
 function setupSafetySandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-safety-'));

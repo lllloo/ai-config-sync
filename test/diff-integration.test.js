@@ -18,7 +18,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { noColorEnv } = require('./helpers.js');
 
-const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js'];
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'xtool-skills.js'];
 
 // 沙箱 repo 的基準可攜 settings：repo 與本機共用此底，本機再疊 extra，
 // 使 settings 明細差異只落在測試指定的 key 上。

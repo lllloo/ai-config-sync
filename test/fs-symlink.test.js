@@ -30,8 +30,8 @@ const { spawnSync } = require('node:child_process');
 const { noColorEnv } = require('./helpers.js');
 
 // sync.js require('./safety-check.js')（後者 require('./toml-reader.js')）與
-// require('./skills.js')，缺任一檔即崩，故四檔同抄（與 apply-integration 一致）。
-const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js'];
+// require('./skills.js')／require('./xtool-skills.js')，缺任一檔即崩，故五檔同抄（與 apply-integration 一致）。
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'xtool-skills.js'];
 
 const REAL_HOME = os.homedir();
 
