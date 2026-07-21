@@ -219,7 +219,7 @@ npm run to-local
 
 排除的用途是原樣鏡射的上游套件文件：那類文件為說明偵測規則本就含 token／路徑樣式，掃它們會製造整類誤判。但**排除粒度必須是該 package 的具體子目錄**（如 `agents/skills/<pkg>/references/`），不得是同步來源根——清單曾誤列 `agents/skills/`，而那是三個來源根之一的全部內容且其下 skill 皆為本 repo 手寫，等於整棵跨工具全域 skill 樹不受掃描。排除只作用於 text 掃描，結構化 `.json`／`.toml` 的 hard block 不受影響。
 
-**輸出遮罩**：issue 的 detail（section 名、key path）除本機 HOME 遮罩外，另套通用家目錄遮罩——設定檔可能來自別台裝置，其 section 名內嵌的是**那台**裝置的家目錄（如 `[mcp_servers."C:\Users\<他人>\srv"]`），單靠本機 HOME 字串比對抓不到。
+**輸出遮罩**：issue 的 detail（section 名、key path）除本機 HOME 遮罩外，另套通用家目錄遮罩——設定檔可能來自別台裝置，其 section 名內嵌的是**那台**裝置的家目錄（如 `[mcp_servers."C:\Users\<他人>\srv"]`），單靠本機 HOME 字串比對抓不到。detail 亦套 secret 遮罩：token 反常地作為 section／key **名**（而非 value）時，位置資訊本身就是機密值，命中 token 樣式的片段一律以 `***` 輸出。
 
 ## 同步行為細節
 

@@ -15,10 +15,12 @@ const path = require('node:path');
 const {
   serializeSettings,
   loadStrippedSettings,
+  loadRepoPortableSettings,
   mergeSettingsBetween,
   partitionSettingsTopLevel,
   findNewSettingsTopKeys,
   collectNewSettingsKeys,
+  diffSyncItem,
   DEVICE_SETTINGS_KEYS,
 } = require('../sync.js');
 const { SENSITIVE_KEY_PATTERN } = require('../safety-check.js');
@@ -599,6 +601,52 @@ test('findNewSettingsTopKeys：兩端 key 一致（值不同）不觸發', () =>
     writeJson(localPath, { language: 'zh-TW' });
     writeJson(repoPath, { language: 'en' });
     assert.deepEqual(findNewSettingsTopKeys(localPath, repoPath), []);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// to-local 的 diff 與 apply 必須同基準（loadRepoPortableSettings）
+// 回歸：diff 曾拿 repo 原始 bytes 比對、apply 卻先剝除 device key——repo 殘留
+// 黑名單 key 時 diff 恆判 changed、apply 無動作，settings.json 永不收斂。
+// -----------------------------------------------------------------------------
+test('loadRepoPortableSettings：剝除 device key 與空 env，序列化與 stripped local 同源', () => {
+  withTmpDir((dir) => {
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(repoPath, { permissions: ['a'], model: 'opus', env: {} });
+    const { clean, serialized } = loadRepoPortableSettings(repoPath);
+    assert.deepEqual(clean, { permissions: ['a'] }, 'device key 與空 env 應被剝除');
+    assert.equal(serialized, serializeSettings({ permissions: ['a'] }), '須經 serializeSettings 同一入口');
+  });
+});
+
+test('to-local diff：repo 殘留 device key 時不再恆判 changed（與 apply 同基準）', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    // repo 殘留黑名單 key（如某 key 剛被補列、repo 尚未經 to-repo 重寫）；
+    // 可攜內容兩端一致，本機另有自己的 device key（應整鍵保留、不參與比對）
+    writeJson(repoPath, { permissions: ['a'], model: 'opus' });
+    writeJson(localPath, { permissions: ['a'], model: 'sonnet' });
+
+    const item = { type: 'settings', label: 'settings.json', prefix: 'claude/', src: localPath, dest: repoPath };
+    const [entry] = diffSyncItem(item, 'to-local');
+    assert.equal(entry.status, null, 'repo 僅多 device key → diff 應判無差異');
+    assert.equal(mergeSettingsBetween(localPath, repoPath, 'to-local', true), false,
+      'apply 亦應判無變更（diff 與 apply 同基準，不得一邊 changed 一邊 no-op）');
+  });
+});
+
+test('to-local diff：repo 可攜內容確實不同時仍判 changed（同基準不得誤吞真差異）', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(repoPath, { permissions: ['b'], model: 'opus' });
+    writeJson(localPath, { permissions: ['a'] });
+
+    const item = { type: 'settings', label: 'settings.json', prefix: 'claude/', src: localPath, dest: repoPath };
+    const [entry] = diffSyncItem(item, 'to-local');
+    assert.equal(entry.status, 'changed', '可攜內容不同應判 changed');
+    assert.equal(mergeSettingsBetween(localPath, repoPath, 'to-local', true), true, 'apply 亦應判有變更');
   });
 });
 

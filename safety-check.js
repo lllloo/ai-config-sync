@@ -68,6 +68,19 @@ function maskAnyHomePath(text) {
   return text.replace(ANY_HOME_PATH_PATTERN, '~');
 }
 
+/**
+ * detail 輸出遮罩用的 SECRET_VALUE_PATTERN 延伸版：偵測用 pattern 的部分 alternative
+ * 只比對「前綴」（glpat-／xoxb- 等），拿來遮罩會只遮掉前綴、token 本體照印，
+ * 故往後多吃連續的 token 字元。detail 通常是 section／key 名或行號，正常內容
+ * 不含這些前綴，誤遮風險可忽略。
+ */
+const SECRET_REDACT_PATTERN = new RegExp(`${SECRET_VALUE_PATTERN.source}[\\w.-]*`, 'g');
+
+/** detail 層 secret 遮罩：命中 token 樣式的片段整段換成 ***（不輸出原值） */
+function maskSecretValues(text) {
+  return text.replace(SECRET_REDACT_PATTERN, '***');
+}
+
 /** 私鑰片段偵測（只回報位置，不輸出內容） */
 const PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
 
@@ -137,10 +150,15 @@ function findFirstMatchingLine(content, pattern) {
 function createSafetyChecker(deps) {
   const { REPO_ROOT, getFiles, readFileSafe, readJson, toRelativePath, maskHome, col, EXIT_OK, EXIT_DIFF, EXIT_ERROR } = deps;
 
-  // detail 除本機 HOME 遮罩外，再套一次通用 HOME 路徑遮罩：section／key path 原文
-  // 可能內嵌**別台裝置**的家目錄，maskHome 的字串比對抓不到（見 ANY_HOME_PATH_PATTERN）
+  // detail 除本機 HOME 遮罩外，再套通用 HOME 路徑遮罩（section／key path 原文可能
+  // 內嵌**別台裝置**的家目錄，maskHome 抓不到，見 ANY_HOME_PATH_PATTERN）與 secret
+  // 遮罩（token 反常地作為 section／key 名而非 value 時，st.name／keyPath 會經 detail
+  // 原樣輸出，違反「只列位置、不輸出值」的不變式，見 SECRET_REDACT_PATTERN）
   function addSafetyIssue(issues, severity, category, filePath, detail = '') {
-    issues.push({ severity, category, file: toRelativePath(filePath), detail: maskAnyHomePath(maskHome(detail)) });
+    issues.push({
+      severity, category, file: toRelativePath(filePath),
+      detail: maskSecretValues(maskAnyHomePath(maskHome(detail))),
+    });
   }
 
   function collectSafetyScanFiles() {
@@ -318,6 +336,7 @@ module.exports = {
   createSafetyChecker,
   SENSITIVE_KEY_PATTERN,
   SECRET_VALUE_PATTERN,
+  maskSecretValues,
   SETTINGS_HARD_BLOCK_KEYS,
   CODEX_CONFIG_HARD_BLOCK_SECTIONS,
   CODEX_CONFIG_DEVICE_WARN_SECTIONS,

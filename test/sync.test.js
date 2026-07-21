@@ -43,6 +43,7 @@ const {
   DEVICE_SETTINGS_KEYS,
   isWsl,
   winPathToWslPath,
+  detectWinHome,
   resolveWinHome,
 } = require('../sync.js');
 const {
@@ -1029,6 +1030,19 @@ test('winPathToWslPath：Windows 路徑轉為 /mnt 掛載路徑', () => {
 test('winPathToWslPath：非 <drive>: 開頭回 null（不臆造路徑）', () => {
   for (const bad of ['', '   ', '\\\\server\\share', '/home/barney', 'Users\\Joe']) {
     assert.equal(winPathToWslPath(bad), null, `應無法解析：${JSON.stringify(bad)}`);
+  }
+});
+
+test('detectWinHome：環境變數 AI_CONFIG_SYNC_WIN_HOME 優先，不問 cmd.exe', () => {
+  // env 分支為早退路徑、零 IO，跨平台皆可測（不需 WSL、不 spawn cmd.exe）
+  const key = 'AI_CONFIG_SYNC_WIN_HOME';
+  const original = process.env[key];
+  process.env[key] = '/mnt/c/Users/Test';
+  try {
+    assert.equal(detectWinHome(), '/mnt/c/Users/Test');
+  } finally {
+    if (original === undefined) delete process.env[key];
+    else process.env[key] = original;
   }
 });
 

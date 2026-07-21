@@ -689,6 +689,34 @@ test('copyFile：dry-run 不寫入但正確回報「將會寫入」', () => {
   });
 });
 
+// 回歸：writeFileSafe 以 0600 建暫存檔再 rename，目的檔權限固定被重置——
+// statusline.sh 的 +x 每次內容變更都會遺失，手動 chmod 也會被下次同步打回。
+test('copyFile：來源帶執行位元時目的檔保留，一般檔不加 x',
+  { skip: process.platform === 'win32' ? 'Windows 無 POSIX 執行位元語意' : false }, () => {
+  withTmpDir((dir) => {
+    const src = path.join(dir, 'statusline.sh');
+    const dest = path.join(dir, 'dest.sh');
+    fs.writeFileSync(src, '#!/bin/sh\necho ok\n');
+    fs.chmodSync(src, 0o755);
+    assert.equal(copyFile(src, dest), true);
+    assert.equal(fs.statSync(dest).mode & 0o111, 0o111, '目的檔應保留來源的執行位元');
+
+    // 覆寫既有檔（rename 換掉 inode）也須保留，不只新建路徑
+    fs.writeFileSync(src, '#!/bin/sh\necho v2\n');
+    fs.chmodSync(src, 0o755);
+    assert.equal(copyFile(src, dest), true);
+    assert.equal(fs.statSync(dest).mode & 0o111, 0o111, '更新既有檔亦應保留執行位元');
+
+    // 無執行位元的一般檔：維持 writeFileSafe 的 0600 保守權限
+    const plainSrc = path.join(dir, 'plain.md');
+    const plainDest = path.join(dir, 'plain-dest.md');
+    fs.writeFileSync(plainSrc, 'x');
+    fs.chmodSync(plainSrc, 0o644);
+    assert.equal(copyFile(plainSrc, plainDest), true);
+    assert.equal(fs.statSync(plainDest).mode & 0o111, 0, '一般檔不應被加上執行位元');
+  });
+});
+
 test('copyFile：非 dry-run 內容相同不重寫，內容不同才寫入', () => {
   withTmpDir((dir) => {
     const src = path.join(dir, 'src.txt');
@@ -1025,6 +1053,32 @@ test('safety:check：hard block exit 2，輸出遮罩 secret 與 HOME 路徑', (
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+// 回歸：token 反常地作為 section／key 名（而非 value）時，st.name／keyPath 會經
+// detail 原樣輸出——「只列位置、不輸出值」在名字即是值的情況下失守。
+// addSafetyIssue 現對 detail 加套 SECRET_REDACT_PATTERN 遮罩。
+test('safety:check：token 作為 TOML section 名時輸出遮罩為 ***，不印原值', () => {
+  const { repo, root } = setupSafetySandbox();
+  try {
+    const token = 'sk-ant-' + 'q'.repeat(20);
+    writeSafetyText(repo, 'codex/config.toml', `[mcp_servers."${token}"]\nurl = "v"\n`);
+    const r = runSafety(repo);
+    assert.equal(r.status, 2, `機密 section 應 hard block\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /不應同步 codex 機密 section/);
+    assert.doesNotMatch(r.stdout, new RegExp(token), '不得輸出 section 名內的 token 原值');
+    assert.match(r.stdout, /\*\*\*/, 'token 應被遮罩為 ***');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('maskSecretValues：前綴型 alternative（glpat- 等）連同 token 本體整段遮罩', () => {
+  const { maskSecretValues } = require('../safety-check.js');
+  // 偵測 pattern 只比對前綴即可；遮罩若只吃前綴，token 本體會照印
+  assert.equal(maskSecretValues('credentials.glpat-REALTOKEN123'), 'credentials.***');
+  assert.equal(maskSecretValues(`servers.sk-${'a'.repeat(20)}.url`), 'servers.***');
+  assert.equal(maskSecretValues('無 token 的一般 detail 原樣保留'), '無 token 的一般 detail 原樣保留');
 });
 
 test('safety:check：repo config.toml 機密 section（model_providers）→ hard block exit 2，只印 section 路徑', () => {

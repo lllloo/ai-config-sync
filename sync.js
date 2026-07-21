@@ -493,8 +493,30 @@ function copyFile(src, dest, dryRun = false) {
   checkReadAccess(src);
   const srcContent = readFileSafe(src, '讀取');
   const needsWrite = !fs.existsSync(dest) || !srcContent.equals(readFileSafe(dest, '讀取'));
-  if (needsWrite && !dryRun) writeFileSafe(dest, srcContent, '寫入');
+  if (needsWrite && !dryRun) {
+    writeFileSafe(dest, srcContent, '寫入');
+    preserveExecMode(src, dest);
+  }
   return needsWrite;
+}
+
+/**
+ * 來源帶執行位元時，把來源權限套回目的檔（並保底擁有者 rw）。
+ * writeFileSafe 以 0600 建暫存檔再 rename，目的檔權限固定被重置——statusline.sh
+ * 這類腳本的 +x 會在每次內容變更時遺失，手動 chmod 也會被下次同步打回。
+ * 僅在來源有任一執行位元時校正，一般設定檔維持 0600 的保守權限；
+ * Windows 的 statSync mode 無 POSIX 執行位元語意，天然 no-op。
+ * @param {string} src - 來源路徑
+ * @param {string} dest - 已寫入完成的目的路徑
+ * @returns {void}
+ */
+function preserveExecMode(src, dest) {
+  try {
+    const mode = fs.statSync(src).mode & 0o777;
+    if (mode & 0o111) fs.chmodSync(dest, mode | 0o600);
+  } catch (e) {
+    throw toSyncFsError(e, dest, '還原執行權限');
+  }
 }
 
 /**
@@ -987,6 +1009,22 @@ function loadStrippedSettings(filePath) {
 }
 
 /**
+ * 讀取 repo settings 的可攜形（與本機 loadStrippedSettings 同一套收斂）。
+ * repo 可能殘留 device key（例如某 key 剛被補列 DEVICE_SETTINGS_KEYS、但 repo 檔
+ * 尚未經 to-repo 重寫）。若拿未過濾的 repo 當基準，(a) 該 key 會被寫進本機（本機
+ * 無同名 key 時 device spread 擋不住），(b) 比對永遠不等於已剝除的 local。
+ * to-local 的 diff 與 apply 必須共用本函式取得同一基準，否則兩邊各自讀 repo 會
+ * 漂移成「diff 恆判 changed、apply 卻無動作」的永不收斂狀態。
+ * @param {string} repoPath - repo settings.json 路徑（呼叫端確保存在）
+ * @returns {{ clean: Record<string, unknown>, serialized: string }}
+ */
+function loadRepoPortableSettings(repoPath) {
+  const { portable } = partitionSettingsTopLevel(readJson(repoPath));
+  stripDeviceEnv(portable);
+  return { clean: portable, serialized: serializeSettings(portable) };
+}
+
+/**
  * 找出本機可攜 top-level key 中 repo 端尚未出現者（首次進入同步範圍的 key）。
  * 黑名單制下新 key 預設同步，此函式在「首次出現」時點名，供人工查驗是否屬
  * 裝置偏好、該補列 DEVICE_SETTINGS_KEYS——不維護官方預設值表（會過期），
@@ -1058,13 +1096,8 @@ function mergeSettingsBetween(localPath, repoPath, direction, dryRun = false) {
     return true;
   } else {
     if (!fs.existsSync(repoPath)) return false;
-    // repo 側同樣只取可攜部分：repo 可能殘留 device key（例如某 key 剛被補列
-    // DEVICE_SETTINGS_KEYS、但 repo 檔尚未經 to-repo 重寫）。若拿未過濾的 repo
-    // 當基底，(a) 該 key 會被寫進本機（本機無同名 key 時 device spread 擋不住），
-    // (b) 比對永遠不等於已剝除的 local，diff／to-local 恆為 changed、永不收斂。
-    const { portable: repoPortable } = partitionSettingsTopLevel(readJson(repoPath));
-    stripDeviceEnv(repoPortable);
-    const repoStr = serializeSettings(repoPortable);
+    // repo 側只取可攜部分，與 diffSettingsItem 共用同一基準（理由見 loadRepoPortableSettings）
+    const { clean: repoPortable, serialized: repoStr } = loadRepoPortableSettings(repoPath);
 
     // 比對 repo 與 stripped local（兩邊皆使用 serializeSettings 確保結尾換行對稱）。
     const stripped = loadStrippedSettings(localPath);
@@ -1223,7 +1256,11 @@ function diffSettingsItem(item, direction) {
     if (!fs.existsSync(localPath)) return { ...base, status: 'new', src: null };
     const stripped = loadStrippedSettings(localPath);
     if (stripped === null) return { ...base, status: null, src: null };
-    return { ...base, status: compareStrippedToRepo(stripped.serialized, repoPath, '讀取 repo 設定'), src: null };
+    // 與 mergeSettingsBetween('to-local') 同基準：比對 repo 可攜形而非原始 bytes，
+    // 否則 repo 殘留 device key 時 diff 恆判 changed、apply 卻無動作（永不收斂）。
+    // 兩邊皆為 serializeSettings 產物（LF），不存在 EOL-only 差異，不需 'eol' 狀態。
+    const repoStr = loadRepoPortableSettings(repoPath).serialized;
+    return { ...base, status: repoStr === stripped.serialized ? null : 'changed', src: null };
   }
 
   // to-repo：本機 stripped → repo
@@ -2256,6 +2293,7 @@ if (require.main === module) {
     // WSL 橋接（to-win-local）
     isWsl,
     winPathToWslPath,
+    detectWinHome,
     resolveWinHome,
     // xtool-skills 邏輯在 xtool-skills.js；此處經 singleton wrapper re-export 供既有測試沿用
     listSkillNames: (dir) => xtoolSkills().listSkillNames(dir),
@@ -2295,6 +2333,7 @@ if (require.main === module) {
     maskHome,
     serializeSettings,
     loadStrippedSettings,
+    loadRepoPortableSettings,
     partitionSettingsTopLevel,
     findNewSettingsTopKeys,
     collectNewSettingsKeys,
