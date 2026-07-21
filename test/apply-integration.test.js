@@ -17,7 +17,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { noColorEnv } = require('./helpers.js');
+const { noColorEnv, itPosixPerms } = require('./helpers.js');
 const { COMMANDS } = require('../sync.js');
 
 // sync.js require('./safety-check.js')（後者 require('./toml-reader.js')）與
@@ -823,9 +823,9 @@ test('xtool D5 遷移：~/.claude/skills/foo 舊真實目錄 → to-local 轉為
   }
 });
 
-// root 會繞過檔案權限，唯讀目錄擋不住寫入，故此測試在 root 下跳過
-const itNonRoot = (process.getuid && process.getuid() === 0) ? test.skip : test;
-itNonRoot('xtool D5 遷移中途失敗：正典已先落 ~/.agents，partialChanges 可見、警告部分中斷', () => {
+// root 會繞過檔案權限、Windows 的 chmod 不阻止在唯讀目錄內建立項目，兩者皆擋不住
+// 寫入，故此測試在該環境跳過（itPosixPerms，見 test/helpers.js）
+itPosixPerms('xtool D5 遷移中途失敗：正典已先落 ~/.agents，partialChanges 可見、警告部分中斷', () => {
   const { repo, home, root } = setupSandbox();
   try {
     writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'CANON');

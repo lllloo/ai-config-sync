@@ -5,9 +5,30 @@
 // 集中 withArgv / withTmpDir / withTmpFile，避免在多個測試檔重複定義
 // =============================================================================
 
+const test = require('node:test');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+
+/**
+ * 依賴 POSIX 權限語意的測試是否須跳過（false 表示照跑，字串為跳過理由）。
+ * 兩種環境下 chmod 擋不住存取，斷言必然落空：
+ * - root：繞過檔案權限，chmod 000 仍可讀寫
+ * - Windows：chmodSync 只切 read-only attribute，既不阻止讀取，也不阻止在
+ *   唯讀目錄內建立項目（本專案主力平台，故不可只擋 root）
+ */
+const POSIX_PERM_SKIP = process.platform === 'win32'
+  ? 'Windows 的 chmod 無 POSIX 權限語意'
+  : (process.getuid && process.getuid() === 0 ? 'root 繞過檔案權限' : false);
+
+/**
+ * 註冊一條「依賴 POSIX 權限語意」的測試（root／Windows 自動跳過）
+ * @param {string} name
+ * @param {() => unknown} fn
+ */
+function itPosixPerms(name, fn) {
+  return test(name, { skip: POSIX_PERM_SKIP }, fn);
+}
 
 /**
  * 暫時改寫 process.argv 執行 fn，結束後還原
@@ -62,4 +83,4 @@ function noColorEnv(overrides = {}) {
   return env;
 }
 
-module.exports = { withArgv, withTmpDir, withTmpFile, noColorEnv };
+module.exports = { withArgv, withTmpDir, withTmpFile, noColorEnv, POSIX_PERM_SKIP, itPosixPerms };

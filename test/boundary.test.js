@@ -852,7 +852,10 @@ test('ensureSymlink：Windows dir symlink 失敗時退回 junction（mock 覆蓋
     fs.symlinkSync = (t, p, type) => {
       calls.push(type);
       if (type === 'dir') { const e = new Error('EPERM'); e.code = 'EPERM'; throw e; }
-      return origSymlink(t, p); // junction：在此平台以一般 symlink 落地
+      // 顯式帶 'junction'：真在 Windows 上跑時，junction 免權限而 dir symlink 需
+      // 開發者模式（不帶 type 的自動偵測不可靠）；非 Windows 平台 Node 忽略 type，
+      // 一律落成一般 symlink，故此寫法兩平台皆可
+      return origSymlink(t, p, 'junction');
     };
     try {
       let res;

@@ -749,7 +749,7 @@ function createSymlinkAtomic(target, linkPath) {
  *   - symlink 指向錯誤／懸空 → unlink 後重建
  *   - 真實檔案／目錄佔用（舊機制產物，D5）→ rm 後建 symlink；呼叫端須先確認正典
  *     內容已落在 target（~/.agents），此處 rm 才安全（不可在刪目錄後、建 link 前掉內容）。
- *     skill 橋接的呼叫端以 bridgeUnsafeReason 把關，未鏡射者不會走到這裡
+ *     skill 橋接的呼叫端以 `xtool-skills.js` 的 bridgeUnsafeReason 把關，未鏡射者不會走到這裡
  *   - 不存在 → 直接建
  * @param {string} target - symlink 指向的絕對路徑
  * @param {string} linkPath - 要建立的 symlink 路徑
