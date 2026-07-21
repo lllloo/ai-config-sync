@@ -41,6 +41,9 @@ const {
   COMMANDS,
   COMMAND_ALIASES,
   DEVICE_SETTINGS_KEYS,
+  isWsl,
+  winPathToWslPath,
+  resolveWinHome,
 } = require('../sync.js');
 const {
   CODEX_CONFIG_HARD_BLOCK_SECTIONS,
@@ -1009,4 +1012,45 @@ itPosixPerms('mirrorDir：src 不可讀時拋錯中止，dest 既有檔案不得
       fs.chmodSync(src, 0o700);
     }
   });
+});
+
+// -----------------------------------------------------------------------------
+// WSL 橋接（to-win-local）
+// resolveWinHome 是唯一的守門：非 WSL、探測失敗、路徑不存在、目標等同 HOME 皆須擋下。
+// 放行任一情形都會讓「以為寫到 Windows 端」變成靜默寫錯地方。
+// -----------------------------------------------------------------------------
+test('winPathToWslPath：Windows 路徑轉為 /mnt 掛載路徑', () => {
+  assert.equal(winPathToWslPath('C:\\Users\\Joe'), '/mnt/c/Users/Joe');
+  assert.equal(winPathToWslPath('D:/Users/Joe/'), '/mnt/d/Users/Joe');
+  // cmd.exe 的輸出帶尾端換行，須先 trim
+  assert.equal(winPathToWslPath('C:\\Users\\Joe\r\n'), '/mnt/c/Users/Joe');
+});
+
+test('winPathToWslPath：非 <drive>: 開頭回 null（不臆造路徑）', () => {
+  for (const bad of ['', '   ', '\\\\server\\share', '/home/barney', 'Users\\Joe']) {
+    assert.equal(winPathToWslPath(bad), null, `應無法解析：${JSON.stringify(bad)}`);
+  }
+});
+
+test('resolveWinHome：非 WSL 環境直接拋 INVALID_ARGS', { skip: isWsl() ? '目前在 WSL 內' : false }, () => {
+  assert.throws(
+    () => resolveWinHome(['/tmp']),
+    (e) => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
+  );
+});
+
+test('resolveWinHome：位置引數指向不存在路徑時拋 FILE_NOT_FOUND', { skip: isWsl() ? false : '需在 WSL 內執行' }, () => {
+  withTmpDir((dir) => {
+    assert.throws(
+      () => resolveWinHome([path.join(dir, 'nope')]),
+      (e) => e instanceof SyncError && e.code === ERR.FILE_NOT_FOUND,
+    );
+  });
+});
+
+test('resolveWinHome：目標等同目前 HOME 時拒絕執行', { skip: isWsl() ? false : '需在 WSL 內執行' }, () => {
+  assert.throws(
+    () => resolveWinHome([os.homedir()]),
+    (e) => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
+  );
 });

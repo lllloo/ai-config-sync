@@ -30,6 +30,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run status` — 同時比較設定與 skills 差異（等同依序執行 `diff` + `skills:diff`）
 - `npm run to-repo` — 本機 → repo（完成後顯示 git diff）
 - `npm run to-local` — repo → 本機（先預覽，確認後才套用）
+- `npm run to-win-local` — repo → Windows 家目錄（**僅限 WSL 內**）。不另實作同步邏輯：以覆寫的 `HOME` 在**子行程重跑 `to-local`**（POSIX 下 `os.homedir()` 優先讀 `$HOME`），故語意與 `to-local` 完全一致，旗標原樣轉交。目標由 `cmd.exe` 的 `%USERPROFILE%` 自動探測，可用位置引數或 `AI_CONFIG_SYNC_WIN_HOME` 覆寫；非 WSL、路徑不存在、目標等同目前 `HOME` 皆拒絕執行。**反向刻意不支援**（無 `to-win-repo`）：Windows 端只當套用目的地，`to-repo` 固定在 WSL 側做
 - `npm run safety:check` — 唯讀、離線檢查 repo 同步來源是否含 hard block 或需人工審核 warning
 
 **Skills（獨立管理，不自動同步）：**
@@ -41,7 +42,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm test` — 執行 `test/*.test.js`（`node --test`，零相依，共用 helper 在 `test/helpers.js`）
 - 單一測試：`node --test --test-name-pattern="<name>" test/<file>.test.js`
 
-**全域旗標**（`node sync.js` 直接呼叫時可用）：`--dry-run`、`--yes`（別名 `--force`，略過互動確認；非互動環境執行 to-local 必加）、`--verbose`、`--version`、`--help`。**不在白名單內的旗標（含 typo 如 `--dryrun`）會拋 `INVALID_ARGS` 而非被靜默忽略**——避免打錯字略過 dry-run 真寫入。**npm run 傳旗標必須以 `--` 分隔**（`npm run to-repo -- --dry-run`）：不加 `--` 時旗標被 npm 攔截、傳不進 `sync.js`；`main()` 開頭的 `assertNoSwallowedNpmFlags` 會偵測 `npm_config_dry_run`／`npm_config_yes` 並拋 `INVALID_ARGS` fail fast，杜絕「以為在預覽、實際真寫入」。指令別名：`d`/`s`/`tr`/`tl`/`sd`/`sa`/`sr`（`safety:check` 無別名）。
+**全域旗標**（`node sync.js` 直接呼叫時可用）：`--dry-run`、`--yes`（別名 `--force`，略過互動確認；非互動環境執行 to-local 必加）、`--verbose`、`--version`、`--help`。**不在白名單內的旗標（含 typo 如 `--dryrun`）會拋 `INVALID_ARGS` 而非被靜默忽略**——避免打錯字略過 dry-run 真寫入。**npm run 傳旗標必須以 `--` 分隔**（`npm run to-repo -- --dry-run`）：不加 `--` 時旗標被 npm 攔截、傳不進 `sync.js`；`main()` 開頭的 `assertNoSwallowedNpmFlags` 會偵測 `npm_config_dry_run`／`npm_config_yes` 並拋 `INVALID_ARGS` fail fast，杜絕「以為在預覽、實際真寫入」。指令別名：`d`/`s`/`tr`/`tl`/`twl`/`sd`/`sa`/`sr`（`safety:check` 無別名）。
 
 ## 同步項目與對應
 
