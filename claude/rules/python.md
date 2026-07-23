@@ -1,3 +1,7 @@
+---
+paths: "**/*.py,**/pyproject.toml,**/requirements*.txt"
+---
+
 # Python 編碼規則
 
 執行環境 locale 編碼不可控（Windows 預設 cp950）。優先用機器級 `PYTHONUTF8` 一次罩住；只有在無法保證目標環境有設時，才退到腳本級顯式設定。
