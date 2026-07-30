@@ -66,4 +66,4 @@ Skills 是 commands 的超集，同時遵循 [Agent Skills](https://agentskills.
 
 當專案同時具備 Superpowers 與 OpenSpec 流程時，先檢查專案文件資料夾中與目前 task 對應的未完成文件：OpenSpec 看 `openspec/changes/` 下的相關 change；Superpowers 看 `docs/superpowers/specs/`、`docs/superpowers/plans/` 等相關文件。只有其中一套有對應文件時，沿用該流程；兩套都有、只有歷史 archive，或無法確認文件關聯時，先詢問使用者。不能只因 skill 已安裝或資料夾存在就自行選擇流程。
 
-只要考慮啟動 Superpowers，不論專案是否同時有 OpenSpec，都必須先詢問使用者是否要啟動；未獲同意前不得進入 Superpowers 流程。
+Superpowers 僅在使用者明確要求使用 Superpowers，或明確呼叫其 skill 時才能啟動；不得因 task 類型、文件資料夾、skill 安裝狀態或模型判斷可能適用而自行啟動。
