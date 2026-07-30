@@ -41,3 +41,9 @@ Skills 是 commands 的超集，同時遵循 [Agent Skills](https://agentskills.
 ## README.md 規範
 
 所有軟體專案**必須撰寫 `README.md`**，最低需包含：專案說明、安裝方式、常用指令。
+
+## Superpowers 與 OpenSpec 流程選擇
+
+當專案同時具備 Superpowers 與 OpenSpec 流程時，先檢查專案文件資料夾中與目前 task 對應的未完成文件：OpenSpec 看 `openspec/changes/` 下的相關 change；Superpowers 看 `docs/superpowers/specs/`、`docs/superpowers/plans/` 等相關文件。只有其中一套有對應文件時，沿用該流程；兩套都有、只有歷史 archive，或無法確認文件關聯時，先詢問使用者。不能只因 skill 已安裝或資料夾存在就自行選擇流程。
+
+只要考慮啟動 Superpowers，不論專案是否同時有 OpenSpec，都必須先詢問使用者是否要啟動；未獲同意前不得進入 Superpowers 流程。
