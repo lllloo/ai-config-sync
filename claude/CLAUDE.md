@@ -64,4 +64,9 @@ Skills 是 commands 的超集，同時遵循 [Agent Skills](https://agentskills.
 
 ## Superpowers 啟動
 
-Superpowers 僅在使用者明確要求使用 Superpowers，或明確呼叫其 skill 時才能啟動；不得因 task 類型、文件資料夾、skill 安裝狀態或模型判斷可能適用而自行啟動。
+Superpowers 僅在下列任一情況啟動：
+
+1. 使用者明確要求使用 Superpowers，或明確呼叫其 skill；
+2. 專案根目錄已有 `docs/superpowers/`——代表該專案既有流程即為 Superpowers，後續 task 沿用。
+
+不得因 task 類型、skill 安裝狀態或模型判斷可能適用而自行啟動。
