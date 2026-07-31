@@ -225,7 +225,7 @@ npm run to-local
 
 ### settings.json 同步行為
 
-**top-level 採黑名單制**：預設同步所有 top-level 欄位，僅排除 `DEVICE_SETTINGS_KEYS` 明確黑名單——裝置偏好 `model`／`tui`／`autoUpdatesChannel` 與平台綁定的 `hooks`。
+**top-level 採黑名單制**：預設同步所有 top-level 欄位，僅排除 `DEVICE_SETTINGS_KEYS` 明確黑名單——裝置偏好 `model`／`tui`／`autoUpdatesChannel`／`effortLevel` 與平台綁定的 `hooks`。
 
 - **只列本機實存 key、不預防性列名**：憑證 helper（`apiKeyHelper` 等）若日後出現會照常同步進 repo，交由 `safety:check` 的 hard block 攔下，而非事先寫進黑名單。
 - **敏感命名 pattern 不再自動處理**：key／token／secret／credential 等命名不再讓 sync 剝除或中止；未列黑名單者依一般差異同步，由 `safety:check` 以 warning 供人工審核。
