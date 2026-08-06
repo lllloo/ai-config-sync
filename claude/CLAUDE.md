@@ -16,6 +16,16 @@
 - 事實宣稱（檔案內容、API、版本、數字）必須有依據；無依據時直說「不確定」，不用簡潔換取肯定語氣
 - 精簡 ≠ 省略不確定性標註；該標的照標
 
+## 輸出呈現：預設不用 Artifact
+
+要給我看的頁面、圖表、報告**一律寫成本地檔案**，不生成 Artifact（不發佈到 claude.ai）。
+
+- 落點：一次性產物寫 scratchpad 目錄；要保留的寫進當前專案並說明放哪。
+- **產生頁面就主動附上可點連結，不必等我開口要。** 做法：對該目錄背景執行 `python3 -m http.server <port> --bind 127.0.0.1`，回覆裡直接給 `http://localhost:<port>/<file>`；WSL2 的 localhost 對 Windows 瀏覽器是通的。`file://` 與純路徑在終端點不動，不算連結（`wslview <path>` 只當備援）。
+- **寫成可獨立開啟的完整 HTML**：`<!doctype html>`、`<html lang="zh-Hant">`、`<head>` 內含 `<meta charset="utf-8">` 與 viewport，reset 自己帶。Artifact 那種「只寫內容片段、由平台包 head」的寫法直接開會變中文亂碼。
+- 短內容（表格、程式碼、清單）直接輸出在終端，不必為此開檔。
+- **例外只有一種**：我明確說「用 Artifact」「發佈到 claude.ai」或「要能分享給別人」。單純「要連結」不是例外。
+
 ## Commit 與 Push
 
 - **Commit 不設限制**：agent 可自主 commit，不需事先徵求同意。
