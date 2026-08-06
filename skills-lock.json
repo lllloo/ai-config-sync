@@ -1,14 +1,6 @@
 {
   "version": 1,
   "skills": {
-    "vue-best-practices": {
-      "source": "vuejs-ai/skills",
-      "sourceType": "github"
-    },
-    "frontend-design": {
-      "source": "anthropics/skills",
-      "sourceType": "github"
-    },
     "skill-creator": {
       "source": "anthropics/skills",
       "sourceType": "github"
@@ -18,18 +10,6 @@
       "sourceType": "github"
     },
     "defuddle": {
-      "source": "kepano/obsidian-skills",
-      "sourceType": "github"
-    },
-    "obsidian-bases": {
-      "source": "kepano/obsidian-skills",
-      "sourceType": "github"
-    },
-    "obsidian-cli": {
-      "source": "kepano/obsidian-skills",
-      "sourceType": "github"
-    },
-    "obsidian-markdown": {
       "source": "kepano/obsidian-skills",
       "sourceType": "github"
     }
