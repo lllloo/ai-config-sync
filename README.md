@@ -272,6 +272,7 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 | `test/settings.test.js` | settings.json 純函式與 `mergeSettingsBetween` 同步心臟測試 |
 | `test/toml-reader.test.js` | TOML 讀取器測試（`safety:check` section 歸屬的回歸網） |
 | `test/skills.test.js` | skills 模組純函式與 deps-bound helper 測試（經 `createSkillsHandler` 注入） |
+| `test/fs-symlink.test.js` | symlink 與目錄工具測試（`ensureSymlink` 幂等與 D5 轉換、`createSymlinkAtomic`、Windows junction fallback、`cleanEmptyDirs`）及部分失敗可見度不變式 |
 | `test/diff-integration.test.js` | diff 整合測試 |
 | `test/apply-integration.test.js` | 沙箱化 to-local／to-repo 端到端 apply 測試 |
 | `test/boundary.test.js` | 邊界情境與安全防線測試（含 `safety:check` sandbox） |
