@@ -138,6 +138,6 @@ Skills 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具
 
 ## 注意事項
 
-- `.DS_Store` 由 `sync.js` 的 `GLOBAL_EXCLUDE` 常數在**同步時**排除（不進 repo、也不寫到本機），與 `.gitignore` 無關——`.gitignore` 只列 `node_modules/` 與 `*.log`；`.agents/skills/` 為本地 skill 實體目錄，**已納入版控**
+- `.DS_Store` 由 `sync.js` 的 `GLOBAL_EXCLUDE` 常數在**同步時**排除（不進 repo、也不寫到本機），與 `.gitignore` 無關——`.gitignore` 列的是 `node_modules/`、`*.log` 與 `.claude/` 下的執行期產物；`.agents/skills/` 為本地 skill 實體目錄，**已納入版控**
 - Skills 不在自動同步範圍，`skills-lock.json` 為各裝置參考清單（source of truth）
-- 上游 `npx skills` 功能追蹤見 `UPSTREAM.md`（跨裝置還原、Claude Code symlink bug 等，修改 skills 流程前先查）
+- 上游 `npx skills` 功能追蹤**不在本 repo**：改由 obsidian-memory vault 的 `vault-watch` skill 追蹤（看板 `feeds/watch/01.index.md`，用 `gh` 自動比對狀態轉換與官方回應）。目前追 `vercel-labs/skills` 的 #743／#683／#549（跨裝置全域還原）。**共管安全的行為契約不在那邊**，在 `openspec/specs/cross-tool-skill-sync/spec.md` 的「非 prune upsert」requirement；#743 merge 時要複驗上游 restore 有無新增刪除 lock 外項目的邏輯，推理見 `openspec/changes/archive/2026-07-15-cross-tool-global-skills/design.md` 的 T2
