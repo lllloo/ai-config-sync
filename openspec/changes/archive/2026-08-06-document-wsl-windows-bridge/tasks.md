@@ -40,6 +40,8 @@
 - [x] 3.1 執行 `openspec validate document-wsl-windows-bridge --strict`，修正任何格式或結構問題
 - [x] 3.2 執行 `openspec status --change document-wsl-windows-bridge`，確認四個 artifact 皆為 done
 - [x] 3.3 執行 `npm run safety:check`，確認新增文件未引入 hard block（`safety-check.js` 的掃描根註解明載不掃 `test/`／`openspec/`／README，spec 內含的 `C:\Users\Joe` 路徑樣式不受掃描）
-- [ ] 3.4 archive 時確認 `openspec/specs/wsl-windows-bridge/spec.md` 的 Purpose 已由 delta 帶入、非 `TBD` 佔位
+- [x] 3.4 archive 時確認 `openspec/specs/wsl-windows-bridge/spec.md` 的 Purpose 已由 delta 帶入、非 `TBD` 佔位
 
-**3 的核對結果**：`validate --strict` 通過、四個 artifact 皆 done、`safety:check` 維持既有 4 條 env key warning（exit 0，無新增項）。3.4 屬 archive 階段動作，留待歸檔時驗收。
+**3 的核對結果**：`validate --strict` 通過、四個 artifact 皆 done、`safety:check` 維持既有 4 條 env key warning（exit 0，無新增項）。
+
+3.4 於歸檔時驗收完成：主 spec 的 Purpose 由 delta verbatim 帶入（`TBD` 命中數 0），8 條 Requirement 與 22 個 Scenario 全數併入，requirement 標題與 delta 逐條 diff 一致，且主 spec 不含任何 delta operation header（`## ADDED`／`## MODIFIED`／`## REMOVED`／`## RENAMED`）。
