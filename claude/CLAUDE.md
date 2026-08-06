@@ -20,7 +20,7 @@
 
 要給我看的頁面、圖表、報告**一律寫成本地檔案**，不生成 Artifact（不發佈到 claude.ai）。
 
-- 落點：一次性產物寫 scratchpad 目錄；要保留的寫進當前專案並說明放哪。
+- 落點：一次性產物寫 scratchpad 目錄；要保留的寫進當前專案的 `./artifacts/`（沒有就建），並說明放哪。
 - **產生頁面就主動附上可點連結，不必等我開口要。** WSL 內的檔案給 `file://wsl.localhost/<distro>/<絕對路徑>`（distro 取 `$WSL_DISTRO_NAME`，路徑用正斜線），零常駐、終端點得開。沒有藍色高亮是正常的（終端只對 http/https 上色），照樣點得動，不要因此改用別的做法。**唯一例外**：頁面必須由 HTTP 來源提供才能運作（JS fetch 本地檔被 CORS 擋等），才背景起 `python3 -m http.server <port> --bind 127.0.0.1` 給 `http://localhost:<port>/<file>`，並在該次任務結束時關掉。純路徑與 `wslview <path>` 只當備援。
 - **寫成可獨立開啟的完整 HTML**：`<!doctype html>`、`<html lang="zh-Hant">`、`<head>` 內含 `<meta charset="utf-8">` 與 viewport，reset 自己帶。Artifact 那種「只寫內容片段、由平台包 head」的寫法直接開會變中文亂碼。
 - **設計品質比照 Artifact 標準**：需要校準時載入 `artifact-design` skill，其內容幾乎全數適用本地檔（含「避免 AI 味預設樣式」與「結構須編碼真實資訊、不為裝飾而編號」兩條實用檢查）。**兩處例外**：字型 inline 成 data URI 的理由從「CSP 擋 CDN」換成「離線可開、單檔可搬」，結論不變；深色模式只需 `prefers-color-scheme`，該 skill 講的 `data-theme` 是 Artifact viewer 的主題 toggle，本地檔沒有，要手動切換得自己寫按鈕。
