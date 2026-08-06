@@ -1,2 +1,16 @@
 node_modules/
 *.log
+
+# Claude Code 在本 repo 產生的執行期產物。
+# `.claude/` 是本 repo 專用的本地設定落點、不參與同步，其中只有 `.claude/skills`
+# symlink 需要版控；以下皆為每台裝置各自產生的狀態檔，跨裝置無意義。
+**/.claude/scheduled_tasks.lock
+**/.claude/scheduled_tasks.json
+**/.claude/routines/.state/
+**/.claude/worktrees/
+**/.claude/checkpoints/
+**/.claude/mailbox/
+**/.claude/agent-registry.json
+**/.claude/agent-memory-local
+**/.claude/first-run
+**/.claude/assistant-daemon-state.json
