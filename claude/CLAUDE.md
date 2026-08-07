@@ -20,13 +20,9 @@
 
 要給我看的頁面、圖表、報告**一律寫成本地檔案**，不生成 Artifact（不發佈到 claude.ai）。
 
-- 落點：一次性產物寫 scratchpad 目錄；要保留的寫進當前專案的 `./artifacts/`（沒有就建），並說明放哪。
-- **產生頁面就主動附上可點連結，不必等我開口要。** WSL 檔案給 `file://wsl.localhost/<distro>/<絕對路徑>`（distro 取 `$WSL_DISTRO_NAME`，正斜線）。**終端不對它上色是正常的，照樣點得動，不要因此改用別的做法。** 唯一例外：頁面非 HTTP 來源不能運作（CORS 等）才背景起 `python3 -m http.server <port> --bind 127.0.0.1`，任務結束時關掉。純路徑與 `wslview` 只當備援。
-- **寫成可獨立開啟的完整 HTML**：`<!doctype html>`、`<html lang="zh-Hant">`、`<head>` 內含 `<meta charset="utf-8">` 與 viewport，reset 自己帶。Artifact 那種「只寫內容片段、由平台包 head」的寫法直接開會變中文亂碼。
-- **設計品質比照 Artifact 標準**：需要校準時載入 `artifact-design` skill，內容幾乎全數適用本地檔。**兩處例外**：字型 inline 成 data URI 的結論不變（理由改為離線可開、單檔可搬）；深色模式只需 `prefers-color-scheme`，`data-theme` 是 Artifact viewer 專有，要手動切換得自己寫按鈕。
-- **示意圖比照 Artifact 標準**：要畫架構圖、資料流、狀態機、前後對比時載入 `artifact-diagramming` skill，其 HTML lane **全數適用本地檔、無例外**——手寫 inline SVG、零 runtime，不要因為不是 Artifact 就改用繪圖函式庫、CDN 或外部圖片。
-- 短內容（表格、程式碼、清單、三五個框的示意圖）直接輸出在終端，不必為此開檔；圖複雜到 ASCII 排不動、或本來就要產出頁面時，才走上一條的 inline SVG。
-- **例外只有一種**：我明確說「用 Artifact」「發佈到 claude.ai」或「要能分享給別人」。單純「要連結」不是例外。
+落點、可點連結、完整 HTML 寫法與設計品質見 `map` skill 的「產出成頁面」一節，要產出頁面時載入。
+
+**例外只有一種**：我明確說「用 Artifact」「發佈到 claude.ai」或「要能分享給別人」。單純「要連結」不是例外。
 
 ## Commit 與 Push
 
