@@ -679,6 +679,27 @@ test('xtool to-repo：只從 ~/.agents/skills/<受管名字> 讀回 repo，不�
   }
 });
 
+test('xtool diff：觀測未受管的本機 skill，但不列 npx 住戶', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    // mem0 類型的 repo 本地 skill 被刪除後，目標機仍可能留下實體目錄；應可觀測。
+    writeText(AGENTS_SKILL(home, 'mem0-memory', 'SKILL.md'), 'STALE-LOCAL');
+    // npx 住戶仍由 npx lock 識別，不能因「觀測本機」而被誤報。
+    writeText(AGENTS_SKILL(home, 'npxresident', 'SKILL.md'), 'NPX');
+    writeJson(path.join(home, '.agents', '.skill-lock.json'), {
+      skills: { npxresident: { source: 'org/npxresident' } },
+    });
+
+    const r = run(repo, home, ['diff']);
+    assert.equal(r.status, 1, `本機殘留應計入差異\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /agents\/skills\/mem0-memory/, '應列出本機未受管 skill');
+    assert.match(r.stdout, /本機有、repo 無對應來源/, '應明確說明只觀測、不刪除');
+    assert.doesNotMatch(r.stdout, /npxresident/, 'npx 住戶不得被觀測為本機殘留');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // -----------------------------------------------------------------------------
 // Claude 探索點的 D5 轉換守門（bridgeUnsafeReason／findUnmirroredFiles）
 // ensureSymlink 對真實目錄是遞迴 rm，其安全前提「正典內容已落在 target」只由

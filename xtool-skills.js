@@ -9,7 +9,8 @@
 // Claude 探索點橋接與其安全閘門（D5）、以及部分變更的併入。
 //
 // 與 dir 型的關鍵差異：對 ~/.agents/skills **非 prune**（與 npx skills 共管，不得
-// 列舉 dest 全體刪差集），只認 repo agents/skills 登記的「受管名字」。
+// 列舉 dest 全體刪差集），只認 repo agents/skills 登記的「受管名字」做同步；diff
+// 另觀測未受管的本機非 npx skill，但 apply 仍不吸入、不刪除。
 //
 // 反向 require 禁令：本檔 **不** require('./sync.js')。共用常數（三個 skill 根、
 // LOCAL_SKILL_LOCK、GLOBAL_EXCLUDE、BRIDGE_CONFLICT_LIST_MAX）與共用工具
@@ -176,6 +177,19 @@ function createXtoolSkills(deps) {
   }
 
   /**
+   * 列出本機存在、但 repo 未管理且不是 npx 住戶的 skill。
+   * 這些項目可能是已刪除的 repo skill，也可能是使用者手動建立的 skill；
+   * 目前沒有歷史 ownership manifest，故只能以「未受 repo 管理」觀測，不自動處理。
+   * @param {string[]} managedNames
+   * @returns {string[]}
+   */
+  function listUnmanagedLocalSkillNames(managedNames) {
+    const managed = new Set(managedNames);
+    return listSkillNames(AGENTS_SKILLS_HOME)
+      .filter(name => !managed.has(name) && !isNpxManagedSkill(name));
+  }
+
+  /**
    * 碰撞判準（D6）：<name> 是否登記於 ~/.agents/.skill-lock.json（npx 安裝必登記，
    * 本機制永不登記）。「claude 側 symlink 存在」不得作為訊號——與本機制自身產物
    * 無法區分，會讓第二次 apply 起誤判、破壞幂等。lock 讀取失敗時保守回 false
@@ -195,7 +209,8 @@ function createXtoolSkills(deps) {
   // ---------------------------------------------------------------------------
 
   /**
-   * 產生 xtool-skills 型項目的 diff 結果 entries。只比對受管名字（不列 npx 住戶）：
+   * 產生 xtool-skills 型項目的 diff 結果 entries。受管名字逐檔比對，另觀測
+   * 未受管的本機非 npx skill（不列 npx 住戶）：
    *   - 碰撞（npx lock 登記）→ 整個 skill 一筆 `conflict` 狀態行
    *   - 否則逐檔比對 src/<name> vs dest/<name>（如 dir）；src skill 缺時 deleted 標
    *     preserved（upsert 不刪 dest，避免預覽誤報「將刪除」）
@@ -206,7 +221,8 @@ function createXtoolSkills(deps) {
    */
   function diffXtoolItems(item, direction) {
     const results = [];
-    for (const name of managedSkillNames()) {
+    const managedNames = managedSkillNames();
+    for (const name of managedNames) {
       if (isNpxManagedSkill(name)) {
         results.push(makeXtoolEntry(item, name, 'conflict'));
         continue;
@@ -219,6 +235,14 @@ function createXtoolSkills(deps) {
       if (direction === 'to-local') {
         const bridge = diffBridgeLink(item, name);
         if (bridge) results.push(bridge);
+      }
+    }
+    if (direction === 'to-repo') {
+      for (const name of listUnmanagedLocalSkillNames(managedNames)) {
+        results.push({
+          ...makeXtoolEntry(item, name, 'conflict'),
+          conflictReason: '本機有、repo 無對應來源；保留不刪除（可能是手動 skill 或已刪除的 repo skill）',
+        });
       }
     }
     return results;
@@ -363,7 +387,7 @@ function createXtoolSkills(deps) {
     diffXtoolItems, applyXtoolItem,
     // deps-bound helper：供 sync.js re-export 與單元測試，不由 type switch 使用
     findUnmirroredFiles, bridgeUnsafeReason,
-    listSkillNames, managedSkillNames, isNpxManagedSkill,
+    listSkillNames, managedSkillNames, listUnmanagedLocalSkillNames, isNpxManagedSkill,
     upsertOneSkill, bridgeSkillLink,
   };
 }

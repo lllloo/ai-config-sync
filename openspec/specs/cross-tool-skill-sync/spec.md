@@ -24,6 +24,8 @@
 
 `xtool-skills` 型別的 apply SHALL 只處理 repo `agents/skills/` 列出的 skill 名；對 `~/.agents/skills/` 內不受管的項（如 `npx skills` 安裝者）SHALL NOT 刪除。系統 SHALL NOT 對 `~/.agents/skills/` 套用 `mirrorDir` 的 prune-extras 語意。
 
+`diff` SHALL 觀測 `~/.agents/skills/` 中未登記於本機 npx lock、且 repo 已無對應來源的 skill，標示其為本機未受 repo 管理；此觀測 SHALL NOT 改變 apply 的非 prune 語意，也不得將該項吸回 repo 或刪除。
+
 #### Scenario: 不誤刪共管住戶
 
 - **WHEN** `~/.agents/skills/` 內同時存在受管 skill 與一個非受管（npx 安裝）skill，執行 `to-local`
@@ -133,4 +135,3 @@ upsert 前，若 `<name>` 登記於 `~/.agents/.skill-lock.json`（npx 安裝的
 
 - **WHEN** 於 Windows 標準 symlink 因權限不足失敗
 - **THEN** 改以 junction 建立探索點；若仍失敗則拋 `SyncError` 而非靜默略過
-

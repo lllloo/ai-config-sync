@@ -73,7 +73,7 @@ const STATUS_ICONS = {
   eol:     { icon: '\u2248', color: 'dim'    },  // 僅換行符差異（CRLF/LF 或檔尾換行）
   up:      { icon: '\u2191', color: 'cyan'   },  // 本機有、repo 沒有
   down:    { icon: '\u2193', color: 'yellow' },  // repo 有、本機沒有
-  conflict:{ icon: '!', color: 'red'    },  // 與 npx 既有 skill 撞名（xtool-skills）
+  conflict:{ icon: '!', color: 'red'    },  // ownership 不明或與 npx skill 撞名
 };
 
 /**
