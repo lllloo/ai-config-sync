@@ -1,10 +1,6 @@
 {
   "version": 1,
   "skills": {
-    "skill-creator": {
-      "source": "anthropics/skills",
-      "sourceType": "github"
-    },
     "playwright-cli": {
       "source": "microsoft/playwright-cli",
       "sourceType": "github"
