@@ -1,6 +1,6 @@
 ---
 name: map
-description: 用於「給我架構圖」「畫一下架構」「這專案怎麼組起來的」或指定模組／路徑的架構分析；聚焦模組關係、依賴方向、資料流與分層約束，輸出本地 HTML 架構圖。不要用於資料圖表、目錄樹或單純來源對照表。
+description: 用於「給我架構圖」「畫一下架構」「這專案怎麼組起來的」或指定模組／路徑的架構分析；聚焦模組關係、依賴方向、資料流與分層約束，輸出本地 HTML 架構圖。本檔的「產出成頁面」一節同樣適用於其他要寫成本地檔的產物（報告、圖表、分析結果），需要落點、連結與完整 HTML 規則時載入本 skill。畫架構以外不要用於資料圖表、目錄樹或單純來源對照表。
 ---
 
 # map
@@ -25,13 +25,18 @@ description: 用於「給我架構圖」「畫一下架構」「這專案怎麼�
 - 不留下孤立節點；若節點沒有可畫的關係，就改放在旁邊的說明或表格。
 - 文件來源但尚未由程式碼核對的內容，標為「文件主張」，不要當成已驗證事實。
 
-## 跨工具輸出契約
+## 產出成頁面
 
-這是跨工具 skill，不假設 Claude Code 或 Artifact viewer 存在。
+本節同樣適用於報告、圖表、分析結果等其他要寫成本地檔的產物。這是跨工具 skill，不假設 Claude Code 或 Artifact viewer 存在——`artifact-design`／`artifact-diagramming` 可用時載入作為參考，不可用時直接照本節做，不要停下來、安裝它們或引入外部相依。
 
-- 若 `artifact-design`／`artifact-diagramming` 可用，載入作為參考；不可用時直接採用本節規則，不要停下來、安裝它們或引入外部相依。
-- 複雜圖與其他需保留的產物寫入 `./artifacts/`；一次性產物寫 scratchpad。產生頁面時主動附上可點的本地檔案連結。
-- HTML 必須是可獨立開啟的完整文件：包含 `<!doctype html>`、`<html lang="zh-Hant">`、UTF-8、viewport、reset 與自足樣式。
-- 圖形使用手寫 inline SVG、零 runtime dependency；不要使用繪圖函式庫、CDN、外部圖片或假設 viewer API。需要深色模式時使用 `prefers-color-scheme`；不要假設 Artifact viewer 的 `data-theme`。
-- WSL 可用 `file://wsl.localhost/<distro>/<絕對路徑>`（distro 取 `$WSL_DISTRO_NAME`）。若瀏覽器工具封鎖 `file:`，只為驗證暫時啟動本機 HTTP server，完成後關閉；最終 HTML 仍不得依賴 server。
-- 短內容可直接輸出終端；HTML、報告等本地產物套用相同的獨立檔案與連結規則。
+**落點**：一次性產物寫 scratchpad；要保留的寫進當前專案根的 `./artifacts/`（沒有就建），並說明放在哪。
+
+**連結**：產生頁面就主動附上可點連結，不必等使用者開口要。WSL 檔案給 `file://wsl.localhost/<distro>/<絕對路徑>`（distro 取 `$WSL_DISTRO_NAME`，正斜線）。終端不對它上色是正常的，照樣點得動，不要因此改用別的做法。唯一例外是頁面非 HTTP 來源不能運作（CORS 等），才暫時起 `python3 -m http.server <port> --bind 127.0.0.1` 驗證、完成後關閉；最終 HTML 仍不得依賴 server。
+
+**完整 HTML**：寫成可獨立開啟的完整文件——`<!doctype html>`、`<html lang="zh-Hant">`、`<head>` 內含 UTF-8 與 viewport，reset 與樣式自足。只寫內容片段、指望外層平台包 `<head>`，用瀏覽器直接開會變中文亂碼。
+
+**圖形機制**：手寫 inline SVG、零 runtime dependency。不要因為不是 Artifact 就改用繪圖函式庫、CDN 或外部圖片，也不要假設 viewer API。
+
+**設計品質**：`artifact-design` 的結論幾乎全數適用本地檔，兩處例外——字型 inline 成 data URI 的結論不變，但理由改為離線可開、單檔可搬；深色模式只需 `prefers-color-scheme`，`data-theme` 是 Artifact viewer 專有，要手動切換得自己寫按鈕。
+
+**短內容不必開檔**：表格、程式碼、清單、三五個框的示意圖直接輸出終端。
