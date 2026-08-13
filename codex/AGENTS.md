@@ -18,8 +18,8 @@
 
 ## Commit 與 Push
 
-- **Commit 不設限制**：agent 可自主 commit，不需事先徵求同意。
-- **Push 保護分支**：`main`、`master`、`develop`、`formal`、`release`（含 `release/*`）未經使用者明確要求**不得 push**；其他分支可自由 push。
+- **Commit 不設限制**：你可自主 commit，不需事先徵求同意。
+- **Push 保護分支**：`main`、`master`、`develop`、`formal`、`release`（含 `release/*`）未經我明確要求**不得 push**；其他分支可自由 push。
 - **force push 需明確要求**：任何分支皆同，不因是 feature branch 而放行；獲授權時**一律用 `--force-with-lease`**，不用裸 `--force`。
 - **推 tag 視同 push 對外動作**：未經明確要求不推 tag。
 
@@ -41,16 +41,16 @@ git 檢視：
 - 大檔只讀需要的行段（`sed -n '<start>,<end>p'`），不整檔吞
 - 先縮小檔案清單再讀，不對一堆檔盲讀
 
-**全庫級檢視丟 subagent 隔離**：`git diff --stat` 仍過大（如整個 branch review）、或要掃全庫時，把「讀全文、只回摘要／findings」丟給 subagent，raw 內容留在它的 context、不污染主線。
+**全庫級檢視**：`git diff --stat` 仍過大（如整個 branch review）、或要掃全庫時，先在主線以摘要／定位方式處理；只有我明確要求且工具可用時，才把「讀全文、只回摘要／findings」委派給 subagent。
 
-## 構建與打包規則
+## 打包規則
 
-**預設禁止執行打包命令** — 除非明確要求，否則不執行：
+**需要打包時先問過我，獲准才跑**：
 
 - `npm run build` / `yarn build` / `pnpm build`
 - `npm run docs:build` 或類似構建命令
 
-**例外**：只有在明確指示「請打包」、「執行打包」時才可執行。
+我明確指示「請打包」、「執行打包」時視同已同意，直接執行、不必再問。
 
 ## Commands vs Skills
 
@@ -66,7 +66,7 @@ Skills 是 commands 的超集，同時遵循 [Agent Skills](https://agentskills.
 
 Superpowers 僅在下列任一情況啟動：
 
-1. 使用者明確要求使用 Superpowers，或明確呼叫其 skill；
+1. 我明確要求使用 Superpowers，或明確呼叫其 skill；
 2. 專案根目錄已有 `docs/superpowers/`——代表該專案既有流程即為 Superpowers，後續 task 沿用。
 
-不得因 task 類型、skill 安裝狀態或模型判斷可能適用而自行啟動。
+不得因 task 類型、skill 安裝狀態或你判斷可能適用而自行啟動。
