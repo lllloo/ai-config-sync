@@ -37,7 +37,7 @@ description: 用於「給我架構圖」「畫一下架構」「這專案怎麼�
 
 本節同樣適用於報告、圖表、分析結果等其他要寫成本地檔的產物。這是跨工具 skill，不假設 Claude Code 或 Artifact viewer 存在——`artifact-design`／`artifact-diagramming` 可用時載入作為參考，不可用時直接照本節做，不要停下來、安裝它們或引入外部相依。
 
-**落點**：判準是會不會進版控。一次性、看完就丟的一律寫 scratchpad，不落進專案；只有使用者明說要留進 git 的，才寫進當前專案的 `docs/ai/`（沒有就建），並說明放在哪。不要自己判斷值得保留就寫進專案。`docs/ai/` 內容進版控、可 commit，不加進 `.gitignore`。專案裡若已有 `artifacts/` 存放先前產出的 AI 頁面，問使用者要不要改到 `docs/ai/`，獲准才搬，不自行搬移或刪除；CI 產物、建置輸出等專案自身用途的同名資料夾不算，不必問。
+**落點**：判準是會不會進版控。一次性、看完就丟的一律寫 scratchpad，不落進專案；只有使用者明說要留進 git 的，才寫進當前專案的 `docs/ai/`（沒有就建），並說明放在哪。不要自己判斷值得保留就寫進專案。`docs/ai/` 內容進版控、可 commit，不加進 `.gitignore`。`artifacts/` 是**舊落點**：新產出一律不寫進去；專案裡既有的 `artifacts/` 若存放先前產出的 AI 頁面，一律搬到 `docs/ai/`（有版控用 `git mv` 保留歷史）並告知使用者，不必再問。CI 產物、建置輸出等專案自身用途的同名資料夾不算，不動也不搬。
 
 **連結**：產生頁面就主動附上可點連結，不必等使用者開口要。WSL 檔案給 `file://wsl.localhost/<distro>/<絕對路徑>`（distro 取 `$WSL_DISTRO_NAME`，正斜線）。終端不對它上色是正常的，照樣點得動，不要因此改用別的做法。唯一例外是頁面非 HTTP 來源不能運作（CORS 等），才暫時起 `python3 -m http.server <port> --bind 127.0.0.1` 驗證、完成後關閉；最終 HTML 仍不得依賴 server。
 
