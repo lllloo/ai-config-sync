@@ -39,20 +39,6 @@
 - **THEN** 通用檔案系統工具 SHALL 仍位於 `sync.js` 並以依賴注入提供
 - **AND** 型別專屬邏輯與通用工具 SHALL NOT 混居於同一模組
 
-### Requirement: xtool-dir 對外契約保持穩定
-
-系統 SHALL 使 xtool-dir 模組對 `sync.js` 的 type switch 曝露 diff 與 apply 兩個進入點；其餘經注入綁定的輔助函式 SHALL 僅供 `sync.js` re-export 與單元測試作為 seam 使用，SHALL NOT 由型別分派直接呼叫。
-
-#### Scenario: type switch 只經兩個進入點
-- **WHEN** `sync.js` 對 `xtool-dir` 型項目執行 diff 或 apply
-- **THEN** 分派 SHALL 只呼叫該模組的 diff 與 apply 兩個進入點
-- **AND** `xtool-dir` 型的行為 SHALL NOT 依賴其與任何其他同步項的相對順序
-
-#### Scenario: 部分失敗可見度不因拆檔而遺失
-- **WHEN** xtool-dir 型的 apply 中途拋出錯誤，且先前已完成的 skill 與當前 skill 內部都有已寫入的變更
-- **THEN** 兩邊的已完成變更 SHALL 一併併入部分變更清單並被呈報
-- **AND** 任一邊 SHALL NOT 被另一邊覆寫而失去可見度
-
 ### Requirement: 測試沙箱包含 xtool-dir runtime 檔案
 
 系統 SHALL 使會複製 `sync.js` 到臨時 repo 的整合測試同時包含 xtool-dir 模組檔案，確保沙箱不依賴真實 HOME 且任一指令路徑不因缺檔而崩潰。
@@ -61,4 +47,15 @@
 - **WHEN** 整合測試在臨時 repo 中執行任一 `node sync.js` 指令
 - **THEN** 該臨時 repo SHALL 包含 xtool-dir 模組檔案
 - **AND** 相關 sandbox 的 runtime 檔清單 SHALL 同時列出 `sync.js`、`safety-check.js`、`toml-reader.js`、skills 模組檔案與 xtool-dir 模組檔案
+
+### Requirement: xtool-dir 對外面限於兩個進入點
+
+系統 SHALL 使 xtool-dir 模組對 `sync.js` 的 type switch 曝露 diff 與 apply 兩個進入點；其餘經注入綁定的輔助函式 SHALL 僅供 `sync.js` re-export 與單元測試作為 seam 使用，SHALL NOT 由型別分派直接呼叫。
+
+本 requirement 只約束模組的對外面；`xtool-dir` 型的行為契約（含順序無關性與部分變更併入）由 `cross-tool-skill-sync` 承載。
+
+#### Scenario: type switch 只經兩個進入點
+- **WHEN** `sync.js` 對 `xtool-dir` 型項目執行 diff 或 apply
+- **THEN** 分派 SHALL 只呼叫該模組的 diff 與 apply 兩個進入點
+- **AND** 其餘經注入綁定的輔助函式 SHALL NOT 被型別分派呼叫
 
