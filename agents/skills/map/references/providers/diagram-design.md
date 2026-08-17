@@ -5,7 +5,7 @@
 ## 責任邊界
 
 - `map` 擁有讀者問題、查證結果與四張中介表，只提供內容事實。
-- adapter 擁有固定 render profile，以及「禁止／文件主張」與 CJK 的映射規則。
+- adapter 擁有固定 render profile，以及「禁止／文件主張」的映射規則。
 - `diagram-design` 獨占圖型選型、模板、畫布、座標、方格尺寸、節點層級、排版、連線、字型、配色、頁面組成、HTML/SVG 與視覺 QA。
 
 caller 不得在交接前把四表翻成座標或 SVG，也不得在 provider 產出後自行設計、改寫或修補圖面。若 QA 失敗，重新載入 `diagram-design` 與所選 type reference，按其規則修正。
@@ -34,18 +34,6 @@ caller 不得在交接前把四表翻成座標或 SVG，也不得在 provider �
 4. 把中介表示四張表（見 `../intermediate-tables.md`）原樣交給 provider；不得先翻譯成座標、方格角色或自製 page shell。
 5. 以 `template-dark.html` 為頁面基底，依 provider 規則產生 HTML/SVG 並完成 taste gate。
 6. 在 provider 階段以瀏覽器目視驗證文字、碰撞、裁切、連線與 responsive 縮放；通過後才交回 `map` 第 6 步做語意驗收。
-
-## CJK 度量覆寫（中文標籤必套）
-
-上游的間距與字級常數照拉丁文校準，中文同字數寬約 1.6 倍，直接沿用會標籤碰撞（實測）。
-
-| 上游規則 | CJK 覆寫 |
-|---|---|
-| 箭頭標籤 ≤14 字元、all-caps | 中文 ≤8 字；all-caps 對中文無意義，取消 |
-| 標籤字級 8px | 12px（4px grid 的下一階） |
-| eyebrow 7px | 沿用，但僅限純拉丁內容 |
-| 接點間距 ≥12px | ≥20px |
-| 遮罩寬度依字元數估 | 依實測 bbox |
 
 ## 約束與驗證狀態的降級規則
 
