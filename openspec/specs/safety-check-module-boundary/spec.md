@@ -1,7 +1,7 @@
 # safety-check-module-boundary Specification
 
 ## Purpose
-定義 `safety-check.js`（安全掃描模組）的職責邊界與依賴方向：掃描範圍收集、text pattern 掃描、結構化 key path 掃描、issue 產生與 report 格式化集中於本模組，`sync.js` 只保留 CLI dispatch、依賴注入與 exit code 對接的薄層；共用工具經 `createSafetyChecker(deps)` 注入，TOML 解析則直接 require `toml-reader.js`（純函式、零 IO，非 `sync.js` 故不違反反向 require 禁令）。同時鎖定拆檔後的對外穩定性——掃描範圍、hard block／warning 分類、輸出遮罩與 exit code 語意（clean 0／warning 1／hard block 2）不變——並要求整合測試沙箱的 runtime 檔清單同時包含 `sync.js`、`safety-check.js`、`toml-reader.js` 與 `skills.js`。
+定義 `safety-check.js`（安全掃描模組）的職責邊界與依賴方向：掃描範圍收集、text pattern 掃描、結構化 key path 掃描、issue 產生與 report 格式化集中於本模組，`sync.js` 只保留 CLI dispatch、依賴注入與 exit code 對接的薄層；共用工具經 `createSafetyChecker(deps)` 注入，TOML 解析則直接 require `toml-reader.js`（純函式、零 IO，非 `sync.js` 故不違反反向 require 禁令）。同時鎖定拆檔後的對外穩定性——掃描範圍、hard block／warning 分類、輸出遮罩與 exit code 語意（clean 0／warning 1／hard block 2）不變——並要求整合測試沙箱的 runtime 檔清單同時包含 `sync.js`、`safety-check.js`、`toml-reader.js`、`skills.js` 與 `xtool-dir.js`。
 ## Requirements
 ### Requirement: safety check 邏輯位於獨立模組
 
@@ -34,5 +34,6 @@
 #### Scenario: sandbox 中執行 safety check
 - **WHEN** 整合測試在臨時 repo 中執行 `node sync.js safety:check`
 - **THEN** 該臨時 repo SHALL 包含 safety check 模組檔案
+- **AND** 相關 sandbox 的 runtime 檔清單 SHALL 同時列出 `sync.js`、`safety-check.js`、`toml-reader.js`、skills 模組檔案與 xtool-dir 模組檔案
 - **AND** 測試 SHALL 驗證 hard block、warning、輸出遮罩與 exit code 仍符合既有行為
 

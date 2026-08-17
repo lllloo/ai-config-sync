@@ -1,7 +1,7 @@
 # skills-module-boundary Specification
 
 ## Purpose
-定義 `skills.js`（skills 指令族模組）的職責邊界與依賴方向：lock 檔讀取、三向集合差、name/source 驗證、terminal 清洗與輸出格式化集中於本模組，`sync.js` 只保留 command dispatch、依賴注入與 exit code 對接的薄層；模組 SHALL NOT 反向 require `sync.js`，共用常數與工具一律經 `createSkillsHandler(deps)` 注入。同時鎖定拆檔後的對外穩定性——指令名稱、別名（`sd`／`sa`／`sr`）、建議指令輸出與 exit code 語意不變——並要求整合測試沙箱的 runtime 檔清單同時包含 `sync.js`、`safety-check.js`、`toml-reader.js` 與 `skills.js`，確保沙箱不依賴真實 HOME。
+定義 `skills.js`（skills 指令族模組）的職責邊界與依賴方向：lock 檔讀取、三向集合差、name/source 驗證、terminal 清洗與輸出格式化集中於本模組，`sync.js` 只保留 command dispatch、依賴注入與 exit code 對接的薄層；模組 SHALL NOT 反向 require `sync.js`，共用常數與工具一律經 `createSkillsHandler(deps)` 注入。同時鎖定拆檔後的對外穩定性——指令名稱、別名（`sd`／`sa`／`sr`）、建議指令輸出與 exit code 語意不變——並要求整合測試沙箱的 runtime 檔清單同時包含 `sync.js`、`safety-check.js`、`toml-reader.js`、`skills.js` 與 `xtool-dir.js`，確保沙箱不依賴真實 HOME。
 ## Requirements
 ### Requirement: skills 指令邏輯位於獨立模組
 
@@ -47,4 +47,5 @@
 #### Scenario: sandbox 中執行 skills 指令
 - **WHEN** 整合測試在臨時 repo 中執行需要 skills 模組的路徑
 - **THEN** 該臨時 repo SHALL 包含 skills 模組檔案
-- **AND** 相關 sandbox 的 runtime 檔清單 SHALL 同時列出 `sync.js`、`safety-check.js`、`toml-reader.js` 與 skills 模組檔案
+- **AND** 相關 sandbox 的 runtime 檔清單 SHALL 同時列出 `sync.js`、`safety-check.js`、`toml-reader.js`、skills 模組檔案與 xtool-dir 模組檔案
+
