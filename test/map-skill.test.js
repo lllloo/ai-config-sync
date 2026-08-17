@@ -1,0 +1,48 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const MAP_ROOT = path.join(__dirname, '..', 'agents', 'skills', 'map');
+
+function readMapFile(...parts) {
+  return fs.readFileSync(path.join(MAP_ROOT, ...parts), 'utf8');
+}
+
+test('map skill：diagram-design 是唯一繪圖 provider', () => {
+  const skill = readMapFile('SKILL.md');
+  const removedAdapter = path.join(MAP_ROOT, 'references', 'providers', 'artifact-diagramming.md');
+
+  assert.match(skill, /唯一[^\n]*`diagram-design`/);
+  assert.doesNotMatch(skill, /artifact-diagramming/);
+  assert.equal(fs.existsSync(removedAdapter), false);
+});
+
+test('map skill：四表只承載語意，圖面決策由 diagram-design 獨占', () => {
+  const tables = readMapFile('references', 'intermediate-tables.md');
+  const adapter = readMapFile('references', 'providers', 'diagram-design.md');
+
+  assert.match(tables, /四表只承載語意/);
+  assert.match(tables, /不得包含[^\n]*(?:座標|viewBox)[^\n]*(?:尺寸|字型|配色|模板)/);
+  assert.match(adapter, /diagram-design[^\n]*獨占[^\n]*(?:座標|尺寸|HTML\/SVG)/);
+  assert.match(adapter, /不得[^\n]*自行[^\n]*(?:設計|改寫|修補)/);
+});
+
+test('map skill：provider 載入成功以實際讀到檔案為判準', () => {
+  const adapter = readMapFile('references', 'providers', 'diagram-design.md');
+
+  assert.match(adapter, /載入成功以實際讀到檔案為判準/);
+  assert.match(adapter, /SKILL\.md[^\n]*type-\*\.md[^\n]*template-dark\.html/);
+  assert.match(adapter, /任一讀不到[^\n]*載入失敗[^\n]*晚停/);
+});
+
+test('map skill：adapter 固定預設 render profile', () => {
+  const adapter = readMapFile('references', 'providers', 'diagram-design.md');
+
+  for (const expected of ['html', 'doc-wide', 'balanced', 'engineer', 'template-dark.html', 'none']) {
+    const pattern = expected.replace('.', '\\.');
+    assert.match(adapter, new RegExp(`\\b${pattern}\\b`));
+  }
+});
