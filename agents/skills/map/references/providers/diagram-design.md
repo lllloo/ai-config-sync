@@ -17,7 +17,7 @@ caller 不得在交接前把四表翻成座標或 SVG，也不得在 provider �
 | Dial | 預設值 | 理由 |
 |---|---|---|
 | format | `html` | `map` 的交付格式 |
-| size | `doc-wide`（viewBox `0 0 1280 720`） | 避免不同 harness 任選畫布比例 |
+| size | `slide-16x9`（viewBox `0 0 1280 720`、presentation 字級） | 固定畫布比例避免各 harness 自選；與 `doc-wide` 同尺寸但走 presentation ramp，字級與節點間距較大 |
 | detail | `balanced`（仍守非 import 的 ≤9 節點預算） | 保留主線所需技術內容，不套用 import 的擴張額度 |
 | audience | `engineer` | 保留 verified edge label 與技術名稱 |
 | template | `template-dark.html` | 固定同一頁面骨架，不自行發明 shell |
