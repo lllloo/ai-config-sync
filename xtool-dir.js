@@ -1,9 +1,9 @@
 'use strict';
 
 // =============================================================================
-// xtool-skills.js -- 跨工具全域 skill 同步型別（xtool-skills）的專屬邏輯
+// xtool-dir.js -- 跨工具全域 skill 同步型別（xtool-dir）的專屬邏輯
 //
-// 由 sync.js 以 createXtoolSkills(deps) DI 建立，經 diffSyncItem／applySyncItem 的
+// 由 sync.js 以 createXtoolDir(deps) DI 建立，經 diffSyncItem／applySyncItem 的
 // type switch 分派轉接。承載「~/.agents/skills 正典 + ~/.claude/skills symlink 橋」
 // 這一型的全部行為：受管名字集合、npx 撞名判準（D6）、非 prune upsert、
 // Claude 探索點橋接與其安全閘門（D5）、以及部分變更的併入。
@@ -24,7 +24,7 @@
 // 只是目前僅有 xtool 一個消費者；把它們搬進來會讓「通用工具」與「型別專屬邏輯」
 // 再度糾纏。同理 mirrorDir／getFiles／diffDir／itemLabel 皆以 deps 注入而非搬移。
 //
-// 對外契約：createXtoolSkills(deps) 回傳的 { diffXtoolItems, applyXtoolItem } 供
+// 對外契約：createXtoolDir(deps) 回傳的 { diffXtoolItems, applyXtoolItem } 供
 // diffSyncItem／applySyncItem 分派。其餘 deps-bound helper（findUnmirroredFiles／
 // bridgeUnsafeReason／listSkillNames／managedSkillNames／isNpxManagedSkill／
 // upsertOneSkill／bridgeSkillLink）一併附在回傳物件上，作 sync.js re-export 與
@@ -57,7 +57,7 @@ function mergeXtoolPartialChanges(err, done, currentName) {
 }
 
 /**
- * 建立 xtool-skills 型 handler：以 dependency injection 接收 sync.js 的共用常數與
+ * 建立 xtool-dir 型 handler：以 dependency injection 接收 sync.js 的共用常數與
  * 工具，內部函式閉包捕捉 deps，避免逐一穿參或反向 require。
  * @param {{
  *   AGENTS_SKILLS_HOME: string,
@@ -89,7 +89,7 @@ function mergeXtoolPartialChanges(err, done, currentName) {
  *   bridgeSkillLink: (srcDir: string, name: string, dryRun: boolean) => ({rel: string, action: string}|null),
  * }}
  */
-function createXtoolSkills(deps) {
+function createXtoolDir(deps) {
   const {
     AGENTS_SKILLS_HOME, CLAUDE_SKILLS_HOME, REPO_AGENTS_SKILLS, LOCAL_SKILL_LOCK,
     GLOBAL_EXCLUDE, BRIDGE_CONFLICT_LIST_MAX,
@@ -209,7 +209,7 @@ function createXtoolSkills(deps) {
   // ---------------------------------------------------------------------------
 
   /**
-   * 產生 xtool-skills 型項目的 diff 結果 entries。受管名字逐檔比對，另觀測
+   * 產生 xtool-dir 型項目的 diff 結果 entries。受管名字逐檔比對，另觀測
    * 未受管的本機非 npx skill（不列 npx 住戶）：
    *   - 碰撞（npx lock 登記）→ 整個 skill 一筆 `conflict` 狀態行
    *   - 否則逐檔比對 src/<name> vs dest/<name>（如 dir）；src skill 缺時 deleted 標
@@ -258,7 +258,7 @@ function createXtoolSkills(deps) {
   function makeXtoolEntry(item, name, status) {
     const src = path.join(item.src, name);
     const dest = path.join(item.dest, name);
-    return { label: itemLabel(item, name), status, src, dest, verboseSrc: src, verboseDest: dest, itemType: 'xtool-skills' };
+    return { label: itemLabel(item, name), status, src, dest, verboseSrc: src, verboseDest: dest, itemType: 'xtool-dir' };
   }
 
   /**
@@ -273,7 +273,7 @@ function createXtoolSkills(deps) {
     const rel = `${name}/${d.rel}`;
     const src = path.join(item.src, rel);
     const dest = path.join(item.dest, rel);
-    const entry = { label: itemLabel(item, rel), status: d.status, src, dest, verboseSrc: src, verboseDest: dest, itemType: 'xtool-skills' };
+    const entry = { label: itemLabel(item, rel), status: d.status, src, dest, verboseSrc: src, verboseDest: dest, itemType: 'xtool-dir' };
     if (d.status === 'deleted' && srcMissing) entry.preserved = true;
     return entry;
   }
@@ -295,7 +295,7 @@ function createXtoolSkills(deps) {
     }
     if (ok) return null;
     const label = `${itemLabel(item, name)} [claude 探索點]`;
-    const entry = { label, src: target, dest: link, verboseSrc: target, verboseDest: link, itemType: 'xtool-skills' };
+    const entry = { label, src: target, dest: link, verboseSrc: target, verboseDest: link, itemType: 'xtool-dir' };
     // 真實目錄／檔案佔用且含未鏡射內容：轉 symlink 會遞迴刪掉那些內容，
     // 標為 conflict（拒寫、跳過）而非 changed（將更新），避免預覽把刪除說成更新
     const unsafe = bridgeUnsafeReason(path.join(item.src, name), name);
@@ -351,7 +351,7 @@ function createXtoolSkills(deps) {
   }
 
   /**
-   * apply：xtool-skills 型——非 prune upsert 受管 skill，再（to-local）建 symlink 橋。
+   * apply：xtool-dir 型——非 prune upsert 受管 skill，再（to-local）建 symlink 橋。
    * 碰撞（npx lock 登記）者拒絕覆寫、印 warning、跳過。中途失敗把已完成變更附掛
    * partialChanges 供 applySyncItems 補印（部分寫入不得零可見度）。
    * @param {SyncItem} item
@@ -393,6 +393,6 @@ function createXtoolSkills(deps) {
 }
 
 module.exports = {
-  createXtoolSkills,
+  createXtoolDir,
   mergeXtoolPartialChanges,
 };

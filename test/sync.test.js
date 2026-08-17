@@ -571,7 +571,7 @@ test('旗標 drift-guard：README 旗標表涵蓋 parseArgs 白名單全部旗�
   }
 });
 
-// 5.4 drift-guard：新增 agents 同步區（SYNC_AREAS + SYNC_MANIFEST 的 xtool-skills 列）
+// 5.4 drift-guard：新增 agents 同步區（SYNC_AREAS + SYNC_MANIFEST 的 xtool-dir 列）
 // 須與 README 同步項目表一致；且 xtool 列必須排在 claude skills dir 列之前（順序即安全）
 test('SYNC_AREAS：agents area 對應 ~/.agents，repoDir/prefix 正確', () => {
   const a = SYNC_AREAS.agents;
@@ -581,15 +581,15 @@ test('SYNC_AREAS：agents area 對應 ~/.agents，repoDir/prefix 正確', () => 
   assert.equal(a.prefix, 'agents/');
 });
 
-test('SYNC_MANIFEST：agents/skills 為 xtool-skills 型（全域 skill 的唯一落點）', () => {
+test('SYNC_MANIFEST：agents/skills 為 xtool-dir 型（全域 skill 的唯一落點）', () => {
   const xtoolIdx = SYNC_MANIFEST.findIndex(e => e.area === 'agents' && e.label === 'skills');
   assert.ok(xtoolIdx >= 0, 'SYNC_MANIFEST 應含 agents/skills 列');
-  assert.equal(SYNC_MANIFEST[xtoolIdx].type, 'xtool-skills');
+  assert.equal(SYNC_MANIFEST[xtoolIdx].type, 'xtool-dir');
 });
 
 // 回歸鎖（對稱於「不得含 config.toml」）：claude/skills 與 claude/commands 兩層已因
 // 無住戶移除（remove-tenantless-sync-layers）。claude/skills 若被加回，會連帶復活
-// 「xtool-skills 列須排在其之前」的順序不變式；claude/commands 則違反「一律使用
+// 「xtool-dir 列須排在其之前」的順序不變式；claude/commands 則違反「一律使用
 // skill、不再新增 command」政策，且會讓他機殘留的舊 command 經 to-repo 復活。
 // 要恢復任一層須先重新評估上述後果，不得只塞回一列 manifest。
 test('SYNC_MANIFEST 回歸鎖：不得含 claude 區的 skills／commands dir 列', () => {

@@ -30,8 +30,8 @@ const { spawnSync } = require('node:child_process');
 const { noColorEnv, POSIX_PERM_SKIP } = require('./helpers.js');
 
 // sync.js require('./safety-check.js')（後者 require('./toml-reader.js')）與
-// require('./skills.js')／require('./xtool-skills.js')，缺任一檔即崩，故五檔同抄（與 apply-integration 一致）。
-const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'xtool-skills.js'];
+// require('./skills.js')／require('./xtool-dir.js')，缺任一檔即崩，故五檔同抄（與 apply-integration 一致）。
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'xtool-dir.js'];
 
 const REAL_HOME = os.homedir();
 
@@ -95,7 +95,7 @@ function xtoolItem(repo, home) {
   return {
     area: 'agents',
     label: 'skills',
-    type: 'xtool-skills',
+    type: 'xtool-dir',
     src: path.join(repo, 'agents', 'skills'),
     dest: path.join(home, '.agents', 'skills'),
   };

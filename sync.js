@@ -14,7 +14,7 @@ const readline = require('readline');
 const { spawnSync } = require('child_process');
 const safetyCheckModule = require('./safety-check.js');
 const skillsModule = require('./skills.js');
-const xtoolSkillsModule = require('./xtool-skills.js');
+const xtoolDirModule = require('./xtool-dir.js');
 
 // =============================================================================
 // Section: Constants -- 全域常數與設定
@@ -33,7 +33,7 @@ const CLAUDE_HOME = path.join(HOME, '.claude');
 const CODEX_HOME = path.join(HOME, '.codex');
 const AGENTS_HOME = path.join(HOME, '.agents');
 const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
-// 跨工具全域 skill（xtool-skills）用到的三個 skill 根：
+// 跨工具全域 skill（xtool-dir）用到的三個 skill 根：
 //   - AGENTS_SKILLS_HOME：正典真實目錄（Codex 原生掃）
 //   - CLAUDE_SKILLS_HOME：Claude 探索點（放 symlink 橋指向正典）
 //   - REPO_AGENTS_SKILLS：repo 端受管 skill 來源（決定「受管名字」集合，兩方向皆以此為準）
@@ -110,7 +110,7 @@ const COMMAND_ALIASES = Object.fromEntries(
  * @property {string} label - 顯示名稱
  * @property {string} src - 來源路徑
  * @property {string} dest - 目的路徑
- * @property {'file'|'settings'|'dir'|'xtool-skills'} type - 項目類型
+ * @property {'file'|'settings'|'dir'|'xtool-dir'} type - 項目類型
  * @property {string[]} [excludePatterns] - dir 型項目的排除模式
  * @property {string} [prefix] - 顯示路徑前綴（預設 'claude/'，codex 同步項用 'codex/'）
  */
@@ -698,7 +698,7 @@ function cleanEmptyDirs(dir) {
 
 // =============================================================================
 // Section: Symlink Utilities -- symlink 建立與幂等維護
-// 供 xtool-skills 在 ~/.claude/skills/<name> 建立指向 ~/.agents/skills/<name>
+// 供 xtool-dir 在 ~/.claude/skills/<name> 建立指向 ~/.agents/skills/<name>
 // 的探索點 symlink（Claude Code 官方支援 symlink 探索、會自動去重）。
 // =============================================================================
 
@@ -772,7 +772,7 @@ function createSymlinkAtomic(target, linkPath) {
  *   - symlink 指向錯誤／懸空 → unlink 後重建
  *   - 真實檔案／目錄佔用（舊機制產物，D5）→ rm 後建 symlink；呼叫端須先確認正典
  *     內容已落在 target（~/.agents），此處 rm 才安全（不可在刪目錄後、建 link 前掉內容）。
- *     skill 橋接的呼叫端以 `xtool-skills.js` 的 bridgeUnsafeReason 把關，未鏡射者不會走到這裡
+ *     skill 橋接的呼叫端以 `xtool-dir.js` 的 bridgeUnsafeReason 把關，未鏡射者不會走到這裡
  *   - 不存在 → 直接建
  * @param {string} target - symlink 指向的絕對路徑
  * @param {string} linkPath - 要建立的 symlink 路徑
@@ -1134,7 +1134,7 @@ const SYNC_AREAS = {
  * 同步項目宣告式清單：一列 = 一個同步路徑，為所有同步項目的單一事實來源。
  * 新增同步內容只需在此加一列（不需改任何 builder 或 dispatch switch）。
  *   - area：對應 SYNC_AREAS 的 key（'claude' → ~/.claude ↔ repo claude/；'codex' → ~/.codex ↔ repo codex/）
- *   - type：'file'|'settings'|'dir'|'xtool-skills'（型別行為由 diffSyncItem／applySyncItem 分派）
+ *   - type：'file'|'settings'|'dir'|'xtool-dir'（型別行為由 diffSyncItem／applySyncItem 分派）
  *   - homeLabel（選填）：本機端檔名與 repo label 不同時使用
  *   - homeRootFile（選填）：本機端目標位於 $HOME 下、不在 area homeBase 之內時使用（如 ~/.claude.json），
  *     指定後以 $HOME/<homeRootFile> 解析本機端路徑，不套用 area 的 homeBase
@@ -1147,7 +1147,7 @@ const SYNC_MANIFEST = [
   { area: 'claude', label: 'CLAUDE.md',     type: 'file' },
   { area: 'claude', label: 'settings.json', type: 'settings', fixedFlow: true },
   { area: 'claude', label: 'statusline.sh', type: 'file' },
-  { area: 'agents', label: 'skills',        type: 'xtool-skills' },
+  { area: 'agents', label: 'skills',        type: 'xtool-dir' },
   { area: 'claude', label: 'rules',         type: 'dir' },
   { area: 'codex',  label: 'AGENTS.md',     type: 'file' },
 ];
@@ -1351,9 +1351,9 @@ function applyDirItem(item, dryRun) {
 }
 
 // -----------------------------------------------------------------------------
-// xtool-skills 型的專屬邏輯（受管名字、npx 撞名判準、非 prune upsert、探索點橋接
-// 與其 D5 安全閘門）全部在 xtool-skills.js；此處僅注入共用工具、由下方 type switch
-// 轉接。lazy singleton 見檔案下方 Section: Xtool Skills Handler。
+// xtool-dir 型的專屬邏輯（受管名字、npx 撞名判準、非 prune upsert、探索點橋接
+// 與其 D5 安全閘門）全部在 xtool-dir.js；此處僅注入共用工具、由下方 type switch
+// 轉接。lazy singleton 見檔案下方 Section: Xtool Dir Handler。
 // -----------------------------------------------------------------------------
 
 /**
@@ -1376,7 +1376,7 @@ function diffSyncItem(item, direction) {
     case 'settings': return [diffSettingsItem(item, direction)];
     case 'file': return [diffFileItem(item)];
     case 'dir': return diffDirItems(item);
-    case 'xtool-skills': return xtoolSkills().diffXtoolItems(item, direction);
+    case 'xtool-dir': return xtoolDir().diffXtoolItems(item, direction);
     default: return [];
   }
 }
@@ -1393,7 +1393,7 @@ function applySyncItem(item, direction, dryRun) {
     case 'settings': return applyMergeItem(() => mergeSettingsBetween(item.src, item.dest, direction, dryRun), 'settings.json');
     case 'file': return applyFileItem(item, dryRun);
     case 'dir': return applyDirItem(item, dryRun);
-    case 'xtool-skills': return xtoolSkills().applyXtoolItem(item, direction, dryRun);
+    case 'xtool-dir': return xtoolDir().applyXtoolItem(item, direction, dryRun);
     default: return [];
   }
 }
@@ -1558,9 +1558,9 @@ function buildFullDiffList(items, diffItems) {
   // 複製陣列，避免 mutating 呼叫端傳入的物件
   const result = [...diffItems];
 
-  // 補上無差異的 file 與 settings 項目（ok 狀態）；dir 與 xtool-skills 走摘要行
+  // 補上無差異的 file 與 settings 項目（ok 狀態）；dir 與 xtool-dir 走摘要行
   for (const item of items) {
-    if (item.type === 'dir' || item.type === 'xtool-skills') continue;
+    if (item.type === 'dir' || item.type === 'xtool-dir') continue;
     const label = itemLabel(item);
     if (!result.some(d => d.label === label)) {
       result.push({
@@ -1575,9 +1575,9 @@ function buildFullDiffList(items, diffItems) {
     }
   }
 
-  // 補上無差異的 dir／xtool-skills 項目（以摘要行呈現，證明已被檢查）
+  // 補上無差異的 dir／xtool-dir 項目（以摘要行呈現，證明已被檢查）
   for (const item of items) {
-    if (item.type !== 'dir' && item.type !== 'xtool-skills') continue;
+    if (item.type !== 'dir' && item.type !== 'xtool-dir') continue;
     const prefix = `${itemLabel(item)}/`;
     const hasAny = result.some(d => d.label.startsWith(prefix));
     if (!hasAny) {
@@ -1593,8 +1593,8 @@ function buildFullDiffList(items, diffItems) {
     }
   }
 
-  // 排序：dir 與 xtool-skills（目錄類）排在後面
-  const isDirLike = t => t === 'dir' || t === 'xtool-skills';
+  // 排序：dir 與 xtool-dir（目錄類）排在後面
+  const isDirLike = t => t === 'dir' || t === 'xtool-dir';
   result.sort((a, b) => {
     const aIsDir = isDirLike(a.itemType);
     const bIsDir = isDirLike(b.itemType);
@@ -1652,7 +1652,7 @@ function runDiff(opts) {
 }
 
 /**
- * 收集 skills 目錄內細項差異，用於摘要顯示。涵蓋 agents/skills/（xtool-skills 型）
+ * 收集 skills 目錄內細項差異，用於摘要顯示。涵蓋 agents/skills/（xtool-dir 型）
  * 的**逐檔** entry；conflict（整個 skill 層級、無檔名尾段）、探索點 symlink entry
  * （label 尾隨 `[claude 探索點]`、無檔名尾段）與摘要行（label 以 `/` 結尾）不歸此
  * 摘要，交回 printDiffItem 處理。
@@ -2005,16 +2005,16 @@ function skillsHandler() {
 }
 
 // =============================================================================
-// Section: Xtool Skills Handler -- 跨工具全域 skill（xtool-skills 型）
-// 受管名字／撞名判準／非 prune upsert／探索點橋接與 D5 閘門在 xtool-skills.js；
+// Section: Xtool Dir Handler -- 跨工具全域 skill（xtool-dir 型）
+// 受管名字／撞名判準／非 prune upsert／探索點橋接與 D5 閘門在 xtool-dir.js；
 // 此處僅注入共用常數與工具，並由 diffSyncItem／applySyncItem 的 type switch 轉接。
 // =============================================================================
 
 /** lazy singleton：延後到執行期建立，避開對 const 相依（col／路徑常數等）的 TDZ。 */
-let _xtoolSkills = null;
-function xtoolSkills() {
-  if (!_xtoolSkills) {
-    _xtoolSkills = xtoolSkillsModule.createXtoolSkills({
+let _xtoolDir = null;
+function xtoolDir() {
+  if (!_xtoolDir) {
+    _xtoolDir = xtoolDirModule.createXtoolDir({
       AGENTS_SKILLS_HOME, CLAUDE_SKILLS_HOME, REPO_AGENTS_SKILLS, LOCAL_SKILL_LOCK,
       GLOBAL_EXCLUDE, BRIDGE_CONFLICT_LIST_MAX,
       SyncError, col,
@@ -2024,7 +2024,7 @@ function xtoolSkills() {
       loadSkillsFromLock: (lockPath) => skillsHandler().loadSkillsFromLock(lockPath),
     });
   }
-  return _xtoolSkills;
+  return _xtoolDir;
 }
 
 // =============================================================================
@@ -2295,12 +2295,12 @@ if (require.main === module) {
     winPathToWslPath,
     detectWinHome,
     resolveWinHome,
-    // xtool-skills 邏輯在 xtool-skills.js；此處經 singleton wrapper re-export 供既有測試沿用
-    listSkillNames: (dir) => xtoolSkills().listSkillNames(dir),
-    managedSkillNames: () => xtoolSkills().managedSkillNames(),
-    isNpxManagedSkill: (name) => xtoolSkills().isNpxManagedSkill(name),
-    applyXtoolItem: (item, direction, dryRun) => xtoolSkills().applyXtoolItem(item, direction, dryRun),
-    diffXtoolItems: (item, direction) => xtoolSkills().diffXtoolItems(item, direction),
+    // xtool-dir 邏輯在 xtool-dir.js；此處經 singleton wrapper re-export 供既有測試沿用
+    listSkillNames: (dir) => xtoolDir().listSkillNames(dir),
+    managedSkillNames: () => xtoolDir().managedSkillNames(),
+    isNpxManagedSkill: (name) => xtoolDir().isNpxManagedSkill(name),
+    applyXtoolItem: (item, direction, dryRun) => xtoolDir().applyXtoolItem(item, direction, dryRun),
+    diffXtoolItems: (item, direction) => xtoolDir().diffXtoolItems(item, direction),
     applySyncItems,
     diffSyncItems,
     diffDirItems,

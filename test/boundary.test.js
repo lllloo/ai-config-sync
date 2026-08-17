@@ -777,7 +777,7 @@ test('applySyncItems：dry-run 計入統計但不實際寫入', () => {
 });
 
 // =============================================================================
-// ensureSymlink：幂等建立/修復探索點 symlink（xtool-skills 前置能力）
+// ensureSymlink：幂等建立/修復探索點 symlink（xtool-dir 前置能力）
 // 型別判斷一律 lstat；懸空 symlink 須修復不 EEXIST；真實目錄佔用走 D5 轉換
 // =============================================================================
 
@@ -902,9 +902,9 @@ test('ensureSymlink：Windows dir symlink 失敗時退回 junction（mock 覆蓋
 // safety:check：獨立、唯讀、安全輸出與 exit code
 // =============================================================================
 
-// safety:check 執行期依賴 sync.js + safety-check.js + toml-reader.js + skills.js + xtool-skills.js 五檔，
+// safety:check 執行期依賴 sync.js + safety-check.js + toml-reader.js + skills.js + xtool-dir.js 五檔，
 // sandbox 需同時複製，避免單檔假設回歸（sync.js require 缺任一檔會直接崩）。
-const SAFETY_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'xtool-skills.js'];
+const SAFETY_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'xtool-dir.js'];
 
 function setupSafetySandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-safety-'));

@@ -55,9 +55,9 @@ npm run to-local    # repo → 本機（套用，會先預覽再確認）
 - **Agent 定義**目前不在同步範圍：Claude／Codex 皆未列 agents 同步項目（原 `everything-claude-code` agent 庫已整批移除）。日後要恢復再於 `SYNC_MANIFEST` 加回。
 - **Command 定義**不在同步範圍：本 repo 已改用 skill、不再新增 command，`SYNC_MANIFEST` 未列 `commands` 同步項（有回歸鎖把關）。
 - **兩種 Skill 分層**：
-  - `agents/skills/`（跨工具全域）— repo 自帶、Git 版控、`xtool-skills` 型同步進 `~/.agents/skills/`（Codex 原生掃）並於 `~/.claude/skills/<name>` 建 symlink 橋（Claude 探索）。**全域 skill 的唯一落點**；不加 per-skill flag。
+  - `agents/skills/`（跨工具全域）— repo 自帶、Git 版控、`xtool-dir` 型同步進 `~/.agents/skills/`（Codex 原生掃）並於 `~/.claude/skills/<name>` 建 symlink 橋（Claude 探索）。**全域 skill 的唯一落點**；不加 per-skill flag。
   - `.agents/skills/`（本地）— 已版控、跨工具共用、**不參與** to-repo／to-local；Claude Code 靠 `.claude/skills` symlink 讀取，Codex 原生探索（見 [刻意不同步](#刻意不同步) 的 Windows 注意）。
-- **`agents/skills/` 與 `npx skills` 共管 `~/.agents/skills/`**：`xtool-skills` 為**非 prune**、只認 repo `agents/skills/` 登記的「受管名字」——對 `~/.agents/skills/` 內的 npx 住戶一律不刪、不吸回 repo。撞名守門：upsert 前若 `<name>` 已登記於 `~/.agents/.skill-lock.json`（npx 安裝必登記，本機制永不登記），即判為碰撞、拒絕覆寫並印 warning，`diff` 階段以 `conflict` 狀態標示。**本機殘留觀測**：`diff` 會列出 `~/.agents/skills/` 中未登記於 npx lock、且 repo 已無對應來源的 skill，標示為「本機有、repo 無對應來源」；這些可能是手動 skill 或已刪除的 repo skill，只觀測、不吸回、不刪除。
+- **`agents/skills/` 與 `npx skills` 共管 `~/.agents/skills/`**：`xtool-dir` 為**非 prune**、只認 repo `agents/skills/` 登記的「受管名字」——對 `~/.agents/skills/` 內的 npx 住戶一律不刪、不吸回 repo。撞名守門：upsert 前若 `<name>` 已登記於 `~/.agents/.skill-lock.json`（npx 安裝必登記，本機制永不登記），即判為碰撞、拒絕覆寫並印 warning，`diff` 階段以 `conflict` 狀態標示。**本機殘留觀測**：`diff` 會列出 `~/.agents/skills/` 中未登記於 npx lock、且 repo 已無對應來源的 skill，標示為「本機有、repo 無對應來源」；這些可能是手動 skill 或已刪除的 repo skill，只觀測、不吸回、不刪除。
 - **Claude 探索點的第二道守門**：`~/.claude/skills/<name>` 若是真實目錄（舊機制產物），to-local 會把它轉成 symlink——轉換含遞迴刪除，故轉換前先比對「該目錄內是否有 repo 沒有對應來源的檔案」。有的話（例如你自己在 `~/.claude/skills/` 手寫、剛好與受管 skill 同名的 skill）一律拒絕刪除、跳過並印 warning，`diff` 同樣以 `conflict` 標示。判準是**路徑存在性**而非內容比對：本機同名檔內容較舊屬正常遷移，會照 to-local 語意覆蓋。
 - **全域 Skill 與 `npx skills` 是兩套機制**：`agents/skills/` 是 repo 自帶、Git 版控、由 to-repo／to-local 同步的 skill；`skills-lock.json` 追蹤的是外部 `npx skills` CLI 安裝的 skill，不受 `sync.js` 管理，只能用 `npm run skills:diff` 比對後手動套用建議。
 - **規則拆分** `claude/rules/` 是 `CLAUDE.md` 的模組化拆分，支援 frontmatter `paths:` scoping。
@@ -267,7 +267,7 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 | `safety-check.js` | `safety:check` 唯讀掃描模組，由 `sync.js` 注入共用工具（不獨立執行、不反向 require） |
 | `toml-reader.js` | TOML 邏輯語句讀取器（純函式、零 IO），由 `safety-check.js` 直接 require，供 `.toml` 掃描正確歸屬 section |
 | `skills.js` | skills 指令族（`skills:diff`／`skills:add`／`skills:remove`）模組，由 `sync.js` 經 `createSkillsHandler(deps)` 注入共用工具（不獨立執行、不反向 require） |
-| `xtool-skills.js` | `xtool-skills` 型（`agents/skills/` → `~/.agents/skills/` 正典 + `~/.claude/skills/` symlink 橋）的型別專屬同步邏輯，由 `sync.js` 經 `createXtoolSkills(deps)` 注入共用工具（不獨立執行、不反向 require） |
+| `xtool-dir.js` | `xtool-dir` 型（`agents/skills/` → `~/.agents/skills/` 正典 + `~/.claude/skills/` symlink 橋）的型別專屬同步邏輯，由 `sync.js` 經 `createXtoolDir(deps)` 注入共用工具（不獨立執行、不反向 require） |
 | `test/sync.test.js` | 同步邏輯純函式單元測試（`node:test`） |
 | `test/settings.test.js` | settings.json 純函式與 `mergeSettingsBetween` 同步心臟測試 |
 | `test/toml-reader.test.js` | TOML 讀取器測試（`safety:check` section 歸屬的回歸網） |

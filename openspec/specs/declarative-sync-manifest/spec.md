@@ -1,7 +1,7 @@
 # declarative-sync-manifest Specification
 
 ## Purpose
-定義同步項目的宣告式定義機制：`SYNC_MANIFEST` 為所有同步路徑的單一來源（一列 = 一路徑），area 的 base 路徑與顯示前綴由 `SYNC_AREAS` 資料表驅動，單一 materializer 依方向產生 `SyncItem`，新增同步內容只需加一列、不需改 builder 或 dispatch。manifest 的可選欄位（`homeLabel`／`homeRootFile`／`fixedFlow`／`exclude`）語義須與實作一致。型別分派（`diffSyncItem`／`applySyncItem`／`buildFullDiffList`）與指令分派（`runCommand`）刻意維持明確 `switch`、不引入 handler 查表，換取分派可讀性；型別集合鎖定為 `file`／`dir`／`settings`／`xtool-skills`，`mcp` 與 `advisory` 兩型別的「不得復活」在此作為回歸鎖。另要求專案文件不得引用已不存在的架構元件，並由測試守護 `COMMANDS` 登錄與 `runCommand` 分派的一致性。
+定義同步項目的宣告式定義機制：`SYNC_MANIFEST` 為所有同步路徑的單一來源（一列 = 一路徑），area 的 base 路徑與顯示前綴由 `SYNC_AREAS` 資料表驅動，單一 materializer 依方向產生 `SyncItem`，新增同步內容只需加一列、不需改 builder 或 dispatch。manifest 的可選欄位（`homeLabel`／`homeRootFile`／`fixedFlow`／`exclude`）語義須與實作一致。型別分派（`diffSyncItem`／`applySyncItem`／`buildFullDiffList`）與指令分派（`runCommand`）刻意維持明確 `switch`、不引入 handler 查表，換取分派可讀性；型別集合鎖定為 `file`／`dir`／`settings`／`xtool-dir`，`mcp` 與 `advisory` 兩型別的「不得復活」在此作為回歸鎖。另要求專案文件不得引用已不存在的架構元件，並由測試守護 `COMMANDS` 登錄與 `runCommand` 分派的一致性。
 ## Requirements
 ### Requirement: 同步項目以宣告式 manifest 為單一來源
 
@@ -65,11 +65,11 @@ manifest SHALL 支援下列可選欄位，其語義 SHALL 與程式碼實作一�
 
 ### Requirement: 型別與指令分派維持既有 switch
 
-系統 SHALL 保持同步型別分派（`diffSyncItem`／`applySyncItem`／`buildFullDiffList`）與指令分派（`runCommand`）為既有的明確 `switch` 實作，不引入 handler 查表。型別集合 SHALL 為 `file`／`dir`／`settings`／`xtool-skills`；`mcp`（TOML section 投影）與 `advisory`（MCP 諮詢式比對）型別 SHALL 皆不存在。
+系統 SHALL 保持同步型別分派（`diffSyncItem`／`applySyncItem`／`buildFullDiffList`）與指令分派（`runCommand`）為既有的明確 `switch` 實作，不引入 handler 查表。型別集合 SHALL 為 `file`／`dir`／`settings`／`xtool-dir`；`mcp`（TOML section 投影）與 `advisory`（MCP 諮詢式比對）型別 SHALL 皆不存在。
 
 #### Scenario: 型別分派不改行為
 
-- **WHEN** 對含 `file`／`dir`／`settings`／`xtool-skills` 型別的同步項目執行 diff 或 apply
+- **WHEN** 對含 `file`／`dir`／`settings`／`xtool-dir` 型別的同步項目執行 diff 或 apply
 - **THEN** 分派結果 SHALL 與本次變更前相同
 - **AND** 系統 SHALL NOT 依賴任何名為 `SYNC_TYPE_HANDLERS` 的查表物件
 

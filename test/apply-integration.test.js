@@ -21,8 +21,8 @@ const { noColorEnv, itPosixPerms } = require('./helpers.js');
 const { COMMANDS, isWsl } = require('../sync.js');
 
 // sync.js require('./safety-check.js')（後者 require('./toml-reader.js')）與
-// require('./skills.js')／require('./xtool-skills.js')，任何 `node sync.js` 指令缺任一檔即崩，故五檔同抄。
-const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'xtool-skills.js'];
+// require('./skills.js')／require('./xtool-dir.js')，任何 `node sync.js` 指令缺任一檔即崩，故五檔同抄。
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'xtool-dir.js'];
 
 /**
  * 建立沙箱：repo（含 sync.js + safety-check.js + toml-reader.js + skills.js 副本、git init）與 home。
@@ -634,7 +634,7 @@ test('diff：二進位檔差異輸出不得含沙箱絕對路徑', () => {
 // 參數錯誤（非「未知指令」），故 guard 只斷言「未落 default 分支」。
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-// xtool-skills：跨工具全域 skill 雙向 apply、共管安全、碰撞守門、幂等、D5 遷移
+// xtool-dir：跨工具全域 skill 雙向 apply、共管安全、碰撞守門、幂等、D5 遷移
 // managedSkillNames 以 sandbox repo/agents/skills 為準（REPO_ROOT = sandbox repo）
 // -----------------------------------------------------------------------------
 const AGENTS_SKILL = (home, name, rel) => path.join(home, '.agents', 'skills', name, rel);

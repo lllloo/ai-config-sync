@@ -1,7 +1,7 @@
 # cross-tool-skill-sync Specification
 
 ## Purpose
-定義跨工具全域 skill 同步（`xtool-skills` 型）的契約：正典為 `~/.agents/skills/<name>/`（Codex 原生掃描），`to-local` 另於 `~/.claude/skills/<name>` 建立 symlink 橋供 Claude Code 探索。與 `npx skills` **共管**同一目錄，故為**非 prune upsert**——只認 repo `agents/skills/` 登記的受管名字，不刪、不吸入 npx 住戶；單一 skill 目錄內的殘檔可清，但不影響任何 sibling。同名碰撞以 `~/.agents/.skill-lock.json` 登記為**唯一**判準（Claude 側 symlink 存在與本機制自身產物無法區分，作為訊號會破壞幂等），碰撞時拒寫並於 diff 以 `conflict` 標示、計入 `EXIT_DIFF`。涵蓋真實目錄→symlink 的遷移、懸空 symlink 修復、`to-repo` 只讀回受管名字，以及 Windows 無 symlink 權限時的 fallback。
+定義跨工具全域 skill 同步（`xtool-dir` 型）的契約：正典為 `~/.agents/skills/<name>/`（Codex 原生掃描），`to-local` 另於 `~/.claude/skills/<name>` 建立 symlink 橋供 Claude Code 探索。與 `npx skills` **共管**同一目錄，故為**非 prune upsert**——只認 repo `agents/skills/` 登記的受管名字，不刪、不吸入 npx 住戶；單一 skill 目錄內的殘檔可清，但不影響任何 sibling。同名碰撞以 `~/.agents/.skill-lock.json` 登記為**唯一**判準（Claude 側 symlink 存在與本機制自身產物無法區分，作為訊號會破壞幂等），碰撞時拒寫並於 diff 以 `conflict` 標示、計入 `EXIT_DIFF`。涵蓋真實目錄→symlink 的遷移、懸空 symlink 修復、`to-repo` 只讀回受管名字，以及 Windows 無 symlink 權限時的 fallback。
 ## Requirements
 ### Requirement: 跨工具全域 skill 同步區
 
@@ -20,9 +20,9 @@
 - **THEN** 該 skill 放於 repo `agents/skills/<name>/`，作為跨工具 skill 同步
 - **AND** `SYNC_MANIFEST` SHALL NOT 含 `claude` 區的 `skills` dir 型同步項
 
-### Requirement: xtool-skills 非 prune upsert（共管安全）
+### Requirement: xtool-dir 非 prune upsert（共管安全）
 
-`xtool-skills` 型別的 apply SHALL 只處理 repo `agents/skills/` 列出的 skill 名；對 `~/.agents/skills/` 內不受管的項（如 `npx skills` 安裝者）SHALL NOT 刪除。系統 SHALL NOT 對 `~/.agents/skills/` 套用 `mirrorDir` 的 prune-extras 語意。
+`xtool-dir` 型別的 apply SHALL 只處理 repo `agents/skills/` 列出的 skill 名；對 `~/.agents/skills/` 內不受管的項（如 `npx skills` 安裝者）SHALL NOT 刪除。系統 SHALL NOT 對 `~/.agents/skills/` 套用 `mirrorDir` 的 prune-extras 語意。
 
 `diff` SHALL 觀測 `~/.agents/skills/` 中未登記於本機 npx lock、且 repo 已無對應來源的 skill，標示其為本機未受 repo 管理；此觀測 SHALL NOT 改變 apply 的非 prune 語意，也不得將該項吸回 repo 或刪除。
 
@@ -86,7 +86,7 @@ upsert 前，若 `<name>` 登記於 `~/.agents/.skill-lock.json`（npx 安裝的
 
 當 `~/.claude/skills/<name>` 目前為真實目錄（舊機制產物）時，apply SHALL 安全地轉換為 symlink：先確認 `~/.agents/skills/<name>` 已寫入成功，再刪除真實目錄並建立 symlink。轉換 SHALL 幂等；任一步失敗 SHALL 透過 `partialChanges` 附掛已完成變更並警告，SHALL NOT 遺失 skill 內容（dir→symlink 轉換無法原子，容許的空窗僅限 Claude 探索點短暫缺席，正典內容 SHALL 已先安全落於 `~/.agents`）。
 
-轉換 SHALL 內生於 `xtool-skills` 型的 apply，SHALL NOT 依賴其與任何其他同步項的相對順序。
+轉換 SHALL 內生於 `xtool-dir` 型的 apply，SHALL NOT 依賴其與任何其他同步項的相對順序。
 
 #### Scenario: dir 轉 symlink
 
@@ -101,7 +101,7 @@ upsert 前，若 `<name>` 登記於 `~/.agents/.skill-lock.json`（npx 安裝的
 #### Scenario: 轉換不依賴 manifest 順序
 
 - **WHEN** 本機 `~/.claude/skills/<name>` 仍為舊真實目錄，執行 `to-local`
-- **THEN** `xtool-skills` apply 完成 agents 端寫入與 dir→symlink 轉換
+- **THEN** `xtool-dir` apply 完成 agents 端寫入與 dir→symlink 轉換
 - **AND** 轉換結果 SHALL NOT 因 `SYNC_MANIFEST` 中其他項目的相對位置而改變
 
 ### Requirement: to-repo 只讀回受管名字
