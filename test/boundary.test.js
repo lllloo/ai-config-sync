@@ -1409,3 +1409,34 @@ test('safety:check：設定來源（statusline.sh）含機密樣式 → 仍 hard
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// =============================================================================
+// 模組邊界：功能模組不得反向 require sync.js
+// safety-check-module-boundary／skills-module-boundary／xtool-dir-module-boundary
+// 三份 spec 皆有此 SHALL NOT，此前無回歸鎖、純靠自律。註解裡提及該字串
+// （如 xtool-dir.js 檔頭的禁令說明）不算違規，故先剝除註解再比對。
+// =============================================================================
+
+const FEATURE_MODULES = ['safety-check.js', 'toml-reader.js', 'skills.js', 'xtool-dir.js'];
+
+/** 剝除區塊註解與行註解，避免檔頭禁令說明被誤判為真實 require。 */
+function stripJsComments(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+}
+
+test('模組邊界：功能模組不得反向 require sync.js', () => {
+  for (const name of FEATURE_MODULES) {
+    const code = stripJsComments(fs.readFileSync(path.join(__dirname, '..', name), 'utf8'));
+    assert.doesNotMatch(
+      code,
+      /require\(\s*['"]\.\.?\/sync\.js['"]\s*\)/,
+      `${name} 不得反向 require sync.js（共用工具一律經 createXxx(deps) 注入）`
+    );
+  }
+});
+
+test('模組邊界：剝註解不會遮蔽真實的反向 require（偵測器自身把關）', () => {
+  const decoy = "// 本檔不 require('./sync.js')\n/* 亦非 require('./sync.js') */\nconst s = require('./sync.js');\n";
+  assert.doesNotMatch(stripJsComments("// 本檔不 require('./sync.js')\n"), /require\(\s*['"]\.\.?\/sync\.js['"]\s*\)/);
+  assert.match(stripJsComments(decoy), /require\(\s*['"]\.\.?\/sync\.js['"]\s*\)/);
+});

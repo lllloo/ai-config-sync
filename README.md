@@ -275,7 +275,7 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 | `test/fs-symlink.test.js` | symlink 與目錄工具測試（`ensureSymlink` 幂等與 D5 轉換、`createSymlinkAtomic`、Windows junction fallback、`cleanEmptyDirs`）及部分失敗可見度不變式 |
 | `test/diff-integration.test.js` | diff 整合測試 |
 | `test/apply-integration.test.js` | 沙箱化 to-local／to-repo 端到端 apply 測試 |
-| `test/boundary.test.js` | 邊界情境與安全防線測試（含 `safety:check` sandbox） |
+| `test/boundary.test.js` | 邊界情境與安全防線測試（含 `safety:check` sandbox、功能模組不得反向 require `sync.js` 的回歸鎖） |
 | `test/helpers.js` | 各測試檔共用 helper |
 | `package.json` | 定義所有 npm 指令 |
 | `skills-lock.json` | 全域 skills 清單（跨裝置 source of truth） |
