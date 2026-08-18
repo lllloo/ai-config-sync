@@ -22,12 +22,15 @@ test('map skill：diagram-design 是唯一繪圖 provider', () => {
 
 test('map skill：四表只承載語意，圖面決策由 diagram-design 獨占', () => {
   const tables = readMapFile('references', 'intermediate-tables.md');
+  const skill = readMapFile('SKILL.md');
   const adapter = readMapFile('references', 'providers', 'diagram-design.md');
 
   assert.match(tables, /四表只承載語意/);
   assert.match(tables, /不得包含[^\n]*(?:座標|viewBox)[^\n]*(?:尺寸|字型|配色|模板)/);
-  assert.match(adapter, /diagram-design[^\n]*獨占[^\n]*(?:座標|尺寸|HTML\/SVG)/);
-  assert.match(adapter, /不得[^\n]*自行[^\n]*(?:設計|改寫|修補)/);
+  // 責任邊界的正典在 SKILL.md「繪圖 provider」節；adapter 不重述，只鎖 caller 不得繞過 provider 動圖面
+  assert.match(skill, /`diagram-design`[^\n]*(?:擁有|獨占)[^\n]*(?:座標|尺寸)/);
+  assert.match(skill, /不[^\n]*(?:修補|改寫)[^\n]*HTML\/SVG/);
+  assert.match(adapter, /不得[^\n]*(?:先翻譯成座標|caller 直接 patch)/);
 });
 
 test('map skill：provider 載入成功以實際讀到檔案為判準', () => {
@@ -41,7 +44,7 @@ test('map skill：provider 載入成功以實際讀到檔案為判準', () => {
 test('map skill：adapter 固定預設 render profile', () => {
   const adapter = readMapFile('references', 'providers', 'diagram-design.md');
 
-  for (const expected of ['html', 'doc-wide', 'balanced', 'engineer', 'template-dark.html', 'none']) {
+  for (const expected of ['html', 'slide-16x9', 'balanced', 'engineer', 'template-dark.html', 'none']) {
     const pattern = expected.replace('.', '\\.');
     assert.match(adapter, new RegExp(`\\b${pattern}\\b`));
   }

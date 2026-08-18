@@ -11,12 +11,12 @@ description: 用於「給我架構圖」「畫一下架構」「這專案怎麼�
 
 ## 執行流程
 
-1. **定義範圍**：無參數或要「大綱」→ 大綱頁；參數是業務功能名（如「核決」「請款」）→ 主題頁（兩者見「兩種標準產出」）；參數是路徑或技術子系統 → 聚焦該範圍的自由分析。不確定屬哪種就問一句。先固定一句要回答的讀者問題，後續四表與 provider 不得自行改換視角。超過 9 個框先畫頂層，列出可再展開的區塊與省略內容。
+1. **定義範圍**：無參數或要「大綱」→ 大綱頁；參數是業務功能名（如「核決」「請款」）→ 主題頁（兩者見「兩種標準產出」）；參數是路徑或技術子系統 → 聚焦該範圍的自由分析。不確定屬哪種就問一句。接著固定一句要回答的讀者問題，後續四表與 provider 不得自行改換視角。
 2. **讀取宣告**：先讀相關的 `AGENTS.md`、`CLAUDE.md`、`README.md`，再按需讀 `openspec/specs/`。把其中的分層、資料邊界與禁止事項當作待驗證骨架。
 3. **驗證實作**：用 `rg` 定位 `import`、`require`、呼叫、寫入與 `symlink`，再按需展開單檔。確認文件主張與實際方向是否一致。
-4. **產中介表示**：依 `references/intermediate-tables.md` 產四張表（節點、邊、群組、省略）。`種類`（一般／禁止）與 `驗證`（已驗證／文件主張）為必填欄位，是分析成果的載體；四表只寫語意與證據，不夾帶圖面決策。
-5. **呼叫 provider**：載入唯一 adapter，把四張表原樣交給 `diagram-design`。從選型、render profile、HTML/SVG 到視覺 QA 皆由 provider 流程完成；`map` 不自行繪製或修補圖面。provider 不可用時晚停（見同節）。
-6. **交付前檢查**：對照「硬約束」驗收語意保真與交付邊界，並說明圖中未包含的範圍。視覺檢查須在 provider 階段完成；發現圖面問題時重新進入 provider 流程修正，不用 `map` 自建規則直接改圖。
+4. **產中介表示**：依 `references/intermediate-tables.md` 產四張表（節點、邊、群組、省略）。`種類`（一般／禁止）與 `驗證`（已驗證／文件主張）為必填欄位，是分析成果的載體；四表只寫語意與證據，不夾帶圖面決策。節點超過 9 個時先畫頂層，展不開的區塊寫進省略表。
+5. **呼叫 provider**：載入唯一 adapter，把四張表原樣交給 `diagram-design`（外派範圍、責任邊界與 provider 不可用時的處置見「繪圖 provider」）。
+6. **交付前檢查**：對照「硬約束」驗收語意保真與交付邊界，並說明圖中未包含的範圍。視覺檢查已在 provider 階段完成，這步只驗語意；發現圖面問題時退回第 5 步重跑 provider 流程。
 
 ## 兩種標準產出（使用者拍板 2026-08-11）
 
@@ -28,11 +28,11 @@ description: 用於「給我架構圖」「畫一下架構」「這專案怎麼�
 
 ## 繪圖 provider
 
-第 5 步整段外派（含圖型選型、render profile、產生 HTML/SVG、視覺呈現與 QA），`map` 不自帶圖面規則。唯一 provider：
+第 5 步整段外派——圖型選型、render profile、產生 HTML/SVG、視覺呈現與 QA 全歸 provider。唯一 provider：
 
 - `diagram-design` — adapter：`references/providers/diagram-design.md`
 
-**責任邊界**：`map` 擁有範圍、證據與四表；adapter 擁有固定交接 profile 與 `map` 語意的視覺映射；`diagram-design` 擁有模板、畫布、尺寸、座標、排版、CSS、SVG 與視覺 QA。呼叫端不得預先指定圖面幾何，也不得脫離 provider 規格直接修補 HTML/SVG。
+**責任邊界**：`map` 擁有範圍、證據與四表；adapter 擁有固定交接 profile 與 `map` 語意的視覺映射；`diagram-design` 擁有模板、畫布、尺寸、座標、排版、CSS、SVG 與視覺 QA。`map` 不自帶圖面規則：不預先指定圖面幾何，也不脫離 provider 規格直接修補 HTML/SVG。
 
 **無 provider 時晚停**：第 1–4 步照跑，把四張表輸出到終端，提示安裝 `diagram-design` 後停止。**不保留其他 provider 或內建產圖 fallback**——不手寫 SVG、不畫終端字元圖。
 
@@ -40,7 +40,7 @@ description: 用於「給我架構圖」「畫一下架構」「這專案怎麼�
 
 - 不上傳到網路空間：不呼叫 `Artifact` 工具、不發佈到任何外部服務。判準只有「不上傳」——Google Fonts CDN、provider 自帶的行內 JS 皆可接受，不要求離線可開或零 runtime dependency。
 - 完整 HTML 單檔：`<!doctype html>`、`<html lang="zh-Hant">`、`<head>` 含 UTF-8 與 viewport，可獨立開啟；只寫內容片段、指望外層平台包 `<head>`，用瀏覽器直接開會中文亂碼。
-- 固定深色主題：只產深色版、單檔，不產 light 版、不做主題切換。
+- 固定深色主題：只產深色版、單檔，不產 light 版、不做 `prefers-color-scheme`／`data-theme` 主題切換。
 - 每條箭頭標明關係，例如 `require`、`DI 注入`、`呼叫`、`寫入`、`symlink`。
 - `種類=禁止` 的邊必須可見：以線型與符號明確呈現，不得靜默丟棄（降級規則見 adapter）。
 - `驗證` 欄不得丟失：`文件主張` 須在圖上明確標示，不當成已驗證事實。
@@ -48,7 +48,7 @@ description: 用於「給我架構圖」「畫一下架構」「這專案怎麼�
 
 ## 產出成頁面
 
-本節同樣適用於報告、圖表、分析結果等其他要寫成本地檔的產物。這是跨工具 skill，不假設 Claude Code 或 Artifact viewer 存在；圖面規範由 `diagram-design` 承載（見「繪圖 provider」），provider 不可用時依晚停規則輸出表格後停止，不自行產圖。
+本節同樣適用於報告、圖表、分析結果等其他要寫成本地檔的產物。這是跨工具 skill，不假設 Claude Code 或 Artifact viewer 存在；圖面規範與 provider 不可用時的處置見「繪圖 provider」。
 
 **落點**：判準是會不會進版控。一次性、看完就丟的一律寫 scratchpad，不落進專案；只有使用者明說要留進 git 的，才寫進當前專案的 `docs/architecture/`（沒有就建），並說明放在哪。不要自己判斷值得保留就寫進專案。`docs/architecture/` 內容進版控、可 commit，不加進 `.gitignore`。**收的是描述專案現況的文件**——架構圖與配套文字，給人讀懂這專案怎麼組起來、怎麼跑；判準是內容性質，不是誰產出的，同類文件不論人寫或 AI 產都放這裡，不另開一份。動工前的設計提案／RFC 不屬於此（那是計畫、不是現況），要留另開 `docs/design/`。`artifacts/` 與 `docs/ai/` 是**舊落點**：新產出一律不寫進去；專案裡既有的這兩個資料夾若存放先前產出的 AI 頁面，一律搬到 `docs/architecture/`（有版控用 `git mv` 保留歷史）並告知使用者，不必再問。CI 產物、建置輸出等專案自身用途的同名資料夾不算，不動也不搬。
 
