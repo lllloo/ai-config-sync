@@ -15,7 +15,7 @@ description: 用於「給我架構圖」「畫一下架構」「這專案怎麼�
 2. **快速偵察**：讀相關的 `AGENTS.md`、`CLAUDE.md`、`README.md`，把其中的分層、資料邊界與禁止事項當骨架；再快掃 `import`、`require`、呼叫、讀寫與 `symlink` 補上實際關係。只展開必要檔案，不逐邊查證。
 3. **產中介表示**：依 `references/intermediate-tables.md` 產四張表（節點、邊、群組、省略）；`種類` 為必填。四表只寫語意、不夾帶圖面決策。節點超過 9 個時先畫頂層，展不開的區塊寫進省略表。
 4. **呼叫 provider**：載入唯一 adapter，把四張表原樣交給 `diagram-design`（外派範圍、責任邊界與 provider 不可用時的處置見「繪圖 provider」）。
-5. **交付前檢查**：對照「硬約束」驗收語意保真與交付邊界，並說明圖中未包含的範圍。視覺檢查已在 provider 階段完成，這步只驗語意；發現圖面問題時退回第 4 步重跑 provider 流程。
+5. **交付**：對照「硬約束」驗收語意保真與交付邊界，並說明圖中未包含的範圍。**不做繪後目視檢查**（不開瀏覽器截圖驗圖）——圖面品質由使用者目視回饋，收到反饋再退回第 4 步依 provider 規則修正重交。
 
 ## 兩種標準產出
 
@@ -27,11 +27,11 @@ description: 用於「給我架構圖」「畫一下架構」「這專案怎麼�
 
 ## 繪圖 provider
 
-第 4 步整段外派——圖型選型、render profile、產生 HTML/SVG、視覺呈現與 QA 全歸 provider。唯一 provider：
+第 4 步整段外派——圖型選型、render profile、產生 HTML/SVG 與視覺呈現全歸 provider。唯一 provider：
 
 - `diagram-design` — adapter：`references/providers/diagram-design.md`
 
-**責任邊界**：`map` 擁有範圍、證據與四表；adapter 擁有固定交接 profile 與 `map` 語意的視覺映射；`diagram-design` 擁有模板、畫布、尺寸、座標、排版、CSS、SVG 與視覺 QA。`map` 不自帶圖面規則：不預先指定圖面幾何，也不脫離 provider 規格直接修補 HTML/SVG。
+**責任邊界**：`map` 擁有範圍、證據與四表；adapter 擁有固定交接 profile 與 `map` 語意的視覺映射；`diagram-design` 擁有模板、畫布、尺寸、座標、排版、CSS 與 SVG。`map` 不自帶圖面規則：不預先指定圖面幾何，也不脫離 provider 規格直接修補 HTML/SVG。
 
 **無 provider 時晚停**：第 1–3 步照跑，把四張表輸出到終端，提示安裝 `diagram-design` 後停止。**不保留其他 provider 或內建產圖 fallback**——不手寫 SVG、不畫終端字元圖。
 
