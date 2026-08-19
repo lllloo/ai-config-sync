@@ -57,7 +57,7 @@ test('map skill：快圖定調——不設驗證欄、不逐邊查證', () => {
 test('map skill：adapter 固定預設 render profile', () => {
   const adapter = readMapFile('references', 'providers', 'diagram-design.md');
 
-  for (const expected of ['html', 'slide-16x9', 'balanced', 'engineer', 'template-dark.html', 'none']) {
+  for (const expected of ['html', '1200', 'presentation', 'balanced', 'engineer', 'template-dark.html', 'none']) {
     const pattern = expected.replace('.', '\\.');
     assert.match(adapter, new RegExp(`\\b${pattern}\\b`));
   }

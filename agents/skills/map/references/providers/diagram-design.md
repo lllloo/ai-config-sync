@@ -9,7 +9,7 @@
 | Dial | 預設值 | 理由 |
 |---|---|---|
 | format | `html` | `map` 的交付格式 |
-| size | `slide-16x9`（viewBox `0 0 1280 720`、presentation 字級） | 固定畫布比例避免各 harness 自選；ramp 取捨見下方 |
+| size | 固定寬 1200、高度依內容推導（沿用 `fit` 的推導規則：內容 bounding box 進位到 4 的倍數＋四周 40px 邊距＋底部 60px legend 帶），字級用 presentation ramp（16px 節點名／12px 副標與箭頭標籤／盒高 64） | 寬 1200 在一般視窗近 1:1；縱向流程不被固定高截斷；ramp 取捨見下方 |
 | detail | `balanced`（仍守非 import 的 ≤9 節點預算） | 保留主線所需技術內容，不套用 import 的擴張額度 |
 | audience | `engineer` | 保留 verified edge label 與技術名稱 |
 | template | `template-dark.html` | 固定同一頁面骨架，不自行發明 shell |
@@ -18,7 +18,9 @@
 
 主流程方向與其餘佈局決策由 `diagram-design` 依所選 type reference 自行決定；繪圖前宣告即可，caller 不指定。
 
-**`size` 不得改回 `doc-wide` 或 `fit`**（兩者綁 standard ramp，其 sublabel 9px／箭頭標籤 8px 低於上游自己標的 CJK 可讀下限 10px）。preset 選的是 typography 取向，不是實際觀看情境——「產出不是投影片」不構成改回的理由。
+**本 profile 借用 `fit` 的高度推導，但不得連帶採用其 standard ramp**（`fit`／`doc-wide` 綁的 sublabel 9px／箭頭標籤 8px 低於上游自己標的 CJK 可讀下限 10px），字級一律維持 presentation ramp。preset 選的是 typography 取向，不是實際觀看情境。
+
+**1:1 渲染**：頁面 CSS 把 `svg` 顯示寬寫死為 1200px（不用 `width:100%`），外層容器 `overflow-x: auto`——字級數字即螢幕實際大小，不隨視窗寬度縮放；視窗較窄時橫向捲動、不縮圖。
 
 ## 交付步驟
 
