@@ -24,7 +24,7 @@
 
 1. 以 harness 可用的方式載入 `diagram-design`（Claude Code 可直接呼叫該 skill；其他工具讀取其安裝目錄下的檔案）。只認名字、不限定安裝路徑，但**載入成功以實際讀到檔案為判準**：本步須讀到其 `SKILL.md`，後續第 3 步的 type reference 與 output spec、第 5 步的 template 亦同（皆指 `diagram-design` 安裝目錄內的 `references/type-*.md`、`references/output-spec.md` 與 `assets/template-dark.html`，非 `map` 的 references）——任一讀不到即視為載入失敗，走 `map` 的晚停規則，不憑記憶、本檔摘要或風格印象湊合作畫。找不到安裝位置時先問使用者要路徑，再決定繼續或晚停。
 2. 依其 **§3（Selection: semantic pattern, then visual type）** 選型：模組邊界圖多為 Architecture 型，狀態機用 State 型，循序圖用 Sequence 型。
-3. 在繪圖前宣告 visual type、固定 render profile、主流程方向與因複雜度預算將省略的內容；再載入選型對應的 `references/type-*.md`（如 `type-architecture.md`）與 `references/output-spec.md`。**後者不可略過**——本檔 profile 的 `size`／`detail`／`audience` 定義都在該檔（§2–§4），而上游只從 import 路徑指向它。
+3. 載入選型對應的 `references/type-*.md`（如 `type-architecture.md`）與 `references/output-spec.md`——**後者不可略過**：本檔 profile 的 `size`／`detail`／`audience` 定義都在該檔（§2–§4），而上游只從 import 路徑指向它；載入後、繪圖前，宣告 visual type、固定 render profile、主流程方向與因複雜度預算將省略的內容。
 4. 把中介表示四張表（見 `../intermediate-tables.md`）原樣交給 provider；不得先翻譯成座標、方格角色或自製 page shell。
 5. 以 `template-dark.html` 為頁面基底，依 provider 規則產生 HTML/SVG 並完成 taste gate（繪圖前的自我檢核清單，不含開瀏覽器驗圖），完成即交回 `map` 第 5 步。
 
