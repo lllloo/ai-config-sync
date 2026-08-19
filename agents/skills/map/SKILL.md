@@ -14,7 +14,7 @@ description: 用於「給我架構圖」「畫一下架構」「這專案怎麼�
 1. **定義範圍**：無參數或要「大綱」→ 大綱頁；參數是業務功能名（如「核決」「請款」）→ 主題頁（兩者見「兩種標準產出」）；參數是路徑或技術子系統 → 聚焦該範圍的自由分析。不確定屬哪種就出選擇題：列出候選型態、各附一句預期產出，讓使用者挑，不問開放式問題。接著固定一句要回答的讀者問題，後續四表與 provider 不得自行改換視角。
 2. **快速偵察**：讀相關的 `AGENTS.md`、`CLAUDE.md`、`README.md`，把其中的分層、資料邊界與禁止事項當骨架；再快掃 `import`、`require`、呼叫、讀寫與 `symlink` 補上實際關係。只展開必要檔案，不逐邊查證。
 3. **產中介表示**：依 `references/intermediate-tables.md` 產四張表（節點、邊、群組、省略）；邊表的 `種類` 為必填。四表只寫語意、不夾帶圖面決策。節點超過 9 個時先畫頂層，展不開的區塊寫進省略表。
-4. **呼叫 provider**：載入唯一 adapter，把四張表原樣交給 `diagram-design`（外派範圍、責任邊界與 provider 不可用時的處置見「繪圖 provider」）。
+4. **呼叫 provider**：載入唯一 adapter。單圖頁把四張表原樣交給 `diagram-design` 產完整 HTML；多圖頁**逐張交接**——每張圖各一套四表、各一次 provider 呼叫，取回 SVG 後由 `map` 組頁（見「多圖組頁」）。外派範圍、責任邊界與 provider 不可用時的處置見「繪圖 provider」。
 5. **交付**：對照「硬約束」驗收語意保真與交付邊界，並說明圖中未包含的範圍。**不做繪後目視檢查**（不開瀏覽器截圖驗圖）——圖面品質由使用者目視回饋，收到反饋再退回第 4 步依 provider 規則修正重交。
 
 ## 兩種標準產出
@@ -31,9 +31,18 @@ description: 用於「給我架構圖」「畫一下架構」「這專案怎麼�
 
 - `diagram-design` — adapter：`references/providers/diagram-design.md`
 
-**責任邊界**：`map` 擁有範圍、證據與四表；adapter 擁有固定交接 profile 與 `map` 語意的視覺映射；`diagram-design` 擁有模板、畫布、尺寸、座標、排版、CSS 與 SVG。`map` 不自帶圖面規則：不預先指定圖面幾何，也不脫離 provider 規格直接修補 HTML/SVG。
+**責任邊界**：`map` 擁有範圍、證據與四表；adapter 擁有固定交接 profile 與 `map` 語意的視覺映射；`diagram-design` 擁有模板、畫布、尺寸、座標、排版、CSS 與 SVG。頁面骨架分兩軌：單圖頁歸 provider（`template-dark.html`）；多圖頁歸 `map`（見「多圖組頁」），但每張圖的 SVG 內部仍全歸 provider。`map` 不自帶圖面規則：不預先指定圖面幾何，也不脫離 provider 規格直接修補 SVG 內容。
 
 **無 provider 時晚停**：第 1–3 步照跑，把四張表輸出到終端，提示安裝 `diagram-design` 後停止。**不保留其他 provider 或內建產圖 fallback**——不手寫 SVG、不畫終端字元圖。
+
+## 多圖組頁
+
+大綱頁與主題頁適用；單圖頁照「繪圖 provider」原流程由 provider 全包 HTML。多圖頁每張圖各一套四表、各一次 provider 呼叫，取回 SVG（抽取規則見 adapter 的「SVG 交接模式」）後由 `map` 組頁：
+
+- **骨架**：深色單檔 HTML，「硬約束」全部條款照驗。頁面樣式不自創：沿用當次 provider 產出頁的 design tokens 與基礎樣式（自其 `<style>` 抽取），`map` 只加頁標題、區塊組織與排版層；字型 `<link>` 由頁面統一掛一份。
+- **排版**：預設縱向長頁、每張圖一個區塊（標題＋SVG＋一行圖說）；使用者明說要「分頁」時改為每圖一個 panel、行內 JS 切換（無外部相依）。
+- **圖面尺寸**：沿用 adapter 的「1:1 渲染」條——SVG 顯示寬寫死、外層 `overflow-x: auto`，不隨視窗縮放。
+- **跨圖同色**（主題頁）：逐張產出；`map` 從已產 SVG 抽出對應元素色票附給下一張呼叫，要求 provider 對同一語意實體沿用同色。
 
 ## 硬約束（第 5 步逐條驗收）
 

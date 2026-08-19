@@ -1,6 +1,6 @@
 # Provider adapter：diagram-design
 
-`map` 第 4 步的唯一 provider。這是 prompt-level 呼叫：即使檔案最終由同一個 agent 寫出，該 agent 此時是 `diagram-design` 的執行者，不是另一個可自由設計 HTML 的 caller。本檔只定義交接 profile 與 `map` 語意覆寫；所有圖面決策仍以 provider 規範為準。
+`map` 第 4 步的唯一 provider。這是 prompt-level 呼叫：即使檔案最終由同一個 agent 寫出，該 agent 此時是 `diagram-design` 的執行者，不是另一個可自由設計 HTML 的 caller。本檔只定義交接 profile 與 `map` 語意覆寫；所有圖面決策仍以 provider 規範為準。多圖頁另有「SVG 交接模式」：provider 職權止於每張圖的 SVG，頁面骨架由 `map` 的「多圖組頁」承載。
 
 ## 固定 render profile
 
@@ -31,6 +31,15 @@
 5. 以 `template-dark.html` 為頁面基底，依 provider 規則產生 HTML/SVG 並完成 taste gate（繪圖前的自我檢核清單，不含開瀏覽器驗圖），完成即交回 `map` 第 5 步。
 
 **不做繪後目視檢查**：產出直接交付，圖面品質由使用者目視回饋。使用者反饋圖面問題時，重新載入 `diagram-design` 與所選 type reference 依其規則修正，不得由 caller 直接 patch。
+
+## SVG 交接模式（多圖頁）
+
+大綱頁與主題頁（多張圖同頁）適用；單圖頁不用本節，照上方交付步驟全包 HTML。
+
+- 每張圖仍走完整交付步驟 1–5 產出 HTML，隨後抽取其中**第一個 `<svg>` 區塊**原樣交回 `map` inline 組頁。SVG 須自包含：樣式全 inline、不依賴頁面 CSS class（上游 template 本即如此，交接時驗一次）。
+- **不走上游 export 的 standalone 程序**：不注入 Google Fonts `@import`、不加 `<?xml ?>` 宣告——字型由 `map` 組頁統一掛 `<link>`（序沿用下方「繁體中文字型」）。保留 `viewBox`、`role="img"`、`aria-labelledby` 與 `<title>`／`<desc>`；per-diagram prefixed ID 使多張 SVG 同頁不互撞（上游 export 規格明文支援 inline 同頁）。
+- 頁面骨架由 `map` 的「多圖組頁」承載，樣式自本模式第一張圖的產出頁 `<style>` 抽取沿用；「1:1 渲染」條對組頁後的頁面 CSS 同樣生效。
+- **跨圖同色**（主題頁）：後續每張圖的呼叫附上前圖對應元素的色票（`map` 自前圖 SVG 抽取），provider 對同一語意實體沿用同色——這是轉述 provider 先前的用色，不是 caller 自創圖面決策。
 
 ## 繁體中文字型
 

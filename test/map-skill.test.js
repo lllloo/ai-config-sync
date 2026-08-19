@@ -29,7 +29,9 @@ test('map skill：四表只承載語意，圖面決策由 diagram-design 獨占'
   assert.match(tables, /不得包含[^\n]*(?:座標|viewBox)[^\n]*(?:尺寸|字型|配色|模板)/);
   // 責任邊界的正典在 SKILL.md「繪圖 provider」節；adapter 不重述，只鎖 caller 不得繞過 provider 動圖面
   assert.match(skill, /`diagram-design`[^\n]*(?:擁有|獨占)[^\n]*(?:座標|尺寸)/);
-  assert.match(skill, /不[^\n]*(?:修補|改寫)[^\n]*HTML\/SVG/);
+  // 多圖頁骨架歸 map（多圖組頁），但每張圖的 SVG 內部仍不得由 caller 修補
+  assert.match(skill, /不[^\n]*(?:修補|改寫)[^\n]*SVG 內容/);
+  assert.match(skill, /SVG 內部[^\n]*歸 provider/);
   assert.match(adapter, /不得[^\n]*(?:先翻譯成座標|caller 直接 patch)/);
 });
 
