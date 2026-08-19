@@ -41,6 +41,19 @@ test('map skill：provider 載入成功以實際讀到檔案為判準', () => {
   assert.match(adapter, /任一讀不到[^\n]*載入失敗[^\n]*晚停/);
 });
 
+test('map skill：快圖定調——不設驗證欄、不逐邊查證', () => {
+  const tables = readMapFile('references', 'intermediate-tables.md');
+  const skill = readMapFile('SKILL.md');
+  const adapter = readMapFile('references', 'providers', 'diagram-design.md');
+
+  assert.match(skill, /不逐邊查證/);
+  assert.match(tables, /不得反推/);
+  // 驗證欄整套（已驗證／文件主張）已移除，不得復活
+  assert.doesNotMatch(skill, /文件主張/);
+  assert.doesNotMatch(tables, /文件主張|已驗證/);
+  assert.doesNotMatch(adapter, /文件主張/);
+});
+
 test('map skill：adapter 固定預設 render profile', () => {
   const adapter = readMapFile('references', 'providers', 'diagram-design.md');
 

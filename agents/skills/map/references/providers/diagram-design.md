@@ -1,6 +1,6 @@
 # Provider adapter：diagram-design
 
-`map` 第 5 步的唯一 provider。這是 prompt-level 呼叫：即使檔案最終由同一個 agent 寫出，該 agent 此時是 `diagram-design` 的執行者，不是另一個可自由設計 HTML 的 caller。本檔只定義交接 profile 與 `map` 語意覆寫；所有圖面決策仍以 provider 規範為準。
+`map` 第 4 步的唯一 provider。這是 prompt-level 呼叫：即使檔案最終由同一個 agent 寫出，該 agent 此時是 `diagram-design` 的執行者，不是另一個可自由設計 HTML 的 caller。本檔只定義交接 profile 與 `map` 語意覆寫；所有圖面決策仍以 provider 規範為準。
 
 ## 固定 render profile
 
@@ -27,7 +27,7 @@
 3. 在繪圖前宣告 visual type、固定 render profile、主流程方向與因複雜度預算將省略的內容；再載入選型對應的 `references/type-*.md`（如 `type-architecture.md`）與 `references/output-spec.md`。**後者不可略過**——本檔 profile 的 `size`／`detail`／`audience` 定義都在該檔（§2–§4），而上游只從 import 路徑指向它。
 4. 把中介表示四張表（見 `../intermediate-tables.md`）原樣交給 provider；不得先翻譯成座標、方格角色或自製 page shell。
 5. 以 `template-dark.html` 為頁面基底，依 provider 規則產生 HTML/SVG 並完成 taste gate。
-6. 在 provider 階段以瀏覽器目視驗證文字、碰撞、裁切、連線與 responsive 縮放；通過後才交回 `map` 第 6 步做語意驗收。**不得以「跑過自動檢查」代替這步**——自動檢查抓不到標籤碰撞與連線交疊。
+6. 在 provider 階段以瀏覽器目視驗證文字、碰撞、裁切、連線與 responsive 縮放；通過後才交回 `map` 第 5 步做語意驗收。**不得以「跑過自動檢查」代替這步**——自動檢查抓不到標籤碰撞與連線交疊。
 
 圖面不合格時，重新載入 `diagram-design` 與所選 type reference 依其規則修正，不得由 caller 直接 patch。
 
@@ -46,9 +46,8 @@ mono（sublabel、箭頭標籤、eyebrow、legend）：'Geist Mono', 'Noto Sans 
 
 **二、一律不使用 serif**，含頁面標題與 annotation callout。此條**覆寫上游的「Page title in Instrument Serif」**（其 SKILL.md §5 與 §9 taste gate 皆要求 serif 標題），**taste gate 不得據此改回**。
 
-## 約束與驗證狀態的降級規則
+## 禁止邊的降級規則
 
-中介表示的 `種類`／`驗證` 兩欄不得在翻譯中丟失，第 6 步驗收：
+中介表示的 `種類` 欄不得在翻譯中丟失，第 5 步驗收：
 
 - **`種類=禁止`**：短虛線＋停止符號（如 `⊥`）＋路徑終止於邊界。用普通 Architecture 型即可，不必用 `Secure paved road` 語意模式（其自帶 ≤2 forbidden paths 預算；普通型只受總箭頭預算 12 限制）。禁止邊用 ink 色＋符號呈現，不佔 coral（coral 留給 focal 節點）。
-- **`驗證=文件主張`**：細虛線節點框／邊＋sublabel＋legend 三件套，不需要上游原生支援。
