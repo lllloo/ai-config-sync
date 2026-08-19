@@ -39,11 +39,10 @@
 
 git 檢視：
 
-- 改了哪些檔：`git diff --stat` / `--name-only`，**不**裸跑 `git diff`
+- 改了哪些檔：`git diff --stat` / `--name-only`，**不**裸跑 `git diff`；鎖定後才 `git diff -- <單檔>` 展開
 - 提交歷史：`git log --oneline -20`，**不**裸跑 `git log`
 - 目前狀態：`git status --short`；某次提交：`git show --stat <sha>`
 - 任何仍可能很長的輸出：尾接 `| head -50`
-- 分兩步：先看 stat/name 層鎖定目標檔，再 `git diff -- <單檔>` 展開內容
 
 ## 打包規則
 
@@ -56,13 +55,7 @@ git 檢視：
 
 ## Commands vs Skills
 
-**一律使用 skill**，不再新增 command。
-
-Skills 是 commands 的超集，同時遵循 [Agent Skills](https://agentskills.io) 開放標準——可直接移植到 Cursor、Gemini CLI、Codex、GitHub Copilot 等其他 AI 工具。
-
-## README.md 規範
-
-所有軟體專案**必須撰寫 `README.md`**，最低需包含：專案說明、安裝方式、常用指令。
+**一律使用 skill**，不再新增 command——skill 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具移植。
 
 ## Superpowers 啟動
 
