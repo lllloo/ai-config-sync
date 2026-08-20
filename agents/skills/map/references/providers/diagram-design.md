@@ -10,7 +10,7 @@
 |---|---|---|
 | format | `html` | `map` 的交付格式 |
 | size | 固定寬 1200、高度依內容推導（沿用 `fit` 的推導規則：內容 bounding box 進位到 4 的倍數＋四周 40px 邊距＋底部 60px legend 帶），字級用 presentation ramp（16px 節點名／12px 副標與箭頭標籤／盒高 64） | 寬 1200 在一般視窗近 1:1；縱向流程不被固定高截斷；ramp 取捨見下方 |
-| detail | `balanced`（仍守非 import 的 ≤9 節點預算） | 保留主線所需技術內容，不套用 import 的擴張額度 |
+| detail | `faithful` 優先；四表節點 ≤9 時降為 `balanced` | 詳細度以四表節點數決定、不憑現場感覺，跨次可重現；≤9 時 faithful 無可放寬之處，降級省掉分區成本 |
 | audience | `engineer` | 保留 verified edge label 與技術名稱 |
 | template | `template-dark.html` | 固定同一頁面骨架，不自行發明 shell |
 | skin | provider 預設 dark | 此固定 profile 視同已明確選用預設 skin，不另啟動品牌 onboarding |

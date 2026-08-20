@@ -56,10 +56,21 @@ test('map skill：快圖定調——不設驗證欄、不逐邊查證', () => {
   assert.doesNotMatch(adapter, /文件主張/);
 });
 
+test('map skill：detail 依四表節點數決定，第 3 步不預先壓到 9', () => {
+  const adapter = readMapFile('references', 'providers', 'diagram-design.md');
+  const skill = readMapFile('SKILL.md');
+
+  // faithful 優先、≤9 降 balanced：判準是節點數，不是執行者現場感覺
+  assert.match(adapter, /`faithful`[^\n]*≤9[^\n]*`balanced`/);
+  // 第 3 步若把四表壓回 9，adapter 的 faithful 永遠沒有素材，會變死條文
+  assert.match(skill, /不預先壓到 9/);
+  assert.doesNotMatch(skill, /節點超過 9 個時先畫頂層/);
+});
+
 test('map skill：adapter 固定預設 render profile', () => {
   const adapter = readMapFile('references', 'providers', 'diagram-design.md');
 
-  for (const expected of ['html', '1200', 'presentation', 'balanced', 'engineer', 'template-dark.html', 'none']) {
+  for (const expected of ['html', '1200', 'presentation', 'faithful', 'balanced', 'engineer', 'template-dark.html', 'none']) {
     const pattern = expected.replace('.', '\\.');
     assert.match(adapter, new RegExp(`\\b${pattern}\\b`));
   }
