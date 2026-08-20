@@ -38,5 +38,6 @@
     }
   },
   "language": "繁體中文",
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "remoteControlAtStartup": false
 }
