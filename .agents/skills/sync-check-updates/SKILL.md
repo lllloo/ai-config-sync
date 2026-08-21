@@ -13,7 +13,7 @@ description: 比對本機已安裝的 skills（skills-lock.json）與各自上�
 |---|---|---|
 | skills | `skills-lock.json` 各項 `source` | 各自上游 repo |
 
-`claude/skills/pen-design/`、`claude/commands/*.md`、`claude/CLAUDE.md`、`claude/settings.json` 為自維護內容，**不檢查**。
+`agents/skills/map/`、`claude/CLAUDE.md`、`claude/settings.json` 為自維護內容，**不檢查**。
 
 ## 步驟
 
