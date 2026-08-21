@@ -11,7 +11,8 @@
     },
     "skill-creator": {
       "source": "anthropics/skills",
-      "sourceType": "github"
+      "sourceType": "github",
+      "agents": "claude-code"
     }
   }
 }

@@ -19,7 +19,7 @@ const { test } = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { createSkillsHandler, computeSkillsDiff, sanitizeForTerminal } = require('../skills.js');
+const { createSkillsHandler, computeSkillsDiff, sanitizeForTerminal, buildInstallCommand } = require('../skills.js');
 const { SyncError, ERR, readJson, EXIT_OK, EXIT_DIFF } = require('../sync.js');
 const { withTmpFile, withTmpDir } = require('./helpers.js');
 
@@ -339,4 +339,114 @@ test('runSkillsRemove：已登記的 skill 正常移除', () => {
   );
   assert.match(out, /已移除 foo/, `實際輸出：\n${out}`);
   assert.deepEqual(Object.keys(written.skills), ['bar']);
+});
+
+// --- agents 欄位（安裝目標工具）-----------------------------------------------
+// lock 的 agents 記的是「這台要裝給誰」的安裝意圖，不是「這支支援誰」：Agent Skills
+// 為開放標準、幾乎都跨工具通用，真正需要記的是刻意的排除（如 skill-creator 不進
+// ~/.agents/skills 以免與 Codex 自帶版本相撞）。省略即代表預設裝法（兩者皆裝）。
+
+test('buildInstallCommand：無 agents 時不帶 --agent（預設裝法）', () => {
+  assert.equal(
+    buildInstallCommand('foo', { source: 'org/repo' }),
+    'npx skills add org/repo -g -y --skill foo',
+  );
+});
+
+test('buildInstallCommand：有 agents 時接上 --agent', () => {
+  assert.equal(
+    buildInstallCommand('foo', { source: 'org/repo', agents: 'claude-code' }),
+    'npx skills add org/repo -g -y --skill foo --agent claude-code',
+  );
+});
+
+test('buildInstallCommand：缺 source 以 <source> 佔位，agents 仍生效', () => {
+  assert.equal(
+    buildInstallCommand('foo', { agents: 'codex' }),
+    'npx skills add <source> -g -y --skill foo --agent codex',
+  );
+});
+
+test('buildInstallCommand：agents 值經 sanitizeForTerminal 清洗', () => {
+  const cmd = buildInstallCommand('foo', { source: 'org/repo', agents: 'claude-code\x1b[31m' });
+  assert.doesNotMatch(cmd, /\x1b/, `agents 須清洗，實際：${cmd}`);
+});
+
+test('validateSkillAgents：白名單值通過，含多值逗號分隔', () => {
+  const h = makeHandler();
+  assert.doesNotThrow(() => h.validateSkillAgents('claude-code'));
+  assert.doesNotThrow(() => h.validateSkillAgents('codex'));
+  assert.doesNotThrow(() => h.validateSkillAgents('claude-code,codex'));
+});
+
+test('validateSkillAgents：白名單外的值拋 INVALID_ARGS', () => {
+  const h = makeHandler();
+  for (const bad of ['gemini-cli', '', 'claude-code,', 'claude code', 'claude-code\x1b[31m']) {
+    assert.throws(
+      () => h.validateSkillAgents(bad),
+      e => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
+      `${JSON.stringify(bad)} 應被拒絕`,
+    );
+  }
+});
+
+test('extractAgentOption：--agent <值> 由 extraArgs 抽出，其餘引數順序不變', () => {
+  const h = makeHandler();
+  const r = h.extractAgentOption(['foo', 'org/repo', '--agent', 'claude-code']);
+  assert.equal(r.agents, 'claude-code');
+  assert.deepEqual(r.rest, ['foo', 'org/repo']);
+});
+
+test('extractAgentOption：支援 --agent=<值> 形式', () => {
+  const h = makeHandler();
+  const r = h.extractAgentOption(['--agent=codex', 'foo', 'org/repo']);
+  assert.equal(r.agents, 'codex');
+  assert.deepEqual(r.rest, ['foo', 'org/repo']);
+});
+
+test('extractAgentOption：無旗標時 agents 為 null、rest 原樣', () => {
+  const h = makeHandler();
+  const r = h.extractAgentOption(['foo', 'org/repo']);
+  assert.equal(r.agents, null);
+  assert.deepEqual(r.rest, ['foo', 'org/repo']);
+});
+
+test('extractAgentOption：--agent 缺值拋 INVALID_ARGS', () => {
+  const h = makeHandler();
+  assert.throws(
+    () => h.extractAgentOption(['foo', 'org/repo', '--agent']),
+    e => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
+  );
+});
+
+test('extractAgentOption：非法 agent 值當場拒絕，不寫進 lock', () => {
+  const h = makeHandler();
+  assert.throws(
+    () => h.extractAgentOption(['foo', 'org/repo', '--agent', 'gemini-cli']),
+    e => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
+  );
+});
+
+test('runSkillsAdd：帶 --agent 時寫入 agents 欄位並反映在安裝指令', () => {
+  const { out, written } = runSkillsMutation(
+    'add',
+    { version: 1, skills: {} },
+    ['foo', 'org/repo', '--agent', 'claude-code'],
+  );
+  assert.deepEqual(written.skills.foo, { source: 'org/repo', sourceType: 'github', agents: 'claude-code' });
+  assert.match(out, /npx skills add org\/repo -g -y --skill foo --agent claude-code/, `實際輸出：\n${out}`);
+});
+
+test('runSkillsAdd：未帶 --agent 時 lock 不出現 agents 鍵', () => {
+  const { written } = runSkillsMutation('add', { version: 1, skills: {} }, ['foo', 'org/repo']);
+  assert.deepEqual(written.skills.foo, { source: 'org/repo', sourceType: 'github' });
+  assert.ok(!('agents' in written.skills.foo), 'agents 為 optional，未指定時不得寫入');
+});
+
+test('runSkillsDiff：repo lock 有 agents 時建議指令帶 --agent', () => {
+  const { lines } = captureSkillsDiff({
+    version: 1,
+    skills: { foo: { source: 'org/repo', agents: 'claude-code' } },
+  });
+  assert.match(lines.join('\n'), /npx skills add org\/repo -g -y --skill foo --agent claude-code/);
 });

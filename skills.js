@@ -60,6 +60,26 @@ function sanitizeForTerminal(s) {
   return String(s).replace(/[\x00-\x1f\x7f]/g, '');
 }
 
+/** 允許的安裝目標 agent：本 repo 同步的兩個工具，不做預防性列名 */
+const VALID_SKILL_AGENTS = ['claude-code', 'codex'];
+
+/**
+ * 組出 skill 的 npx 安裝指令（純函式）
+ * agents 省略時不帶 --agent，即 npx 預設裝法：實體落在 ~/.agents/skills/（Codex 原生
+ * 掃）並於 ~/.claude/skills/ 建 symlink，兩個工具都看得到。指定時原樣接上 --agent，
+ * 由 npx 決定落點（claude-code 落在 ~/.claude/skills/，Codex 掃不到）。
+ * 缺 source 時以 <source> 佔位：出現在狀態行的 skill 都要有下一步。
+ * @param {string} name
+ * @param {{source?: string, agents?: string}} [skill]
+ * @returns {string}
+ */
+function buildInstallCommand(name, skill) {
+  const source = skill && skill.source ? sanitizeForTerminal(skill.source) : '<source>';
+  const base = `npx skills add ${source} -g -y --skill ${sanitizeForTerminal(name)}`;
+  const agents = skill && skill.agents ? sanitizeForTerminal(skill.agents) : '';
+  return agents ? `${base} --agent ${agents}` : base;
+}
+
 /**
  * 建立 skills 指令 handler：以 dependency injection 接收 sync.js 的共用工具，
  * 內部函式閉包捕捉 deps，避免逐一穿參或反向 require。
@@ -83,6 +103,8 @@ function sanitizeForTerminal(s) {
  *   validateSkillName: (name: string) => void,
  *   validateSkillSource: (source: string) => void,
  *   parseSkillSource: (opts: object) => {name: string, source: string},
+ *   validateSkillAgents: (agents: string) => void,
+ *   extractAgentOption: (extraArgs: string[]) => {agents: string|null, rest: string[]},
  * }}
  */
 function createSkillsHandler(deps) {
@@ -141,11 +163,8 @@ function createSkillsHandler(deps) {
     if (onlyInRepo.length > 0) {
       console.log(col.bold('\n  -- 安裝缺少的 skills --'));
       for (const name of onlyInRepo) {
-        const skill = repoSkills[name];
-        // 缺 source 時仍印建議、以 <source> 佔位（同 onlyInLocal 分支）：出現在狀態行的
-        // skill 都要有下一步，否則使用者看得到差異卻無從行動。
-        const source = skill && skill.source ? sanitizeForTerminal(skill.source) : '<source>';
-        console.log(`    npx skills add ${source} -g -y --skill ${sanitizeForTerminal(name)}`);
+        // 清洗與 <source> 佔位由 buildInstallCommand 統一處理，與 skills:add 的輸出同源
+        console.log(`    ${buildInstallCommand(name, repoSkills[name])}`);
       }
     }
 
@@ -204,6 +223,52 @@ function createSkillsHandler(deps) {
   }
 
   /**
+   * 驗證 agents 值：逗號分隔的 agent 名，每項須在 VALID_SKILL_AGENTS 內
+   * 值會進 lock 並被組進建議指令，故以白名單比對而非字元黑名單——打錯的 agent 名
+   * 當場拒絕，不留到別台裝置還原時才炸。
+   * @param {string} agents
+   * @throws {SyncError}
+   */
+  function validateSkillAgents(agents) {
+    const parts = String(agents).split(',');
+    if (agents === '' || !parts.every(p => VALID_SKILL_AGENTS.includes(p))) {
+      throw new SyncError(
+        `agents 值非法（僅允許 ${VALID_SKILL_AGENTS.join('／')}，多值以逗號分隔）`,
+        ERR.INVALID_ARGS,
+        { agents: sanitizeForTerminal(agents) },
+      );
+    }
+  }
+
+  /**
+   * 從 extraArgs 抽出 --agent <值> / --agent=<值>，回傳值與其餘位置引數
+   * 刻意在此解析而非 parseArgs：`npm run skills:add -- ...` 的旗標一律落進 extraArgs，
+   * 兩種呼叫路徑（npm run 與直接 CLI）因此共用同一段解析。
+   * @param {string[]} extraArgs
+   * @returns {{agents: string|null, rest: string[]}}
+   * @throws {SyncError} 缺值或值非法時
+   */
+  function extractAgentOption(extraArgs) {
+    const rest = [];
+    let agents = null;
+    for (let i = 0; i < extraArgs.length; i++) {
+      const arg = extraArgs[i];
+      if (arg === '--agent') {
+        if (i + 1 >= extraArgs.length) {
+          throw new SyncError('--agent 缺少值', ERR.INVALID_ARGS);
+        }
+        agents = extraArgs[++i];
+      } else if (arg.startsWith('--agent=')) {
+        agents = arg.slice('--agent='.length);
+      } else {
+        rest.push(arg);
+      }
+    }
+    if (agents !== null) validateSkillAgents(agents);
+    return { agents, rest };
+  }
+
+  /**
    * 解析 skill 來源引數，回傳 name 與 source
    * @param {ParsedArgs} opts - CLI 引數
    * @returns {{name: string, source: string}}
@@ -251,7 +316,8 @@ function createSkillsHandler(deps) {
    * @returns {number} exit code
    */
   function runSkillsAdd(opts) {
-    const { name, source } = parseSkillSource(opts);
+    const { agents, rest } = extractAgentOption(opts.extraArgs);
+    const { name, source } = parseSkillSource({ ...opts, extraArgs: rest });
 
     const repoLockPath = path.join(REPO_ROOT, 'skills-lock.json');
     let lock;
@@ -271,13 +337,16 @@ function createSkillsHandler(deps) {
       return EXIT_OK;
     }
 
-    lock.skills[name] = { source, sourceType: 'github' };
+    // agents 為 optional：未指定時不寫該鍵，維持既有 lock 的形狀不變
+    const entry = { source, sourceType: 'github' };
+    if (agents) entry.agents = agents;
+    lock.skills[name] = entry;
     writeJsonSafe(repoLockPath, lock);
 
     console.log(col.bold(`\n  已加入 ${col.cyan(name)}`));
     console.log(col.dim(`  source: ${source}\n`));
     console.log(col.bold('  安裝指令：'));
-    console.log(`    npx skills add ${source} -g -y --skill ${name}\n`);
+    console.log(`    ${buildInstallCommand(name, entry)}\n`);
     return EXIT_OK;
   }
 
@@ -322,6 +391,7 @@ function createSkillsHandler(deps) {
     runSkillsDiff, runSkillsAdd, runSkillsRemove,
     // deps-bound helper：僅供 sync.js re-export 與單元測試，不由 runCommand 使用
     loadSkillsFromLock, validateSkillName, validateSkillSource, parseSkillSource,
+    validateSkillAgents, extractAgentOption,
   };
 }
 
@@ -329,4 +399,6 @@ module.exports = {
   createSkillsHandler,
   computeSkillsDiff,
   sanitizeForTerminal,
+  buildInstallCommand,
+  VALID_SKILL_AGENTS,
 };

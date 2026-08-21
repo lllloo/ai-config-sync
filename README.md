@@ -88,10 +88,21 @@ Skills 獨立管理，不隨設定自動同步：
 ```bash
 npm run skills:diff                     # 比較本機 vs repo skills，列出建議指令
 npm run skills:add -- <url>             # 記錄一個 skill（也可 <name> <source>）
+npm run skills:add -- <name> <source> --agent claude-code   # 指定安裝目標工具
 npm run skills:remove -- <name>         # 從 skills-lock.json 移除記錄
 ```
 
 `skills:diff` 對本機多裝的 skill 會同時列出 (A) `npm run skills:add`（加入 repo）與 (B) `npx skills remove`（從本機移除）兩種建議。
+
+**`agents` 欄位（optional）**：`skills-lock.json` 每個項目可帶 `agents`，記的是「這台要裝給哪個工具」的**安裝意圖**，不是「這支 skill 支援誰」——Agent Skills 為開放標準、幾乎都跨工具通用，真正需要記的是刻意的排除。值為逗號分隔的 agent 名，白名單為 `claude-code`／`codex`（`--agent` 旗標同時支援 `--agent <值>` 與 `--agent=<值>`）。`skills:diff` 的安裝建議會據此接上 `--agent`：
+
+| `agents` 值 | 安裝落點 | 誰看得到 |
+|---|---|---|
+| 省略（預設） | `~/.agents/skills/<name>` 實體 + `~/.claude/skills/<name>` symlink | Claude Code + Codex |
+| `claude-code` | `~/.claude/skills/<name>` 實體 | 只有 Claude Code |
+| `codex` | `~/.agents/skills/<name>` 實體，不建 symlink | 只有 Codex |
+
+目前唯一使用者是 `skill-creator`（標 `claude-code`）：Codex 自帶同名 skill，讓它掃到會相撞。增減白名單值須改 `skills.js` 的 `VALID_SKILL_AGENTS` 常數與本表。
 
 測試：
 
