@@ -8,6 +8,10 @@
     "defuddle": {
       "source": "kepano/obsidian-skills",
       "sourceType": "github"
+    },
+    "skill-creator": {
+      "source": "anthropics/skills",
+      "sourceType": "github"
     }
   }
 }

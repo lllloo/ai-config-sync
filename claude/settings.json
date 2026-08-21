@@ -20,7 +20,6 @@
   "enabledPlugins": {
     "codex@openai-codex": true,
     "superpowers@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true,
     "diagram-design@diagram-design": true
   },
   "extraKnownMarketplaces": {
