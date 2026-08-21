@@ -37,7 +37,8 @@
 大綱頁與主題頁（多張圖同頁）適用；單圖頁不用本節，照上方交付步驟全包 HTML。
 
 - 每張圖仍走完整交付步驟 1–5 產出 HTML，隨後抽取其中**第一個 `<svg>` 區塊**原樣交回 `map` inline 組頁。SVG 須自包含：樣式全 inline、不依賴頁面 CSS class（上游 template 本即如此，交接時驗一次）。
-- **不走上游 export 的 standalone 程序**：不注入 Google Fonts `@import`、不加 `<?xml ?>` 宣告——字型由 `map` 組頁統一掛 `<link>`（序沿用下方「繁體中文字型」）。保留 `viewBox`、`role="img"`、`aria-labelledby` 與 `<title>`／`<desc>`；per-diagram prefixed ID 使多張 SVG 同頁不互撞（上游 export 規格明文支援 inline 同頁）。
+- **不走上游 export 的 standalone 程序**：不注入 Google Fonts `@import`、不加 `<?xml ?>` 宣告——字型由 `map` 組頁統一掛 `<link>`（序沿用下方「繁體中文字型」）。保留 `viewBox`、`role="img"`、`aria-labelledby` 與 `<title>`／`<desc>`。
+- **ID 命名空間化**：上游只對 `<title>`／`<desc>` 加 per-diagram 前綴，`<defs>` 內的 `arrow`／`arrow-accent`／`arrow-link`／`dots` 都是固定字面 id。多張 SVG inline 同頁時這些 id 重複，所有 `url(#…)` 一律解析到第一張的定義——marker 或 dot pattern 一有色差，後幾張就靜默吃到第一張的顏色，而本流程不做繪後目視檢查、抓不到。組頁前對每張 SVG 的 defs id 與其 `url(#…)` 引用一律加 `<圖 slug>-` 前綴。此為同頁 inline 的機械改寫、不含圖面決策，是 `map` 責任邊界「不直接修補 SVG 內容」的唯一例外。
 - 頁面骨架由 `map` 的「多圖組頁」承載，樣式自本模式第一張圖的產出頁 `<style>` 抽取沿用；「1:1 渲染」條對組頁後的頁面 CSS 同樣生效。
 - **跨圖同色**（主題頁）：後續每張圖的呼叫附上前圖對應元素的色票（`map` 自前圖 SVG 抽取），provider 對同一語意實體沿用同色——這是轉述 provider 先前的用色，不是 caller 自創圖面決策。
 
@@ -60,4 +61,4 @@ mono（sublabel、箭頭標籤、eyebrow、legend）：'Geist Mono', 'Noto Sans 
 
 中介表示的 `種類` 欄不得在翻譯中丟失，`map` 第 5 步驗收：
 
-- **`種類=禁止`**：短虛線＋停止符號（如 `⊥`）＋路徑終止於邊界。用普通 Architecture 型即可，不必用 `Secure paved road` 語意模式（其自帶 ≤2 forbidden paths 預算；普通型只受總箭頭預算 12 限制）。禁止邊用 ink 色＋符號呈現，不佔 coral（coral 留給 focal 節點）。
+- **`種類=禁止`**：短虛線＋停止符號（如 `⊥`）＋路徑終止於邊界。用普通 Architecture 型即可，不必用 `Secure paved road` 語意模式（其自帶 ≤2 forbidden paths 預算；普通型的邊數受當次 detail 預算管——本 profile 預設 `faithful`，上游 §7 的 12 條箭頭預算對它明文豁免，改以 ≤32 邊計）。禁止邊用 ink 色＋符號呈現，不佔 coral（coral 留給 focal 節點）。

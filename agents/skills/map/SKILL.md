@@ -31,7 +31,7 @@ description: 用於「給我架構圖」「畫一下架構」「這專案怎麼�
 
 - `diagram-design` — adapter：`references/providers/diagram-design.md`
 
-**責任邊界**：`map` 擁有範圍、證據與四表；adapter 擁有固定交接 profile 與 `map` 語意的視覺映射；`diagram-design` 擁有模板、畫布、尺寸、座標、排版、CSS 與 SVG。頁面骨架分兩軌：單圖頁歸 provider（`template-dark.html`）；多圖頁歸 `map`（見「多圖組頁」），但每張圖的 SVG 內部仍全歸 provider。`map` 不自帶圖面規則：不預先指定圖面幾何，也不脫離 provider 規格直接修補 SVG 內容。
+**責任邊界**：`map` 擁有範圍、證據與四表；adapter 擁有固定交接 profile 與 `map` 語意的視覺映射；`diagram-design` 擁有模板、畫布、尺寸、座標、排版、CSS 與 SVG。頁面骨架分兩軌：單圖頁歸 provider（`template-dark.html`）；多圖頁歸 `map`（見「多圖組頁」），但每張圖的 SVG 內部仍全歸 provider。`map` 不自帶圖面規則：不預先指定圖面幾何，也不脫離 provider 規格直接修補 SVG 內容。**唯一例外是多圖組頁的 ID 命名空間化**（條文見 adapter）：對 defs id 與其引用加前綴是同頁 inline 的機械改寫，不改任何圖面決策。
 
 **無 provider 時晚停**：第 1–3 步照跑，把四張表輸出到終端，提示安裝 `diagram-design` 後停止。**不保留其他 provider 或內建產圖 fallback**——不手寫 SVG、不畫終端字元圖。
 
