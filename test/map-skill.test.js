@@ -11,67 +11,52 @@ function readMapFile(...parts) {
   return fs.readFileSync(path.join(MAP_ROOT, ...parts), 'utf8');
 }
 
-test('map skill：diagram-design 是唯一繪圖 provider', () => {
-  const skill = readMapFile('SKILL.md');
-  const removedAdapter = path.join(MAP_ROOT, 'references', 'providers', 'artifact-diagramming.md');
-
-  assert.match(skill, /唯一[^\n]*`diagram-design`/);
-  assert.doesNotMatch(skill, /artifact-diagramming/);
-  assert.equal(fs.existsSync(removedAdapter), false);
-});
-
-test('map skill：四表只承載語意，圖面決策由 diagram-design 獨占', () => {
-  const tables = readMapFile('references', 'intermediate-tables.md');
-  const skill = readMapFile('SKILL.md');
-  const adapter = readMapFile('references', 'providers', 'diagram-design.md');
-
-  assert.match(tables, /四表只承載語意/);
-  assert.match(tables, /不得包含[^\n]*(?:座標|viewBox)[^\n]*(?:尺寸|字型|配色|模板)/);
-  // 責任邊界的正典在 SKILL.md「繪圖 provider」節；adapter 不重述，只鎖 caller 不得繞過 provider 動圖面
-  assert.match(skill, /`diagram-design`[^\n]*(?:擁有|獨占)[^\n]*(?:座標|尺寸)/);
-  // 多圖頁骨架歸 map（多圖組頁），但每張圖的 SVG 內部仍不得由 caller 修補
-  assert.match(skill, /不[^\n]*(?:修補|改寫)[^\n]*SVG 內容/);
-  assert.match(skill, /SVG 內部[^\n]*歸 provider/);
-  assert.match(adapter, /不得[^\n]*(?:先翻譯成座標|caller 直接 patch)/);
-});
-
-test('map skill：provider 載入成功以實際讀到檔案為判準', () => {
-  const adapter = readMapFile('references', 'providers', 'diagram-design.md');
-
-  assert.match(adapter, /載入成功以實際讀到檔案為判準/);
-  assert.match(adapter, /SKILL\.md[^\n]*type-\*\.md[^\n]*template-dark\.html/);
-  assert.match(adapter, /任一讀不到[^\n]*載入失敗[^\n]*晚停/);
-});
-
-test('map skill：快圖定調——不設驗證欄、不逐邊查證', () => {
-  const tables = readMapFile('references', 'intermediate-tables.md');
-  const skill = readMapFile('SKILL.md');
-  const adapter = readMapFile('references', 'providers', 'diagram-design.md');
-
-  assert.match(skill, /不逐邊查證/);
-  assert.match(tables, /不得反推/);
-  // 驗證欄整套（已驗證／文件主張）已移除，不得復活
-  assert.doesNotMatch(skill, /文件主張/);
-  assert.doesNotMatch(tables, /文件主張|已驗證/);
-  assert.doesNotMatch(adapter, /文件主張/);
-});
-
-test('map skill：detail 依四表節點數決定，第 3 步不預先壓到 9', () => {
-  const adapter = readMapFile('references', 'providers', 'diagram-design.md');
+test('map skill：自包含，沒有不存在的繪圖 provider 或舊 adapter', () => {
   const skill = readMapFile('SKILL.md');
 
-  // faithful 優先、≤9 降 balanced：判準是節點數，不是執行者現場感覺
-  assert.match(adapter, /`faithful`[^\n]*≤9[^\n]*`balanced`/);
-  // 第 3 步若把四表壓回 9，adapter 的 faithful 永遠沒有素材，會變死條文
-  assert.match(skill, /不預先壓到 9/);
-  assert.doesNotMatch(skill, /節點超過 9 個時先畫頂層/);
+  assert.doesNotMatch(skill, /diagram-design|artifact-diagramming|provider/);
+  assert.equal(fs.existsSync(path.join(MAP_ROOT, 'references', 'providers')), false);
+  assert.equal(fs.existsSync(path.join(MAP_ROOT, 'references', 'diagram-brief.md')), true);
 });
 
-test('map skill：adapter 固定預設 render profile', () => {
-  const adapter = readMapFile('references', 'providers', 'diagram-design.md');
+test('map skill：多內容時以頁面隔離讀者問題，而非縮放成單張大圖', () => {
+  const skill = readMapFile('SKILL.md');
+  const brief = readMapFile('references', 'diagram-brief.md');
 
-  for (const expected of ['html', '1200', 'presentation', 'faithful', 'balanced', 'engineer', 'template-dark.html', 'none']) {
-    const pattern = expected.replace('.', '\\.');
-    assert.match(adapter, new RegExp(`\\b${pattern}\\b`));
+  assert.match(skill, /「總覽」與「核心路徑」兩頁/);
+  assert.match(skill, /1–2 張聚焦頁/);
+  assert.match(skill, /每頁只回答一個問題/);
+  assert.match(skill, /6–12 個節點、最多 14 條邊/);
+  assert.match(skill, /拆頁，不縮字/);
+  assert.match(brief, /每一頁/);
+  assert.match(brief, /tab/);
+});
+
+test('map skill：流程圖具有可追蹤的主路徑與分支規則', () => {
+  const skill = readMapFile('SKILL.md');
+
+  for (const expected of ['明確起點與終點', '固定的時間方向', '主路徑編號', '判斷菱形', '例外路徑']) {
+    assert.match(skill, new RegExp(expected));
+  }
+  assert.match(skill, /移到另一頁/);
+});
+
+test('map skill：產物無外部 runtime，並保有可存取的 HTML/SVG contract', () => {
+  const skill = readMapFile('SKILL.md');
+  const brief = readMapFile('references', 'diagram-brief.md');
+
+  for (const expected of ['<!doctype html>', 'lang="zh-Hant"', 'inline CSS/JS', 'inline SVG', '<title>', '<desc>', 'viewBox']) {
+    assert.match(skill, new RegExp(expected.replace(/[<>]/g, '\\$&')));
+  }
+  for (const forbidden of ['<script src>', '<link href="http', 'fetch\\(', 'localStorage']) {
+    assert.match(brief, new RegExp(forbidden));
+  }
+});
+
+test('map skill：反證式品質閘同時防止清單化、流程歧義與無依據關係', () => {
+  const skill = readMapFile('SKILL.md');
+
+  for (const expected of ['只是檔案清單', '走完主路徑', '不能推測', '無外部 runtime']) {
+    assert.match(skill, new RegExp(expected));
   }
 });
