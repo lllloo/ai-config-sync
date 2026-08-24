@@ -127,6 +127,16 @@ Skills 分兩層（**以目錄位置分類**，不加 per-skill flag）：
 
 全域 skills 安裝狀態由 `skills-lock.json` 追蹤（`npm run skills:diff` 比對）。本地 skills 不需記錄於 `skills-lock.json`。
 
+**`skills-lock.json` 的 `agents` 欄位（optional）**：記的是「這台裝置要把該 skill 裝給哪個工具」的安裝意圖，不是「這支 skill 支援誰」——Agent Skills 為開放標準、預設跨工具通用，只有刻意排除時才需要這欄位。值為逗號分隔、白名單見 `skills.js` 的 `VALID_SKILL_AGENTS`（`claude-code`／`codex`），`skills:add --agent <值>`／`--agent=<值>` 寫入，`skills:diff` 的安裝建議據此接上 `--agent`：
+
+| `agents` 值 | 安裝落點 | 誰看得到 |
+|---|---|---|
+| 省略（預設） | `~/.agents/skills/<name>` 實體 + `~/.claude/skills/<name>` symlink | Claude Code + Codex |
+| `claude-code` | `~/.claude/skills/<name>` 實體 | 只有 Claude Code |
+| `codex` | `~/.agents/skills/<name>` 實體，不建 symlink | 只有 Codex |
+
+目前唯一使用者是 `skill-creator`（標 `claude-code`）：Codex 自帶同名 skill，讓它掃到會相撞。與上方「以目錄位置分類、不加 per-skill flag」不衝突——那句指的是全域／本地兩層的**分類方式**；`agents` 欄位是全域層內部的**安裝目標**選擇，不影響分類。
+
 **日後若要恢復 Claude-only 全域 skill 層**（`claude/skills/`）：在 `SYNC_MANIFEST` 加回 `{ area: 'claude', label: 'skills', type: 'dir' }` 一列，並同步更新 `test/sync.test.js` 的 claude label 清單 drift-guard 與**「不得含 claude 區 skills／commands dir 列」回歸鎖**、README 同步項目表與本段兩層表。**加回前須先重新評估**：該列會連帶復活「`xtool-dir` 列須排在其之前」的順序不變式（claude mirror 的 prune-extras 語意會與 agents 端的 symlink 橋競爭），完整推理見 `openspec/changes/archive/2026-07-15-cross-tool-global-skills/` 的 design D5 與 `2026-07-17-remove-tenantless-sync-layers`。不得只塞回一列 manifest。`commands` 層同理，且另違反「一律使用 skill、不再新增 command」政策。
 
 Skills 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具移植（Cursor、Gemini CLI、Codex 等）。新增 skill 一律使用此格式，不再新增 command。
