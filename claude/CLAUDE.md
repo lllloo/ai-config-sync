@@ -42,15 +42,6 @@ git 檢視：
 - 目前狀態：`git status --short`；某次提交：`git show --stat <sha>`
 - 任何仍可能很長的輸出：尾接 `| head -50`
 
-## 打包規則
-
-**需要打包時先問過我，獲准才跑**：
-
-- `npm run build` / `yarn build` / `pnpm build`
-- `npm run docs:build` 或類似構建命令
-
-我明確指示「請打包」、「執行打包」時視同已同意，直接執行、不必再問。
-
 ## Commands vs Skills
 
 **一律使用 skill**，不再新增 command——skill 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具移植。
