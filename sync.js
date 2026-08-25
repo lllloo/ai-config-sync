@@ -47,7 +47,7 @@ const REPO_AGENTS_SKILLS = path.join(REPO_ROOT, 'agents', 'skills');
  */
 const DEVICE_SETTINGS_KEYS = [
   // 裝置偏好：各機不同，同步會互踩
-  'model', 'tui', 'autoUpdatesChannel', 'effortLevel',
+  'model', 'tui', 'autoUpdatesChannel', 'effortLevel', 'modelSettings',
   // 平台綁定：hooks command 為 shell 方言（PowerShell vs zsh），跨平台必壞
   'hooks',
   // 只列本機實際存在的 key，不做預防性列名；憑證 helper（apiKeyHelper 等）
