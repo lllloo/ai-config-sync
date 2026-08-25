@@ -56,14 +56,15 @@ test('map skill：快圖定調——不設驗證欄、不逐邊查證', () => {
   assert.doesNotMatch(adapter, /文件主張/);
 });
 
-test('map skill：detail 依四表節點數決定，第 3 步不預先壓到 9', () => {
+test('map skill：detail 預設 balanced，明說要詳細才升 faithful', () => {
   const adapter = readMapFile('references', 'providers', 'diagram-design.md');
   const skill = readMapFile('SKILL.md');
 
-  // faithful 優先、≤9 降 balanced：判準是節點數，不是執行者現場感覺
-  assert.match(adapter, /`faithful`[^\n]*≤9[^\n]*`balanced`/);
-  // 第 3 步若把四表壓回 9，adapter 的 faithful 永遠沒有素材，會變死條文
-  assert.match(skill, /不預先壓到 9/);
+  // 預設 balanced、明說才升 faithful：判準是使用者要求，不是執行者現場感覺
+  assert.match(adapter, /預設 `balanced`[^\n]*明說要詳細[^\n]*`faithful`/);
+  // 第 3 步與 adapter 同源：預設壓到 9，放寬到 24 需使用者明說
+  assert.match(skill, /預設壓到 9 以內/);
+  assert.match(skill, /明說[^\n]*詳細[^\n]*放寬到 24/);
   assert.doesNotMatch(skill, /節點超過 9 個時先畫頂層/);
 });
 
