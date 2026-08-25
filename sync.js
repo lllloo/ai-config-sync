@@ -54,6 +54,13 @@ const DEVICE_SETTINGS_KEYS = [
   // 若日後出現會照常同步進 repo，由 safety:check 的 hard block 攔下
 ];
 
+/**
+ * settings.json 中「本機可能單方面長出新項」的 top-level 物件欄位。
+ * 寫入語意不變（仍是整鍵覆蓋、不合併），只在 diff／to-local 多印一道鍵級提示，
+ * 提醒本機獨有的項目會被 repo 版本蓋掉。增減欄位須同步改 README。
+ */
+const KEYED_NOTICE_SETTINGS_KEYS = ['enabledPlugins'];
+
 /** 永遠排除的檔案名稱 */
 const GLOBAL_EXCLUDE = ['.DS_Store'];
 
@@ -1074,6 +1081,60 @@ function noticeNewSettingsKeys(items) {
 }
 
 /**
+ * 找出 KEYED_NOTICE_SETTINGS_KEYS 各欄位中「本機有、repo 沒有」的子鍵。
+ * to-local 對 top-level 是整鍵覆蓋（不與 repo 側同名物件合併，見 mergeSettingsBetween），
+ * 故本機單方面新增的項目（如剛啟用的 plugin）會被 repo 舊值蓋掉。本函式只做鍵級
+ * 差集提示、不改寫入語意；只回傳子鍵名，不含值。
+ * @param {string} localPath - 本機 settings.json 路徑
+ * @param {string} repoPath - repo settings.json 路徑
+ * @returns {Record<string, string[]>} 欄位名 -> 本機獨有子鍵（無差異的欄位不出現）
+ */
+function findLocalOnlyKeyedEntries(localPath, repoPath) {
+  const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const result = {};
+  if (!fs.existsSync(localPath)) return result;
+  const local = readJson(localPath);
+  const repo = fs.existsSync(repoPath) ? readJson(repoPath) : {};
+  for (const key of KEYED_NOTICE_SETTINGS_KEYS) {
+    if (!isObj(local[key])) continue;
+    const repoKeys = isObj(repo[key]) ? new Set(Object.keys(repo[key])) : new Set();
+    const only = Object.keys(local[key]).filter((k) => !repoKeys.has(k));
+    if (only.length > 0) result[key] = only;
+  }
+  return result;
+}
+
+/**
+ * 輸出「本機獨有子鍵會被整鍵覆蓋蓋掉」的提示。措辭與時態解耦（diff 與 to-local 預覽皆適用）。
+ * @param {Record<string, string[]>} entries - findLocalOnlyKeyedEntries 的結果
+ */
+function printLocalOnlyKeyedNotice(entries) {
+  for (const [key, names] of Object.entries(entries)) {
+    console.log(col.yellow(`\n  [!] settings.json 的 ${key} 有本機獨有項目：${names.join('、')}`));
+    console.log(col.dim('      top-level 為整鍵覆蓋、不與 repo 合併：直接 to-local 會蓋掉這些項目，請先 to-repo'));
+  }
+}
+
+/**
+ * 從同步項目清單取樣 settings 項目的本機獨有子鍵（settings 為 fixedFlow，
+ * src 恆本機、dest 恆 repo，故 diff 與 to-local 兩條路徑取得同一基準）
+ * @param {SyncItem[]} items
+ * @returns {Record<string, string[]>}
+ */
+function collectLocalOnlyKeyed(items) {
+  const item = items.find((i) => i.type === 'settings');
+  return item ? findLocalOnlyKeyedEntries(item.src, item.dest) : {};
+}
+
+/**
+ * collect + print 的便捷組合（diff 與 to-local 預覽共用）
+ * @param {SyncItem[]} items
+ */
+function noticeLocalOnlyKeyed(items) {
+  printLocalOnlyKeyedNotice(collectLocalOnlyKeyed(items));
+}
+
+/**
  * settings.json 合併核心（路徑可注入版，供測試直接驗黑名單混合制剝除不變式）
  * @param {string} localPath - 本機 settings.json 路徑
  * @param {string} repoPath - repo settings.json 路徑
@@ -1639,6 +1700,7 @@ function runDiff(opts) {
   }
   printSkillDiffSummaries(skillsSummary);
   noticeNewSettingsKeys(items);
+  noticeLocalOnlyKeyed(items);
   if (!hasDiff) {
     console.log(col.green('\n  本機與 repo 完全一致\n'));
     return EXIT_OK;
@@ -1855,6 +1917,7 @@ async function runToLocal(opts) {
 
   if (!dryRun) console.log('  預覽（尚未套用）：\n');
   const previewStats = printToLocalPreview(diffResults);
+  noticeLocalOnlyKeyed(items);
 
   if (dryRun) {
     console.log('');
@@ -2337,8 +2400,11 @@ if (require.main === module) {
     partitionSettingsTopLevel,
     findNewSettingsTopKeys,
     collectNewSettingsKeys,
+    findLocalOnlyKeyedEntries,
+    collectLocalOnlyKeyed,
     loadSkillsFromLock: (lockPath) => skillsHandler().loadSkillsFromLock(lockPath),
     DEVICE_SETTINGS_KEYS,
+    KEYED_NOTICE_SETTINGS_KEYS,
     SyncError,
     ERR,
     EXIT_OK,

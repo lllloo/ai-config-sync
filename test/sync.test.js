@@ -41,6 +41,7 @@ const {
   COMMANDS,
   COMMAND_ALIASES,
   DEVICE_SETTINGS_KEYS,
+  KEYED_NOTICE_SETTINGS_KEYS,
   isWsl,
   winPathToWslPath,
   detectWinHome,
@@ -449,6 +450,13 @@ test('README drift-guard：DEVICE_SETTINGS_KEYS 黑名單欄位皆載於 README'
   for (const key of DEVICE_SETTINGS_KEYS) {
     assert.ok(README.includes(`\`${key}\``), `README 未載明 settings 黑名單欄位：${key}`);
   }
+});
+
+test('README drift-guard：KEYED_NOTICE_SETTINGS_KEYS 欄位皆載於 README', () => {
+  for (const key of KEYED_NOTICE_SETTINGS_KEYS) {
+    assert.ok(README.includes(`\`${key}\``), `README 未載明鍵級提示欄位：${key}`);
+  }
+  assert.ok(README.includes('KEYED_NOTICE_SETTINGS_KEYS'), 'README 未載明 KEYED_NOTICE_SETTINGS_KEYS 常數名');
 });
 
 test('README drift-guard：codex 機密／裝置狀態 section 清單皆載於 README', () => {

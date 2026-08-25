@@ -20,7 +20,10 @@ const {
   partitionSettingsTopLevel,
   findNewSettingsTopKeys,
   collectNewSettingsKeys,
+  findLocalOnlyKeyedEntries,
+  collectLocalOnlyKeyed,
   diffSyncItem,
+  KEYED_NOTICE_SETTINGS_KEYS,
   DEVICE_SETTINGS_KEYS,
 } = require('../sync.js');
 const { SENSITIVE_KEY_PATTERN } = require('../safety-check.js');
@@ -663,4 +666,70 @@ test('collectNewSettingsKeys：從項目清單取 settings 項目；無 settings
     assert.deepEqual(collectNewSettingsKeys(items), ['newFlag']);
     assert.deepEqual(collectNewSettingsKeys([{ type: 'file', src: localPath, dest: repoPath }]), []);
   });
+});
+
+// -----------------------------------------------------------------------------
+// findLocalOnlyKeyedEntries：整鍵覆蓋前的鍵級提示（只比子鍵集合、不看值）
+// -----------------------------------------------------------------------------
+test('KEYED_NOTICE_SETTINGS_KEYS：目前只納入 enabledPlugins（增減須同步改 README）', () => {
+  assert.deepEqual(KEYED_NOTICE_SETTINGS_KEYS, ['enabledPlugins']);
+});
+
+test('findLocalOnlyKeyedEntries：本機缺檔回傳空物件', () => {
+  withTmpDir((dir) => {
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(repoPath, { enabledPlugins: { a: true } });
+    assert.deepEqual(findLocalOnlyKeyedEntries(path.join(dir, 'absent.json'), repoPath), {});
+  });
+});
+
+test('findLocalOnlyKeyedEntries：只列本機獨有的子鍵，保持本機順序', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(localPath, { enabledPlugins: { a: true, newOne: true, b: true, another: true } });
+    writeJson(repoPath, { enabledPlugins: { a: true, b: true } });
+    assert.deepEqual(findLocalOnlyKeyedEntries(localPath, repoPath), {
+      enabledPlugins: ['newOne', 'another'],
+    });
+  });
+});
+
+test('findLocalOnlyKeyedEntries：兩端子鍵一致（值不同）不觸發', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(localPath, { enabledPlugins: { a: true } });
+    writeJson(repoPath, { enabledPlugins: { a: false } });
+    assert.deepEqual(findLocalOnlyKeyedEntries(localPath, repoPath), {});
+  });
+});
+
+test('findLocalOnlyKeyedEntries：repo 缺檔／缺欄位時列出本機全部子鍵', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(localPath, { enabledPlugins: { a: true, b: true } });
+    writeJson(repoPath, { permissions: {} });
+    assert.deepEqual(findLocalOnlyKeyedEntries(localPath, repoPath), {
+      enabledPlugins: ['a', 'b'],
+    });
+    assert.deepEqual(findLocalOnlyKeyedEntries(localPath, path.join(dir, 'absent.json')), {
+      enabledPlugins: ['a', 'b'],
+    });
+  });
+});
+
+test('findLocalOnlyKeyedEntries：欄位非物件（陣列／純值）一律略過', () => {
+  withTmpDir((dir) => {
+    const localPath = path.join(dir, 'local.json');
+    const repoPath = path.join(dir, 'repo.json');
+    writeJson(localPath, { enabledPlugins: ['a'] });
+    writeJson(repoPath, {});
+    assert.deepEqual(findLocalOnlyKeyedEntries(localPath, repoPath), {});
+  });
+});
+
+test('collectLocalOnlyKeyed：無 settings 型項目時回傳空物件', () => {
+  assert.deepEqual(collectLocalOnlyKeyed([{ type: 'file', src: 'a', dest: 'b' }]), {});
 });

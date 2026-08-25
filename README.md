@@ -240,6 +240,7 @@ npm run to-local
 
 - **只列本機實存 key、不預防性列名**：憑證 helper（`apiKeyHelper` 等）若日後出現會照常同步進 repo，交由 `safety:check` 的 hard block 攔下，而非事先寫進黑名單。
 - **敏感命名 pattern 不再自動處理**：key／token／secret／credential 等命名不再讓 sync 剝除或中止；未列黑名單者依一般差異同步，由 `safety:check` 以 warning 供人工審核。
+- **`enabledPlugins` 的本機獨有項目會被點名**（`KEYED_NOTICE_SETTINGS_KEYS`）：top-level 是**整鍵覆蓋、不與 repo 合併**，所以本機單方面新增的項目（如剛用 `/plugin` 啟用的 plugin）會在 `to-local` 時被 repo 舊值蓋掉。`diff` 與 `to-local` 預覽會多印一行鍵級提示，列出「本機有、repo 沒有」的子鍵，建議先跑 `to-repo`。**只提示、不改寫入語意**；只印子鍵名不印值。增減欄位須改 `KEYED_NOTICE_SETTINGS_KEYS` 常數與本節（drift-guard 測試把關）。
 - **首次出現的 top-level key 會被點名查驗**：`diff`／`to-repo` 發現本機某 key 為 repo 端尚無（首次進入同步範圍）時，額外印出 key 名提示人工確認是否屬裝置偏好、該補進 `DEVICE_SETTINGS_KEYS`。只比 key 集合差集、只印 key 名不印值。首次建 repo 時全數列出屬預期的初始化查驗。
 
 ### env 區塊
