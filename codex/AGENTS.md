@@ -21,7 +21,7 @@
 - **force push 需明確要求**：任何分支皆同，不因是 feature branch 而放行；獲授權時**一律用 `--force-with-lease`**，不用裸 `--force`。
 - **推 tag 視同 push 對外動作**：未經明確要求不推 tag。
 
-## 檢視低污染慣例（git 與檔案搜尋）
+## 檢視低污染慣例（git）
 
 **操作慣例、不是守門**：檢視類指令的預設輸出是給人在終端捲動看的，全文灌進 context 多半是雜訊。一律先取「摘要級」，需要細節再按需單檔展開，不一次抓全庫。
 
@@ -31,23 +31,6 @@ git 檢視：
 - 提交歷史：`git log --oneline -20`，**不**裸跑 `git log`
 - 目前狀態：`git status --short`；某次提交：`git show --stat <sha>`
 - 任何仍可能很長的輸出：尾接 `| head -50`
-
-檔案搜尋與讀取（同原則）：
-
-- 先取「命中在哪」（`rg -l` 或 `rg -c`）定位，鎖定後才對單檔取內容；長結果截斷，別預設全抓
-- 大檔只讀需要的行段（`sed -n '<start>,<end>p'`），不整檔吞
-- 先縮小檔案清單再讀，不對一堆檔盲讀
-
-**全庫級檢視**：`git diff --stat` 仍過大（如整個 branch review）、或要掃全庫時，先在主線以摘要／定位方式處理；只有我明確要求且工具可用時，才把「讀全文、只回摘要／findings」委派給 subagent。
-
-## 打包規則
-
-**需要打包時先問過我，獲准才跑**：
-
-- `npm run build` / `yarn build` / `pnpm build`
-- `npm run docs:build` 或類似構建命令
-
-我明確指示「請打包」、「執行打包」時視同已同意，直接執行、不必再問。
 
 ## Commands vs Skills
 
