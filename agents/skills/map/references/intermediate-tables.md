@@ -24,14 +24,12 @@
 |---|---|
 | `from` / `to` | 節點表的 `id` |
 | `關係` | 箭頭標籤，必填，如 `require`、`DI 注入`、`呼叫`、`寫入`、`symlink` |
-| `種類` | `一般` 或 `禁止` |
 
 循序圖以邊表由上到下的列序為訊息時序，provider 依列序繪製、不得重排；其他圖型的邊表列序不帶語意。
 
-## 允許值
+## 方向與證據
 
-- **`種類`**（僅邊表；節點不標禁止，語意一律由邊承載）：只有 `一般`／`禁止` 兩值。`禁止` 不是「不存在」——是「被明文禁止」的關係（如對敏感檔的讀寫、被回歸鎖擋住的反向依賴），必須出現在圖上且明確可見。
-邊的方向與 `關係` 必須對應實際看到的證據；只看到 A 呼叫 B，不得反推 B 呼叫 A，也不得把「沒有找到」標成 `種類=禁止`。`禁止` 僅表示文件、程式碼或測試明文禁止該關係。
+邊的方向與 `關係` 必須對應實際看到的證據；只看到 A 呼叫 B，不得反推 B 呼叫 A。查不到依據的關係不畫，寫進省略表。
 
 ## 群組
 
@@ -54,18 +52,15 @@
 | skills | skills.js | 功能模組 |
 | xtool | xtool-dir.js | 功能模組 |
 | toml | toml-reader.js | 純函式 |
-| claude-json | ~/.claude.json | 本機敏感檔 |
 
 ### 邊表
 
-| from | to | 關係 | 種類 |
-|---|---|---|---|
-| sync | safety | DI 注入（createSafetyChecker） | 一般 |
-| sync | skills | DI 注入（createSkillsHandler） | 一般 |
-| sync | xtool | DI 注入（createXtoolDir） | 一般 |
-| safety | toml | require | 一般 |
-| safety | sync | require（反向依賴） | 禁止 |
-| sync | claude-json | 讀寫 | 禁止 |
+| from | to | 關係 |
+|---|---|---|
+| sync | safety | DI 注入（createSafetyChecker） |
+| sync | skills | DI 注入（createSkillsHandler） |
+| sync | xtool | DI 注入（createXtoolDir） |
+| safety | toml | require |
 
 ### 群組
 
@@ -78,4 +73,4 @@
 ### 省略
 
 - 沒展開：`test/` 各測試檔與 drift-guard 細節；`SYNC_MANIFEST` 的各同步項。
-- 刻意不畫：repo 路徑 ↔ 本機路徑的一對一對應（改用表格）；目錄樹。
+- 刻意不畫：repo 路徑 ↔ 本機路徑的一對一對應（改用表格）；目錄樹；`~/.claude.json` 等「明文禁止觸碰」的約束（改寫成圖下的說明）。

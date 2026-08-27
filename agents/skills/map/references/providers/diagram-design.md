@@ -56,9 +56,3 @@ mono（sublabel、箭頭標籤、eyebrow、legend）：'Geist Mono', 'Noto Sans 
 產出的 `<link>` **必須補上 `Noto+Sans+TC:wght@400;500;600`**，否則序裡寫了也載不到。mono 一欄刻意也用 `Noto Sans TC`（CJK 全形等寬，在 mono 情境仍對齊），不必另尋 CJK 等寬家族——`map` 的箭頭標籤走 mono 而關係名多為中文（`DI 注入`、`寫入`），這欄不是可選項。
 
 **二、一律不使用 serif**，含頁面標題與 annotation callout。此條**覆寫上游的「Page title in Instrument Serif」**（其 SKILL.md §5 與 §9 taste gate 皆要求 serif 標題），**taste gate 不得據此改回**。
-
-## 禁止邊的降級規則
-
-中介表示的 `種類` 欄不得在翻譯中丟失，`map` 第 5 步驗收：
-
-- **`種類=禁止`**：短虛線＋停止符號（如 `⊥`）＋路徑終止於邊界。用普通 Architecture 型即可，不必用 `Secure paved road` 語意模式（其自帶 ≤2 forbidden paths 預算；普通型的邊數受當次 detail 預算管——本 profile 預設 `balanced`，邊數依上游 §7 的 12 條箭頭預算計；升 `faithful` 時該預算明文豁免，改以 ≤32 邊計）。禁止邊用 ink 色＋符號呈現，不佔 coral（coral 留給 focal 節點）。
