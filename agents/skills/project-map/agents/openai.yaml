@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Map"
+  short_description: "建立、瀏覽並持續更新可互動的專案架構視覺地圖"
+  default_prompt: "分析目前專案，建立或更新可互動的 project map。"

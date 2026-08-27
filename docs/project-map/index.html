@@ -1,0 +1,272 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ai-config-sync — Project Map</title><style>:root{--bg:#0b1020;--panel:#141d33;--line:#5a6b91;--text:#eef3ff;--muted:#98a4bd;
+--accent:#73daca;--stale:#f4bf75;--edge-label:#c3ccdf}
+*{box-sizing:border-box}html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);
+font:14px/1.55 -apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;
+display:flex;flex-direction:column;overflow:hidden;
+-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+header{padding:14px 22px 12px;border-bottom:1px solid #26324d;flex:none}
+h1{margin:0;font-size:20px;letter-spacing:.2px}header p,.muted{color:var(--muted);margin:4px 0 0}
+nav{padding:9px 22px;border-bottom:1px solid #26324d;display:flex;flex-wrap:wrap;gap:8px;align-items:center;flex:none}
+nav a{color:var(--accent);text-decoration:none;border:1px solid #354564;background:#18233b;
+border-radius:999px;padding:4px 12px;font-size:13px;white-space:nowrap}
+nav a:hover{background:#20304f}
+nav a.current{background:var(--accent);color:#0b1020;font-weight:600;border-color:var(--accent)}
+nav span{color:var(--muted);font-size:13px}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 344px;flex:1;min-height:0}
+main{position:relative;min-width:0;display:flex;
+background:radial-gradient(circle at 1px 1px,#18223c 1px,transparent 0) 0 0/24px 24px,
+linear-gradient(170deg,#0c1226 0%,#090d1a 100%)}
+.toolbar{position:absolute;top:12px;left:14px;right:14px;display:flex;gap:8px;align-items:flex-start;
+flex-wrap:wrap;z-index:2;pointer-events:none}
+.toolbar>*{pointer-events:auto}
+button,select{background:#18233bee;color:var(--text);border:1px solid #354564;border-radius:8px;
+padding:6px 11px;font:inherit;font-size:13px;cursor:pointer}
+button:hover,select:hover{border-color:var(--accent)}
+.legend{margin-left:auto;display:flex;gap:11px;flex-wrap:wrap;background:#101828ee;border:1px solid #26324d;
+border-radius:8px;padding:7px 11px;font-size:12px;max-width:58%;justify-content:flex-end}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}
+.legend span{color:var(--muted);white-space:nowrap}
+svg{flex:1;width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+svg.panning{cursor:grabbing}
+.hint{position:absolute;bottom:10px;left:16px;color:var(--muted);font-size:12px;opacity:.7;pointer-events:none}
+aside{border-left:1px solid #26324d;background:#0e1526;padding:18px 20px;overflow:auto}
+aside h2{margin:0 0 2px;font-size:17px;line-height:1.35}
+aside h3{margin:18px 0 6px;font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;
+color:var(--muted);font-weight:600}
+aside ul{margin:0;padding-left:18px}aside li{margin:3px 0}
+aside a{color:var(--accent)}code{color:var(--accent);font-size:12.5px;word-break:break-all}
+.pill{display:inline-block;font-size:11.5px;border:1px solid #354564;border-radius:999px;
+padding:1px 9px;color:var(--muted);margin:0 6px 6px 0}
+.pill.stale{color:var(--stale);border-color:#5a4a2a}
+.rel{border-left:2px solid #2b3a5c;padding:4px 0 4px 10px;margin:5px 0;font-size:13px;cursor:pointer}
+.rel:hover{border-left-color:var(--accent);background:#141d3366}
+.rel b{color:var(--text);font-weight:600}
+.flow-step{border-left:2px solid var(--accent);padding:5px 0 5px 10px;margin:5px 0 5px 4px}
+.stat{display:flex;gap:18px;margin-top:8px}
+.stat div{font-size:11.5px;color:var(--muted)}
+.stat b{display:block;font-size:20px;color:var(--text);font-weight:600;line-height:1.2}
+.eg{transition:opacity .3s cubic-bezier(.4,0,.2,1)}
+.edge{fill:none;stroke:var(--edge-stroke,var(--line));stroke-width:1.7;stroke-linecap:round;
+transition:stroke-width .2s ease,opacity .2s ease;opacity:.75}
+.eg:hover .edge{opacity:1;stroke-width:2.2}
+.edge.stale{stroke:var(--stale);stroke-dasharray:6 4}
+.edge.hot{stroke:var(--accent);stroke-width:2.8;opacity:1;marker-end:url(#arrow-hot)}
+.elabel{font-size:11.5px;fill:var(--edge-label);text-anchor:middle;dominant-baseline:middle;
+pointer-events:none;opacity:.72}
+.ebg{fill:#0b1020;rx:4;pointer-events:none;opacity:.72}
+g:hover .elabel,g:hover .ebg{opacity:1}
+.ehit{stroke:transparent;stroke-width:16;fill:none;cursor:pointer}
+.node{transition:opacity .3s cubic-bezier(.4,0,.2,1)}
+.node rect.box{fill:url(#nodeFill);stroke:#3a4a6b;stroke-width:1.4;rx:10;
+transition:stroke-width .18s ease,filter .18s ease;
+filter:drop-shadow(0 3px 7px rgba(0,0,0,.5))}
+.node:hover rect.box{filter:drop-shadow(0 5px 14px rgba(115,218,202,.22))}
+.node.selected rect.box{filter:drop-shadow(0 5px 16px rgba(115,218,202,.3))}
+.node text{pointer-events:none}
+.node .lbl{fill:var(--text);font-size:13.5px;font-weight:600;dominant-baseline:middle}
+.node .kind{fill:var(--muted);font-size:11px;dominant-baseline:middle;opacity:.85}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.node,.eg{animation:fadeIn .5s cubic-bezier(.4,0,.2,1) backwards}
+.node{cursor:pointer}
+.node:hover rect.box{stroke:var(--accent)}
+.node.selected rect.box{stroke:var(--accent);stroke-width:2.4}
+.node.stale rect.box{stroke-dasharray:5 4}
+.node.external rect.box{fill:#101a2e;stroke-dasharray:4 3}
+.dim{opacity:.1}
+@media(max-width:900px){.layout{grid-template-columns:1fr;grid-template-rows:minmax(320px,55%) auto}
+aside{border-left:0;border-top:1px solid #26324d}.legend{display:none}}</style></head><body><header><h1>ai-config-sync</h1><p id="summary"></p></header><nav><span>模組：</span><a class="current" href="index.html">總覽</a><a class="" href="modules/cli.html">CLI 入口</a><a class="" href="modules/core.html">同步核心</a><a class="" href="modules/fs.html">檔案系統層</a><a class="" href="modules/standalone.html">獨立模組</a><a class="" href="modules/endpoints.html">同步端點</a></nav><div class="layout"><main><div class="toolbar"><select id="flow"><option value="">全部關係</option></select><button id="reset">重設檢視</button><div class="legend"><span><i style="background:#73daca"></i>CLI 入口</span><span><i style="background:#7aa2f7"></i>同步核心</span><span><i style="background:#bb9af7"></i>檔案系統層</span><span><i style="background:#e0af68"></i>獨立模組</span><span><i style="background:#f7768e"></i>同步端點</span></div></div><svg id="graph" role="img" aria-label="專案架構圖"></svg><div class="hint">滾輪縮放 · 拖曳平移 · 點節點看鄰居與證據</div></main><aside id="details"></aside></div><script type="application/json" id="project-data">{"project":{"name":"ai-config-sync","summary":"以私有 Git repo 讓多台裝置的 Claude Code／Codex 設定與跨工具 skill 保持一致的零相依 Node.js CLI","updatedAt":"2026-08-27T00:00:00Z"},"nodes":[{"id":"cli-entry","label":"CLI 入口與分派","kind":"entrypoint","group":"cli","summary":"parseArgs 解析旗標（白名單外一律 INVALID_ARGS）、assertNoSwallowedNpmFlags 擋下被 npm 吞掉的 --dry-run／--yes，再由 COMMANDS 表與 runCommand 的 switch 分派","notes":["新增指令需同步改 COMMANDS、runCommand 的 switch 與 README 三處"],"page":"modules/cli.html","x":838,"y":12,"w":158,"h":54},{"id":"sync-commands","label":"同步指令實作","kind":"module","group":"cli","summary":"runDiff／runStatus／runToRepo／runToLocal：組出同步項目、印預覽、確認後套用，並在部分失敗時補印已寫入的變更","page":"modules/cli.html","x":854,"y":190,"w":158,"h":54},{"id":"wsl-bridge","label":"WSL → Windows 橋接","kind":"job","group":"cli","summary":"to-win-local：以覆寫的 HOME 在子行程重跑 to-local，語意完全一致；非 WSL、路徑不存在或目標等同目前 HOME 皆拒絕執行。刻意不支援反向","notes":["實作方式是以覆寫的 HOME spawnSync 重跑本檔的 to-local，不另寫一套同步邏輯"],"page":"modules/cli.html","x":55,"y":190,"w":162.95,"h":54},{"id":"sync-manifest","label":"同步項目清單","kind":"module","group":"core","summary":"SYNC_MANIFEST 一列 = 一路徑，配合 SYNC_AREAS 的三個區，由 buildSyncItems 依 direction 具現成 SyncItem","notes":["刻意不列 codex/config.toml 與 ~/.claude.json，有回歸鎖把關"],"page":"modules/core.html","x":854,"y":368,"w":158,"h":54},{"id":"type-dispatch","label":"型別行為分派","kind":"module","group":"core","summary":"diffSyncItem／applySyncItem 依 SyncItem.type（file／settings／dir／xtool-dir）分派比較與套用；mcp 與 advisory 兩種舊型別已移除且有回歸鎖","page":"modules/core.html","x":854,"y":546,"w":158,"h":54},{"id":"settings-handler","label":"settings 合併器","kind":"module","group":"core","summary":"top-level 採黑名單制：partitionSettingsTopLevel 分出裝置偏好後，mergeSettingsBetween 依 direction 決定流向，src/dest 不隨 direction 交換","page":"modules/core.html","x":838,"y":724,"w":158,"h":54},{"id":"diff-engine","label":"差異比較引擎","kind":"module","group":"fs","summary":"diffFile／diffDir 全程唯讀、只輸出狀態行，不產生任何暫存檔；isEolOnlyDiff 讓跨平台換行差異不算差異","page":"modules/fs.html","x":1160,"y":724,"w":158,"h":54},{"id":"fs-io","label":"原子寫入與鏡射","kind":"library","group":"fs","summary":"writeFileSafe 先寫同目錄暫存檔再 rename，提供原子性但不付 fsync 成本；copyFile／mirrorDir／writeJsonSafe 全走此函式","page":"modules/fs.html","x":838,"y":902,"w":158,"h":54},{"id":"symlink-utils","label":"symlink 工具","kind":"library","group":"fs","summary":"ensureSymlink／createSymlinkAtomic／symlinkWithFallback：通用 FS 能力，刻意留在 sync.js 而非搬進 xtool-dir，避免通用工具與型別專屬邏輯糾纏","page":"modules/fs.html","x":468,"y":902,"w":158,"h":54},{"id":"safety-check","label":"safety-check.js","kind":"module","group":"standalone","summary":"唯讀離線掃描同步來源，hard block 機密與平台綁定、warning 供人工審核，只列分類與位置不輸出值","page":"modules/standalone.html","x":1259,"y":190,"w":158,"h":54},{"id":"toml-reader","label":"toml-reader.js","kind":"library","group":"standalone","summary":"TOML 邏輯語句讀取器，純函式零 IO。section 歸屬正確性直接決定 hard block 判斷，malformed header 與未閉合 value 皆 fail closed","notes":["唯一消費者是 safety-check.js，是安全防線的回歸網，不可刪"],"page":"modules/standalone.html","x":1233,"y":368,"w":158,"h":54},{"id":"skills-module","label":"skills.js","kind":"module","group":"standalone","summary":"skills:diff／add／remove：讀 repo 的 skills-lock.json 與本機 ~/.agents/.skill-lock.json 做三向集合差，只輸出建議指令、不執行安裝或移除","page":"modules/standalone.html","x":280,"y":902,"w":158,"h":54},{"id":"xtool-dir","label":"xtool-dir.js","kind":"module","group":"standalone","summary":"xtool-dir 型的型別專屬邏輯：與 npx skills 共管 ~/.agents/skills，非 prune upsert、只認受管名字、撞名拒寫，並負責 ~/.claude 探索點橋接與 D5 閘門","page":"modules/standalone.html","x":484,"y":724,"w":158,"h":54},{"id":"repo-sources","label":"repo 同步來源","kind":"database","group":"endpoints","summary":"claude/、codex/、agents/ 三個無點目錄，即進版控的設定正本；.claude/、.codex/ 等有點目錄不參與同步","page":"modules/endpoints.html","x":1160,"y":1080,"w":158,"h":54},{"id":"claude-home","label":"~/.claude","kind":"external","group":"endpoints","summary":"Claude Code 本機設定樹：CLAUDE.md、settings.json、statusline.sh、rules/，以及指向 ~/.agents/skills 的 skills symlink 橋","page":"modules/endpoints.html","x":494,"y":1080,"w":158,"h":54},{"id":"agents-home","label":"~/.agents/skills","kind":"external","group":"endpoints","summary":"跨工具全域 skill 的正典落點，Codex 原生掃描此處；與 npx skills 共管，非本工具受管的住戶不刪不吸","page":"modules/endpoints.html","x":652,"y":902,"w":158,"h":54},{"id":"codex-home","label":"~/.codex","kind":"external","group":"endpoints","summary":"Codex 全域設定樹；只同步 AGENTS.md，config.toml 永不被本工具寫入或讀取","page":"modules/endpoints.html","x":838,"y":1080,"w":158,"h":54}],"edges":[{"id":"cli-to-commands","from":"cli-entry","to":"sync-commands","label":"runCommand switch","pts":[{"x":933,"y":66},{"x":933,"y":190}],"lx":867.7625,"ly":128,"lw":117.52500000000003},{"id":"cli-to-wsl","from":"cli-entry","to":"wsl-bridge","label":"case to-win-local","pts":[{"x":870,"y":66},{"x":870,"y":76},{"x":136,"y":76},{"x":136,"y":190}],"lx":70.76250000000002,"ly":128,"lw":117.52500000000003},{"id":"cli-to-skills","from":"cli-entry","to":"skills-module","label":"case skills:*","pts":[{"x":901,"y":66},{"x":901,"y":86},{"x":236,"y":86},{"x":236,"y":858},{"x":333,"y":858},{"x":333,"y":902}],"lx":184.1125,"ly":484,"lw":92.22500000000002},{"id":"cli-to-safety","from":"cli-entry","to":"safety-check","label":"case safety:check","pts":[{"x":964,"y":66},{"x":964,"y":76},{"x":1338,"y":76},{"x":1338,"y":190}],"lx":1272.7625,"ly":128,"lw":117.52500000000003},{"id":"commands-to-manifest","from":"sync-commands","to":"sync-manifest","label":"buildSyncItems","pts":[{"x":933,"y":244},{"x":933,"y":368}],"lx":877.275,"ly":306,"lw":98.55000000000003},{"id":"manifest-to-dispatch","from":"sync-manifest","to":"type-dispatch","label":"SyncItem[]","pts":[{"x":933,"y":422},{"x":933,"y":546}],"lx":890.625,"ly":484,"lw":73.25000000000001},{"id":"dispatch-to-settings","from":"type-dispatch","to":"settings-handler","label":"type=settings","pts":[{"x":917,"y":600},{"x":917,"y":724}],"lx":865.1125,"ly":662,"lw":92.22500000000002},{"id":"dispatch-to-xtool","from":"type-dispatch","to":"xtool-dir","label":"type=xtool-dir","pts":[{"x":886,"y":600},{"x":886,"y":610},{"x":563,"y":610},{"x":563,"y":724}],"lx":507.2750000000001,"ly":662,"lw":98.55000000000003},{"id":"dispatch-to-fs","from":"type-dispatch","to":"fs-io","label":"type=file / dir","pts":[{"x":949,"y":600},{"x":949,"y":620},{"x":1090,"y":620},{"x":1090,"y":680},{"x":1133,"y":680},{"x":1133,"y":858},{"x":957,"y":858},{"x":957,"y":902}],"lx":1074.4375,"ly":751,"lw":104.87500000000003},{"id":"dispatch-to-diff","from":"type-dispatch","to":"diff-engine","label":"diffFile / diffDir","pts":[{"x":980,"y":600},{"x":980,"y":610},{"x":1239,"y":610},{"x":1239,"y":724}],"lx":1170.9249999999997,"ly":662,"lw":123.85000000000004},{"id":"settings-to-fs","from":"settings-handler","to":"fs-io","label":"writeJsonSafe","pts":[{"x":917,"y":778},{"x":917,"y":902}],"lx":865.1125,"ly":840,"lw":92.22500000000002},{"id":"xtool-to-fs","from":"xtool-dir","to":"fs-io","label":"DI 注入 mirrorDir","pts":[{"x":610,"y":778},{"x":610,"y":788},{"x":803,"y":788},{"x":803,"y":858},{"x":878,"y":858},{"x":878,"y":902}],"lx":739.6125,"ly":840,"lw":115.22500000000002},{"id":"xtool-to-symlink","from":"xtool-dir","to":"symlink-utils","label":"DI 注入 ensureSymlink","pts":[{"x":547,"y":778},{"x":547,"y":902}],"lx":470.26250000000005,"ly":840,"lw":140.52500000000003},{"id":"xtool-to-skills","from":"xtool-dir","to":"skills-module","label":"loadSkillsFromLock","pts":[{"x":516,"y":778},{"x":516,"y":788},{"x":385,"y":788},{"x":385,"y":902}],"lx":316.925,"ly":840,"lw":123.85000000000004},{"id":"safety-to-toml","from":"safety-check","to":"toml-reader","label":"readTomlStatements","pts":[{"x":1312,"y":244},{"x":1312,"y":368}],"lx":1243.9249999999997,"ly":306,"lw":123.85000000000004},{"id":"safety-to-repo","from":"safety-check","to":"repo-sources","label":"collectSafetyScanFiles","pts":[{"x":1364,"y":244},{"x":1364,"y":254},{"x":1409,"y":254},{"x":1409,"y":1036},{"x":1279,"y":1036},{"x":1279,"y":1080}],"lx":1328.575,"ly":662,"lw":149.15000000000003},{"id":"diff-to-repo","from":"diff-engine","to":"repo-sources","label":"唯讀比對","pts":[{"x":1239,"y":778},{"x":1239,"y":1080}],"lx":1205,"ly":929,"lw":56},{"id":"fs-to-claude","from":"fs-io","to":"claude-home","label":"mirrorDir / copyFile","pts":[{"x":878,"y":956},{"x":878,"y":966},{"x":835,"y":966},{"x":835,"y":1036},{"x":599,"y":1036},{"x":599,"y":1080}],"lx":760.25,"ly":1018,"lw":136.50000000000006},{"id":"fs-to-codex","from":"fs-io","to":"codex-home","label":"copyFile","pts":[{"x":917,"y":956},{"x":917,"y":1080}],"lx":880.3,"ly":1018,"lw":60.60000000000001},{"id":"fs-to-repo","from":"fs-io","to":"repo-sources","label":"to-repo 寫入","pts":[{"x":957,"y":956},{"x":957,"y":966},{"x":1200,"y":966},{"x":1200,"y":1080}],"lx":1151.8,"ly":1018,"lw":83.60000000000001},{"id":"symlink-to-claude","from":"symlink-utils","to":"claude-home","label":"skills 橋接","pts":[{"x":547,"y":956},{"x":547,"y":1080}],"lx":502.6375,"ly":1018,"lw":77.275},{"id":"xtool-to-agents","from":"xtool-dir","to":"agents-home","label":"upsertOneSkill","pts":[{"x":579,"y":778},{"x":579,"y":798},{"x":667,"y":798},{"x":667,"y":858},{"x":731,"y":858},{"x":731,"y":902}],"lx":611.275,"ly":840,"lw":98.55000000000003}],"flows":[{"id":"to-local","label":"to-local：repo → 本機","summary":"預覽後套用；settings.json 走合併器，其餘走鏡射","steps":[{"node":"cli-entry","label":"解析旗標與指令"},{"node":"sync-commands","label":"runToLocal 組出項目並確認"},{"node":"sync-manifest","label":"buildSyncItems 具現"},{"node":"type-dispatch","label":"依 type 分派"},{"node":"fs-io","label":"原子寫入"},{"node":"claude-home","label":"落地"}]},{"id":"safety-scan","label":"safety:check：唯讀掃描","summary":"commit 前檢查同步來源是否含機密或平台綁定","steps":[{"node":"cli-entry","label":"case safety:check"},{"node":"safety-check","label":"掃 claude/ codex/ agents/"},{"node":"toml-reader","label":"解析 .toml section 歸屬"}]},{"id":"skill-bridge","label":"跨工具 skill 落地","summary":"正典寫入 ~/.agents 後，於 ~/.claude 建探索點 symlink","steps":[{"node":"type-dispatch","label":"type 為 xtool-dir"},{"node":"xtool-dir","label":"非 prune upsert"},{"node":"agents-home","label":"寫入正典"}]},{"id":"win-bridge","label":"to-win-local：套用到 Windows 家目錄","summary":"僅限 WSL 內，以覆寫的 HOME 重跑 to-local","steps":[{"node":"cli-entry","label":"case to-win-local"},{"node":"wsl-bridge","label":"探測 %USERPROFILE%、檢查前提後以新 HOME 重跑 to-local"}]}],"sources":{"cli-entry":[{"path":"sync.js","line":2102,"note":"parseArgs：白名單外的旗標拋 INVALID_ARGS，不靜默忽略"},{"path":"sync.js","line":2159,"note":"assertNoSwallowedNpmFlags：偵測 npm_config_dry_run／yes 並 fail fast"},{"path":"sync.js","line":91,"note":"COMMANDS：名稱／別名／說明的單一來源"},{"path":"sync.js","line":2313,"note":"runCommand 的明確 switch"}],"sync-commands":[{"path":"sync.js","line":1682,"note":"runDiff"},{"path":"sync.js","line":1794,"note":"runToRepo"},{"path":"sync.js","line":1901,"note":"runToLocal：先預覽再確認"},{"path":"sync.js","line":1522,"note":"warnPartialApply：部分寫入不得零可見度"}],"wsl-bridge":[{"path":"sync.js","line":2030,"note":"runToWinLocal"},{"path":"sync.js","line":1994,"note":"resolveWinHome：位置引數／環境變數覆寫與前提檢查"},{"path":"sync.js","line":1952,"note":"isWsl：非 WSL 拒絕執行"},{"path":"sync.js","line":1980,"note":"detectWinHome：由 cmd.exe 的 %USERPROFILE% 探測"},{"path":"sync.js","line":2041,"note":"spawnSync 以覆寫的 HOME 重跑本檔的 to-local"}],"sync-manifest":[{"path":"sync.js","line":1207,"note":"SYNC_MANIFEST 六列"},{"path":"sync.js","line":1187,"note":"SYNC_AREAS：claude／codex／agents 三區"},{"path":"sync.js","line":1255,"note":"buildSyncItems 依 direction 具現"},{"path":"sync.js","line":1234,"note":"materializeSyncItem：解析本機端與 repo 端路徑"}],"type-dispatch":[{"path":"sync.js","line":1435,"note":"diffSyncItem 的 type switch"},{"path":"sync.js","line":1452,"note":"applySyncItem 的 type switch"}],"settings-handler":[{"path":"sync.js","line":1145,"note":"mergeSettingsBetween 依 direction 決定流向"},{"path":"sync.js","line":994,"note":"partitionSettingsTopLevel：strip／preserve 同源保證互補"},{"path":"sync.js","line":48,"note":"DEVICE_SETTINGS_KEYS 黑名單"}],"diff-engine":[{"path":"sync.js","line":865,"note":"diffFile"},{"path":"sync.js","line":893,"note":"diffDir"},{"path":"sync.js","line":880,"note":"isEolOnlyDiff：跨平台換行差異不算差異"}],"fs-io":[{"path":"sync.js","line":430,"note":"writeFileSafe：暫存檔 + rename，原子但不 fsync"},{"path":"sync.js","line":627,"note":"mirrorDir：部分失敗時附掛 partialChanges"},{"path":"sync.js","line":498,"note":"copyFile"},{"path":"sync.js","line":454,"note":"writeJsonSafe"}],"symlink-utils":[{"path":"sync.js","line":789,"note":"ensureSymlink：幂等維護"},{"path":"sync.js","line":760,"note":"createSymlinkAtomic"},{"path":"sync.js","line":735,"note":"symlinkWithFallback：Windows 無權限時的退路"}],"safety-check":[{"path":"safety-check.js","line":150,"note":"createSafetyChecker DI factory"},{"path":"safety-check.js","line":109,"note":"SAFETY_SCAN_DIRS：claude／codex／agents"},{"path":"safety-check.js","line":100,"note":"CODEX_CONFIG_HARD_BLOCK_SECTIONS"}],"toml-reader":[{"path":"toml-reader.js","line":267,"note":"readTomlStatements"},{"path":"toml-reader.js","line":183,"note":"splitTomlKey：機密 section 正規化的關鍵"},{"path":"toml-reader.js","line":80,"note":"findTomlHeaderEnd：引號感知 header 解析"}],"skills-module":[{"path":"skills.js","line":110,"note":"createSkillsHandler DI factory"},{"path":"skills.js","line":141,"note":"runSkillsDiff：只輸出建議指令"},{"path":"skills.js","line":44,"note":"computeSkillsDiff 三向集合差"}],"xtool-dir":[{"path":"xtool-dir.js","line":92,"note":"createXtoolDir DI factory"},{"path":"xtool-dir.js","line":319,"note":"upsertOneSkill：非 prune"},{"path":"xtool-dir.js","line":137,"note":"bridgeUnsafeReason：D5 閘門"},{"path":"xtool-dir.js","line":200,"note":"isNpxManagedSkill：撞名判準 D6"}],"repo-sources":[{"path":"claude/settings.json","line":1},{"path":"codex/AGENTS.md","line":1},{"path":"agents/skills","note":"跨工具全域 skill 的 repo 來源"}],"claude-home":[{"path":"sync.js","line":32,"note":"CLAUDE_HOME 常數"},{"path":"sync.js","line":41,"note":"CLAUDE_SKILLS_HOME：symlink 橋所在"}],"agents-home":[{"path":"sync.js","line":40,"note":"AGENTS_SKILLS_HOME 常數"},{"path":"sync.js","line":42,"note":"REPO_AGENTS_SKILLS 對應來源"}],"codex-home":[{"path":"sync.js","line":33,"note":"CODEX_HOME 常數"}],"cli-to-commands":[{"path":"sync.js","line":2315,"note":"case 'diff'／'to-repo'／'to-local' 轉入各 runXxx"}],"cli-to-wsl":[{"path":"sync.js","line":2319,"note":"case 'to-win-local'"}],"cli-to-skills":[{"path":"sync.js","line":2321,"note":"case 'skills:diff' 等三個 case"}],"cli-to-safety":[{"path":"sync.js","line":2320,"note":"case 'safety:check'"}],"commands-to-manifest":[{"path":"sync.js","line":1255,"note":"各 runXxx 皆由此取得同步項目"}],"manifest-to-dispatch":[{"path":"sync.js","line":1468,"note":"diffSyncItems 逐項分派"},{"path":"sync.js","line":1483,"note":"applySyncItems 逐項分派"}],"dispatch-to-settings":[{"path":"sync.js","line":1304,"note":"diffSettingsItem"}],"dispatch-to-xtool":[{"path":"sync.js","line":2078,"note":"xtoolDir() lazy singleton，由 type switch 轉接"}],"dispatch-to-fs":[{"path":"sync.js","line":1409,"note":"applyDirItem 呼叫 mirrorDir"}],"dispatch-to-diff":[{"path":"sync.js","line":1342,"note":"diffFileItem"},{"path":"sync.js","line":1365,"note":"diffDirItems"}],"settings-to-fs":[{"path":"sync.js","line":1145,"note":"合併結果經 writeJsonSafe 落地"}],"xtool-to-fs":[{"path":"sync.js","line":2081,"note":"getFiles／diffDir／mirrorDir 以 deps 注入"}],"xtool-to-symlink":[{"path":"sync.js","line":2081,"note":"ensureSymlink 同批注入；工具層刻意留在 sync.js"}],"xtool-to-skills":[{"path":"sync.js","line":2087,"note":"loadSkillsFromLock 以 lazy wrapper 注入，保住 skills handler 的 lazy 語意"}],"safety-to-toml":[{"path":"safety-check.js","line":40,"note":"直接 require toml-reader.js（純函式、非 sync.js，不違反反向 require 禁令）"}],"safety-to-repo":[{"path":"safety-check.js","line":164,"note":"collectSafetyScanFiles"}],"diff-to-repo":[{"path":"sync.js","line":893,"note":"diffDir 唯讀比對，不產生暫存檔"}],"fs-to-claude":[{"path":"sync.js","line":627,"note":"rules/ 等 dir 型項目經 mirrorDir 落地"}],"fs-to-codex":[{"path":"sync.js","line":498,"note":"AGENTS.md 為 file 型，走 copyFile"}],"fs-to-repo":[{"path":"sync.js","line":1794,"note":"runToRepo：本機 → repo 方向"}],"symlink-to-claude":[{"path":"sync.js","line":41,"note":"~/.claude/skills 為探索點橋，指向 ~/.agents/skills"}],"xtool-to-agents":[{"path":"xtool-dir.js","line":319,"note":"upsertOneSkill 寫入 ~/.agents/skills/<name>"}]},"groups":[{"id":"cli","label":"CLI 入口","description":"引數解析、指令分派與各指令實作"},{"id":"core","label":"同步核心","description":"宣告式清單、型別分派與 settings 專屬流向"},{"id":"fs","label":"檔案系統層","description":"差異比較與原子寫入，同步項目共用的底層能力"},{"id":"standalone","label":"獨立模組","description":"以 DI 注入接收共用工具、不反向 require sync.js 的四個檔"},{"id":"endpoints","label":"同步端點","description":"repo 來源與三個本機設定樹"}],"view":{},"size":{"w":1429,"h":1146}}</script><script>
+const D=JSON.parse(document.getElementById('project-data').textContent);
+const NS='http://www.w3.org/2000/svg',svg=document.getElementById('graph'),
+panel=document.getElementById('details');
+const PALETTE=['#73daca','#7aa2f7','#bb9af7','#e0af68','#f7768e','#9ece6a','#2ac3de','#ff9e64'];
+const groupColor={};(D.groups||[]).forEach((g,i)=>groupColor[g.id]=PALETTE[i%PALETTE.length]);
+const groupLabel=id=>((D.groups||[]).find(g=>g.id===id)||{}).label||id;
+const byId=Object.fromEntries(D.nodes.map(n=>[n.id,n]));
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function E(n,a){const x=document.createElementNS(NS,n);
+for(const k in(a||{}))x.setAttribute(k,a[k]);return x}
+
+const vp=E('g'),gEdges=E('g'),gNodes=E('g');vp.append(gEdges,gNodes);svg.append(vp);
+const defs=E('defs');svg.append(defs);
+const toneOf=id=>{const n=byId[id];return n&&n.group?groupColor[n.group]:'#5a6b91'};
+function marker(id,fill){
+  const m=E('marker',{id:id,viewBox:'0 0 10 10',refX:9,refY:5,
+    markerWidth:5.5,markerHeight:5.5,orient:'auto'});
+  m.append(E('path',{d:'M0 0L10 5L0 10z',fill:fill}));defs.append(m);return id}
+marker('arrow','#5a6b91');marker('arrow-hot','#73daca');
+(D.groups||[]).forEach(g=>marker('arrow-'+g.id,groupColor[g.id]));
+(function(){const lg=E('linearGradient',{id:'nodeFill',x1:0,y1:0,x2:0,y2:1});
+  lg.append(E('stop',{offset:'0%','stop-color':'#18223c'}),
+            E('stop',{offset:'100%','stop-color':'#121a30'}));defs.append(lg)})();
+
+/** ELK 的正交折線轉成帶圓角的路徑，轉角不會是生硬的直角。 */
+function roundedPath(pts,r){
+  if(!pts||pts.length<2)return'';
+  let d='M'+pts[0].x+' '+pts[0].y;
+  for(let i=1;i<pts.length-1;i++){
+    const p=pts[i],a=pts[i-1],b=pts[i+1];
+    const d1=Math.hypot(p.x-a.x,p.y-a.y),d2=Math.hypot(b.x-p.x,b.y-p.y);
+    if(!d1||!d2)continue;
+    const r1=Math.min(r,d1/2),r2=Math.min(r,d2/2);
+    d+='L'+(p.x+(a.x-p.x)/d1*r1)+' '+(p.y+(a.y-p.y)/d1*r1)+
+       'Q'+p.x+' '+p.y+' '+(p.x+(b.x-p.x)/d2*r2)+' '+(p.y+(b.y-p.y)/d2*r2)}
+  const last=pts[pts.length-1];
+  return d+'L'+last.x+' '+last.y}
+
+const edgeEls={},nodeEls={};
+D.edges.forEach((e,i)=>{
+  const g=E('g',{class:'eg'}),d=roundedPath(e.pts,10);
+  const path=E('path',{d:d,class:'edge'+(e.status==='stale'?' stale':'')});
+  // 線色由來源 group 漸變到目標 group：看得出這條關係跨越哪兩個模組
+  if(e.pts.length>1&&e.status!=='stale'){
+    const a=e.pts[0],b=e.pts[e.pts.length-1],gid='eg-'+e.id;
+    const lg=E('linearGradient',{id:gid,gradientUnits:'userSpaceOnUse',
+      x1:a.x,y1:a.y,x2:b.x,y2:b.y});
+    lg.append(E('stop',{offset:'0%','stop-color':toneOf(e.from),'stop-opacity':.85}),
+              E('stop',{offset:'100%','stop-color':toneOf(e.to),'stop-opacity':.85}));
+    defs.append(lg);
+    path.style.setProperty('--edge-stroke','url(#'+gid+')');
+    const tg=byId[e.to].group;
+    if(tg)path.setAttribute('marker-end','url(#arrow-'+tg+')')}
+  const hit=E('path',{d:d,class:'ehit'});
+  g.append(path,hit);gEdges.append(g);
+  if(e.lx!=null){
+    g.append(E('rect',{class:'ebg',x:e.lx-e.lw/2,y:e.ly-9,width:e.lw,height:18}));
+    const t=E('text',{class:'elabel',x:e.lx,y:e.ly});t.textContent=e.label;g.append(t)}
+  const tip=E('title');
+  tip.textContent=byId[e.from].label+' → '+byId[e.to].label+'：'+e.label;g.append(tip);
+  hit.onclick=ev=>{ev.stopPropagation();showEdge(e)};
+  g.style.animationDelay=(i*16)+'ms';
+  edgeEls[e.id]={g:g,path:path}});
+
+D.nodes.forEach((n,i)=>{
+  const g=E('g',{class:'node'+(n.status==='stale'?' stale':'')+(n.external?' external':''),
+    transform:'translate('+n.x+','+n.y+')',tabindex:'0'});
+  const tone=n.group?groupColor[n.group]:'#3a4a6b';
+  const bx=E('rect',{class:'box',width:n.w,height:n.h});
+  bx.style.stroke=tone+(n.external?'55':'88');g.append(bx);
+  g.append(E('rect',{width:4,height:n.h-16,x:0,y:8,rx:2,fill:tone}));
+  const l=E('text',{class:'lbl',x:17,y:21});l.textContent=n.label;g.append(l);
+  const k=E('text',{class:'kind',x:17,y:39});
+  k.textContent=n.kind+(n.group?' · '+groupLabel(n.group):'');
+  if(n.group)k.style.fill=tone;g.append(k);
+  const tip=E('title');tip.textContent=n.label+' — '+n.summary;g.append(tip);
+  g.onclick=ev=>{ev.stopPropagation();showNode(n)};
+  g.onkeydown=ev=>{if(ev.key==='Enter')showNode(n)};
+  g.style.animationDelay=(60+i*22)+'ms';
+  gNodes.append(g);nodeEls[n.id]=g});
+
+let view={x:0,y:0,k:1};
+function applyView(){vp.setAttribute('transform',
+  'translate('+view.x+','+view.y+') scale('+view.k+')')}
+function fit(){
+  const r=svg.getBoundingClientRect(),pad=42;
+  view.k=Math.min(1.2,(r.width-pad*2)/Math.max(1,D.size.w),(r.height-pad*2)/Math.max(1,D.size.h));
+  view.x=(r.width-D.size.w*view.k)/2;view.y=(r.height-D.size.h*view.k)/2+10;applyView()}
+svg.addEventListener('wheel',e=>{e.preventDefault();
+  const r=svg.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;
+  const k=Math.min(2.6,Math.max(.25,view.k*(e.deltaY<0?1.12:1/1.12)));
+  view.x=mx-(mx-view.x)*k/view.k;view.y=my-(my-view.y)*k/view.k;view.k=k;applyView()},
+  {passive:false});
+let drag=null,moved=false;
+svg.addEventListener('pointerdown',e=>{drag={x:e.clientX-view.x,y:e.clientY-view.y};moved=false;
+  svg.classList.add('panning');svg.setPointerCapture(e.pointerId)});
+svg.addEventListener('pointermove',e=>{if(!drag)return;moved=true;
+  view.x=e.clientX-drag.x;view.y=e.clientY-drag.y;applyView()});
+svg.addEventListener('pointerup',()=>{drag=null;svg.classList.remove('panning')});
+
+function clearFocus(){
+  Object.keys(nodeEls).forEach(id=>nodeEls[id].classList.remove('dim','selected'));
+  Object.keys(edgeEls).forEach(id=>{edgeEls[id].g.classList.remove('dim');
+    edgeEls[id].path.classList.remove('hot')})}
+/** 只留焦點與其鄰居為亮色，其餘淡出——密圖可讀性的主要手段。 */
+function focusOn(nodeIds,edgeIds){
+  clearFocus();
+  Object.keys(nodeEls).forEach(id=>{if(!nodeIds.has(id))nodeEls[id].classList.add('dim')});
+  Object.keys(edgeEls).forEach(id=>{
+    if(edgeIds.has(id))edgeEls[id].path.classList.add('hot');
+    else edgeEls[id].g.classList.add('dim')})}
+
+const ev=id=>{const l=(D.sources[id]||[]).map(x=>'<li><code>'+esc(x.path)+
+  (x.line?':'+x.line:'')+'</code>'+(x.note?'<br><span class="muted">'+esc(x.note)+'</span>':'')+
+  '</li>').join('');
+  return'<h3>程式碼證據</h3>'+(l?'<ul>'+l+'</ul>':'<p class="muted">尚無證據。</p>')};
+const relRow=(e,other,dir)=>'<div class="rel" data-eid="'+esc(e.id)+'">'+
+  (dir==='out'?'→ ':'← ')+'<b>'+esc(byId[other]?byId[other].label:other)+'</b><br>'+
+  '<span class="muted">'+esc(e.label)+'</span></div>';
+
+function showNode(n){
+  const outs=D.edges.filter(e=>e.from===n.id),ins=D.edges.filter(e=>e.to===n.id);
+  const ids=new Set([n.id]);outs.forEach(e=>ids.add(e.to));ins.forEach(e=>ids.add(e.from));
+  focusOn(ids,new Set(outs.concat(ins).map(e=>e.id)));
+  nodeEls[n.id].classList.add('selected');
+  const link=n.page&&!n.current?'<p><a href="'+esc(n.page)+'">開啟「'+
+    esc(groupLabel(n.group))+'」模組頁 →</a></p>':'';
+  const notes=(n.notes||[]).map(t=>'<li>'+esc(t)+'</li>').join('');
+  panel.innerHTML='<h2>'+esc(n.label)+'</h2><p>'+
+    '<span class="pill">'+esc(n.kind)+'</span>'+
+    (n.group?'<span class="pill">'+esc(groupLabel(n.group))+'</span>':'')+
+    (n.status==='stale'?'<span class="pill stale">stale</span>':'')+
+    (n.external?'<span class="pill">外部</span>':'')+'</p><p>'+esc(n.summary)+'</p>'+link+
+    (outs.length?'<h3>輸出關係</h3>'+outs.map(e=>relRow(e,e.to,'out')).join(''):'')+
+    (ins.length?'<h3>輸入關係</h3>'+ins.map(e=>relRow(e,e.from,'in')).join(''):'')+
+    (notes?'<h3>註記</h3><ul>'+notes+'</ul>':'')+ev(n.id)}
+
+function showEdge(e){
+  focusOn(new Set([e.from,e.to]),new Set([e.id]));
+  panel.innerHTML='<h2>'+esc(byId[e.from].label)+' <span class="muted">→</span> '+
+    esc(byId[e.to].label)+'</h2><p><span class="pill">'+esc(e.label)+'</span>'+
+    (e.status==='stale'?'<span class="pill stale">stale</span>':'')+'</p>'+ev(e.id)}
+
+panel.addEventListener('click',e=>{const row=e.target.closest('.rel');if(!row)return;
+  const edge=D.edges.find(x=>x.id===row.getAttribute('data-eid'));if(edge)showEdge(edge)});
+
+const HOWTO='<h3>怎麼看</h3><ul><li>點節點：只留下它的直接鄰居，其餘淡出</li>'+
+  '<li>點關係線：看該關係的程式碼證據</li>'+
+  '<li>左上選單挑流程：只亮出該條路徑</li></ul>';
+const statRow=pairs=>'<div class="stat">'+pairs.map(p=>'<div><b>'+p[0]+'</b>'+p[1]+'</div>').join('')+'</div>';
+
+/** 側欄預設內容：總覽頁講整個專案，模組頁講這個模組本身。 */
+function overview(){
+  clearFocus();
+  const v=D.view;
+  if(v&&v.group){
+    const own=D.nodes.filter(n=>!n.external);
+    panel.innerHTML='<h2>'+esc(v.label)+'</h2>'+
+      (v.description?'<p class="muted">'+esc(v.description)+'</p>':'')+
+      statRow([[own.length,'本模組節點'],[D.nodes.length-own.length,'相鄰外部'],
+               [D.edges.length,'關係'],[(D.flows||[]).length,'相關流程']])+
+      '<h3>本模組節點</h3><ul>'+own.map(n=>'<li><b>'+esc(n.label)+'</b><br>'+
+        '<span class="muted">'+esc(n.summary)+'</span></li>').join('')+'</ul>'+
+      '<p><a href="'+esc(v.home)+'">← 回專案總覽</a></p>'+HOWTO;
+    return}
+  const mods=(D.groups||[]).map(g=>'<li>'+esc(g.label)+(g.description?
+    ' — <span class="muted">'+esc(g.description)+'</span>':'')+'</li>').join('');
+  panel.innerHTML='<h2>'+esc(D.project.name)+'</h2><p class="muted">'+esc(D.project.summary)+'</p>'+
+    statRow([[D.nodes.length,'節點'],[D.edges.length,'關係'],
+             [(D.groups||[]).length,'模組'],[(D.flows||[]).length,'流程']])+
+    (mods?'<h3>模組</h3><ul>'+mods+'</ul>':'')+HOWTO}
+svg.addEventListener('click',()=>{if(!moved)overview()});
+
+const flowSel=document.getElementById('flow');
+(D.flows||[]).forEach(f=>{const o=document.createElement('option');
+  o.value=f.id;o.textContent=f.label;flowSel.append(o)});
+flowSel.onchange=()=>{
+  const f=(D.flows||[]).find(x=>x.id===flowSel.value);
+  if(!f){overview();return}
+  const ids=new Set(f.steps.map(s=>s.node)),eids=new Set();
+  for(let i=1;i<f.steps.length;i++){
+    const a=f.steps[i-1].node,b=f.steps[i].node;
+    const hit=D.edges.find(e=>(e.from===a&&e.to===b)||(e.from===b&&e.to===a));
+    if(hit)eids.add(hit.id)}
+  focusOn(ids,eids);
+  panel.innerHTML='<h2>'+esc(f.label)+'</h2><p class="muted">'+esc(f.summary||'')+'</p>'+
+    f.steps.map((s,i)=>'<div class="flow-step"><b>'+(i+1)+'. '+
+      esc(byId[s.node]?byId[s.node].label:s.node)+'</b><br><span class="muted">'+
+      esc(s.label||'')+'</span></div>').join('')};
+document.getElementById('reset').onclick=()=>{flowSel.value='';fit();overview()};
+document.getElementById('summary').textContent=D.project.summary+' · 更新 '+D.project.updatedAt;
+addEventListener('resize',fit);
+fit();overview();
+</script></body></html>

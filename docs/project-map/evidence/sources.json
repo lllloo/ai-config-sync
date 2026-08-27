@@ -1,0 +1,465 @@
+{
+  "schemaVersion": 1,
+  "sources": {
+    "cli-entry": [
+      {
+        "path": "sync.js",
+        "line": 2102,
+        "note": "parseArgs：白名單外的旗標拋 INVALID_ARGS，不靜默忽略"
+      },
+      {
+        "path": "sync.js",
+        "line": 2159,
+        "note": "assertNoSwallowedNpmFlags：偵測 npm_config_dry_run／yes 並 fail fast"
+      },
+      {
+        "path": "sync.js",
+        "line": 91,
+        "note": "COMMANDS：名稱／別名／說明的單一來源"
+      },
+      {
+        "path": "sync.js",
+        "line": 2313,
+        "note": "runCommand 的明確 switch"
+      }
+    ],
+    "sync-commands": [
+      {
+        "path": "sync.js",
+        "line": 1682,
+        "note": "runDiff"
+      },
+      {
+        "path": "sync.js",
+        "line": 1794,
+        "note": "runToRepo"
+      },
+      {
+        "path": "sync.js",
+        "line": 1901,
+        "note": "runToLocal：先預覽再確認"
+      },
+      {
+        "path": "sync.js",
+        "line": 1522,
+        "note": "warnPartialApply：部分寫入不得零可見度"
+      }
+    ],
+    "wsl-bridge": [
+      {
+        "path": "sync.js",
+        "line": 2030,
+        "note": "runToWinLocal"
+      },
+      {
+        "path": "sync.js",
+        "line": 1994,
+        "note": "resolveWinHome：位置引數／環境變數覆寫與前提檢查"
+      },
+      {
+        "path": "sync.js",
+        "line": 1952,
+        "note": "isWsl：非 WSL 拒絕執行"
+      },
+      {
+        "path": "sync.js",
+        "line": 1980,
+        "note": "detectWinHome：由 cmd.exe 的 %USERPROFILE% 探測"
+      },
+      {
+        "path": "sync.js",
+        "line": 2041,
+        "note": "spawnSync 以覆寫的 HOME 重跑本檔的 to-local"
+      }
+    ],
+    "sync-manifest": [
+      {
+        "path": "sync.js",
+        "line": 1207,
+        "note": "SYNC_MANIFEST 六列"
+      },
+      {
+        "path": "sync.js",
+        "line": 1187,
+        "note": "SYNC_AREAS：claude／codex／agents 三區"
+      },
+      {
+        "path": "sync.js",
+        "line": 1255,
+        "note": "buildSyncItems 依 direction 具現"
+      },
+      {
+        "path": "sync.js",
+        "line": 1234,
+        "note": "materializeSyncItem：解析本機端與 repo 端路徑"
+      }
+    ],
+    "type-dispatch": [
+      {
+        "path": "sync.js",
+        "line": 1435,
+        "note": "diffSyncItem 的 type switch"
+      },
+      {
+        "path": "sync.js",
+        "line": 1452,
+        "note": "applySyncItem 的 type switch"
+      }
+    ],
+    "settings-handler": [
+      {
+        "path": "sync.js",
+        "line": 1145,
+        "note": "mergeSettingsBetween 依 direction 決定流向"
+      },
+      {
+        "path": "sync.js",
+        "line": 994,
+        "note": "partitionSettingsTopLevel：strip／preserve 同源保證互補"
+      },
+      {
+        "path": "sync.js",
+        "line": 48,
+        "note": "DEVICE_SETTINGS_KEYS 黑名單"
+      }
+    ],
+    "diff-engine": [
+      {
+        "path": "sync.js",
+        "line": 865,
+        "note": "diffFile"
+      },
+      {
+        "path": "sync.js",
+        "line": 893,
+        "note": "diffDir"
+      },
+      {
+        "path": "sync.js",
+        "line": 880,
+        "note": "isEolOnlyDiff：跨平台換行差異不算差異"
+      }
+    ],
+    "fs-io": [
+      {
+        "path": "sync.js",
+        "line": 430,
+        "note": "writeFileSafe：暫存檔 + rename，原子但不 fsync"
+      },
+      {
+        "path": "sync.js",
+        "line": 627,
+        "note": "mirrorDir：部分失敗時附掛 partialChanges"
+      },
+      {
+        "path": "sync.js",
+        "line": 498,
+        "note": "copyFile"
+      },
+      {
+        "path": "sync.js",
+        "line": 454,
+        "note": "writeJsonSafe"
+      }
+    ],
+    "symlink-utils": [
+      {
+        "path": "sync.js",
+        "line": 789,
+        "note": "ensureSymlink：幂等維護"
+      },
+      {
+        "path": "sync.js",
+        "line": 760,
+        "note": "createSymlinkAtomic"
+      },
+      {
+        "path": "sync.js",
+        "line": 735,
+        "note": "symlinkWithFallback：Windows 無權限時的退路"
+      }
+    ],
+    "safety-check": [
+      {
+        "path": "safety-check.js",
+        "line": 150,
+        "note": "createSafetyChecker DI factory"
+      },
+      {
+        "path": "safety-check.js",
+        "line": 109,
+        "note": "SAFETY_SCAN_DIRS：claude／codex／agents"
+      },
+      {
+        "path": "safety-check.js",
+        "line": 100,
+        "note": "CODEX_CONFIG_HARD_BLOCK_SECTIONS"
+      }
+    ],
+    "toml-reader": [
+      {
+        "path": "toml-reader.js",
+        "line": 267,
+        "note": "readTomlStatements"
+      },
+      {
+        "path": "toml-reader.js",
+        "line": 183,
+        "note": "splitTomlKey：機密 section 正規化的關鍵"
+      },
+      {
+        "path": "toml-reader.js",
+        "line": 80,
+        "note": "findTomlHeaderEnd：引號感知 header 解析"
+      }
+    ],
+    "skills-module": [
+      {
+        "path": "skills.js",
+        "line": 110,
+        "note": "createSkillsHandler DI factory"
+      },
+      {
+        "path": "skills.js",
+        "line": 141,
+        "note": "runSkillsDiff：只輸出建議指令"
+      },
+      {
+        "path": "skills.js",
+        "line": 44,
+        "note": "computeSkillsDiff 三向集合差"
+      }
+    ],
+    "xtool-dir": [
+      {
+        "path": "xtool-dir.js",
+        "line": 92,
+        "note": "createXtoolDir DI factory"
+      },
+      {
+        "path": "xtool-dir.js",
+        "line": 319,
+        "note": "upsertOneSkill：非 prune"
+      },
+      {
+        "path": "xtool-dir.js",
+        "line": 137,
+        "note": "bridgeUnsafeReason：D5 閘門"
+      },
+      {
+        "path": "xtool-dir.js",
+        "line": 200,
+        "note": "isNpxManagedSkill：撞名判準 D6"
+      }
+    ],
+    "repo-sources": [
+      {
+        "path": "claude/settings.json",
+        "line": 1
+      },
+      {
+        "path": "codex/AGENTS.md",
+        "line": 1
+      },
+      {
+        "path": "agents/skills",
+        "note": "跨工具全域 skill 的 repo 來源"
+      }
+    ],
+    "claude-home": [
+      {
+        "path": "sync.js",
+        "line": 32,
+        "note": "CLAUDE_HOME 常數"
+      },
+      {
+        "path": "sync.js",
+        "line": 41,
+        "note": "CLAUDE_SKILLS_HOME：symlink 橋所在"
+      }
+    ],
+    "agents-home": [
+      {
+        "path": "sync.js",
+        "line": 40,
+        "note": "AGENTS_SKILLS_HOME 常數"
+      },
+      {
+        "path": "sync.js",
+        "line": 42,
+        "note": "REPO_AGENTS_SKILLS 對應來源"
+      }
+    ],
+    "codex-home": [
+      {
+        "path": "sync.js",
+        "line": 33,
+        "note": "CODEX_HOME 常數"
+      }
+    ],
+    "cli-to-commands": [
+      {
+        "path": "sync.js",
+        "line": 2315,
+        "note": "case 'diff'／'to-repo'／'to-local' 轉入各 runXxx"
+      }
+    ],
+    "cli-to-wsl": [
+      {
+        "path": "sync.js",
+        "line": 2319,
+        "note": "case 'to-win-local'"
+      }
+    ],
+    "cli-to-skills": [
+      {
+        "path": "sync.js",
+        "line": 2321,
+        "note": "case 'skills:diff' 等三個 case"
+      }
+    ],
+    "cli-to-safety": [
+      {
+        "path": "sync.js",
+        "line": 2320,
+        "note": "case 'safety:check'"
+      }
+    ],
+    "commands-to-manifest": [
+      {
+        "path": "sync.js",
+        "line": 1255,
+        "note": "各 runXxx 皆由此取得同步項目"
+      }
+    ],
+    "manifest-to-dispatch": [
+      {
+        "path": "sync.js",
+        "line": 1468,
+        "note": "diffSyncItems 逐項分派"
+      },
+      {
+        "path": "sync.js",
+        "line": 1483,
+        "note": "applySyncItems 逐項分派"
+      }
+    ],
+    "dispatch-to-settings": [
+      {
+        "path": "sync.js",
+        "line": 1304,
+        "note": "diffSettingsItem"
+      }
+    ],
+    "dispatch-to-xtool": [
+      {
+        "path": "sync.js",
+        "line": 2078,
+        "note": "xtoolDir() lazy singleton，由 type switch 轉接"
+      }
+    ],
+    "dispatch-to-fs": [
+      {
+        "path": "sync.js",
+        "line": 1409,
+        "note": "applyDirItem 呼叫 mirrorDir"
+      }
+    ],
+    "dispatch-to-diff": [
+      {
+        "path": "sync.js",
+        "line": 1342,
+        "note": "diffFileItem"
+      },
+      {
+        "path": "sync.js",
+        "line": 1365,
+        "note": "diffDirItems"
+      }
+    ],
+    "settings-to-fs": [
+      {
+        "path": "sync.js",
+        "line": 1145,
+        "note": "合併結果經 writeJsonSafe 落地"
+      }
+    ],
+    "xtool-to-fs": [
+      {
+        "path": "sync.js",
+        "line": 2081,
+        "note": "getFiles／diffDir／mirrorDir 以 deps 注入"
+      }
+    ],
+    "xtool-to-symlink": [
+      {
+        "path": "sync.js",
+        "line": 2081,
+        "note": "ensureSymlink 同批注入；工具層刻意留在 sync.js"
+      }
+    ],
+    "xtool-to-skills": [
+      {
+        "path": "sync.js",
+        "line": 2087,
+        "note": "loadSkillsFromLock 以 lazy wrapper 注入，保住 skills handler 的 lazy 語意"
+      }
+    ],
+    "safety-to-toml": [
+      {
+        "path": "safety-check.js",
+        "line": 40,
+        "note": "直接 require toml-reader.js（純函式、非 sync.js，不違反反向 require 禁令）"
+      }
+    ],
+    "safety-to-repo": [
+      {
+        "path": "safety-check.js",
+        "line": 164,
+        "note": "collectSafetyScanFiles"
+      }
+    ],
+    "diff-to-repo": [
+      {
+        "path": "sync.js",
+        "line": 893,
+        "note": "diffDir 唯讀比對，不產生暫存檔"
+      }
+    ],
+    "fs-to-claude": [
+      {
+        "path": "sync.js",
+        "line": 627,
+        "note": "rules/ 等 dir 型項目經 mirrorDir 落地"
+      }
+    ],
+    "fs-to-codex": [
+      {
+        "path": "sync.js",
+        "line": 498,
+        "note": "AGENTS.md 為 file 型，走 copyFile"
+      }
+    ],
+    "fs-to-repo": [
+      {
+        "path": "sync.js",
+        "line": 1794,
+        "note": "runToRepo：本機 → repo 方向"
+      }
+    ],
+    "symlink-to-claude": [
+      {
+        "path": "sync.js",
+        "line": 41,
+        "note": "~/.claude/skills 為探索點橋，指向 ~/.agents/skills"
+      }
+    ],
+    "xtool-to-agents": [
+      {
+        "path": "xtool-dir.js",
+        "line": 319,
+        "note": "upsertOneSkill 寫入 ~/.agents/skills/<name>"
+      }
+    ]
+  }
+}

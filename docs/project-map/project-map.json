@@ -1,0 +1,400 @@
+{
+  "schemaVersion": 2,
+  "project": {
+    "name": "ai-config-sync",
+    "summary": "以私有 Git repo 讓多台裝置的 Claude Code／Codex 設定與跨工具 skill 保持一致的零相依 Node.js CLI",
+    "updatedAt": "2026-08-27T00:00:00Z"
+  },
+  "groups": [
+    {
+      "id": "cli",
+      "label": "CLI 入口",
+      "description": "引數解析、指令分派與各指令實作"
+    },
+    {
+      "id": "core",
+      "label": "同步核心",
+      "description": "宣告式清單、型別分派與 settings 專屬流向"
+    },
+    {
+      "id": "fs",
+      "label": "檔案系統層",
+      "description": "差異比較與原子寫入，同步項目共用的底層能力"
+    },
+    {
+      "id": "standalone",
+      "label": "獨立模組",
+      "description": "以 DI 注入接收共用工具、不反向 require sync.js 的四個檔"
+    },
+    {
+      "id": "endpoints",
+      "label": "同步端點",
+      "description": "repo 來源與三個本機設定樹"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "cli-entry",
+      "label": "CLI 入口與分派",
+      "kind": "entrypoint",
+      "group": "cli",
+      "summary": "parseArgs 解析旗標（白名單外一律 INVALID_ARGS）、assertNoSwallowedNpmFlags 擋下被 npm 吞掉的 --dry-run／--yes，再由 COMMANDS 表與 runCommand 的 switch 分派",
+      "notes": [
+        "新增指令需同步改 COMMANDS、runCommand 的 switch 與 README 三處"
+      ]
+    },
+    {
+      "id": "sync-commands",
+      "label": "同步指令實作",
+      "kind": "module",
+      "group": "cli",
+      "summary": "runDiff／runStatus／runToRepo／runToLocal：組出同步項目、印預覽、確認後套用，並在部分失敗時補印已寫入的變更"
+    },
+    {
+      "id": "wsl-bridge",
+      "label": "WSL → Windows 橋接",
+      "kind": "job",
+      "group": "cli",
+      "summary": "to-win-local：以覆寫的 HOME 在子行程重跑 to-local，語意完全一致；非 WSL、路徑不存在或目標等同目前 HOME 皆拒絕執行。刻意不支援反向",
+      "notes": [
+        "實作方式是以覆寫的 HOME spawnSync 重跑本檔的 to-local，不另寫一套同步邏輯"
+      ]
+    },
+    {
+      "id": "sync-manifest",
+      "label": "同步項目清單",
+      "kind": "module",
+      "group": "core",
+      "summary": "SYNC_MANIFEST 一列 = 一路徑，配合 SYNC_AREAS 的三個區，由 buildSyncItems 依 direction 具現成 SyncItem",
+      "notes": [
+        "刻意不列 codex/config.toml 與 ~/.claude.json，有回歸鎖把關"
+      ]
+    },
+    {
+      "id": "type-dispatch",
+      "label": "型別行為分派",
+      "kind": "module",
+      "group": "core",
+      "summary": "diffSyncItem／applySyncItem 依 SyncItem.type（file／settings／dir／xtool-dir）分派比較與套用；mcp 與 advisory 兩種舊型別已移除且有回歸鎖"
+    },
+    {
+      "id": "settings-handler",
+      "label": "settings 合併器",
+      "kind": "module",
+      "group": "core",
+      "summary": "top-level 採黑名單制：partitionSettingsTopLevel 分出裝置偏好後，mergeSettingsBetween 依 direction 決定流向，src/dest 不隨 direction 交換"
+    },
+    {
+      "id": "diff-engine",
+      "label": "差異比較引擎",
+      "kind": "module",
+      "group": "fs",
+      "summary": "diffFile／diffDir 全程唯讀、只輸出狀態行，不產生任何暫存檔；isEolOnlyDiff 讓跨平台換行差異不算差異"
+    },
+    {
+      "id": "fs-io",
+      "label": "原子寫入與鏡射",
+      "kind": "library",
+      "group": "fs",
+      "summary": "writeFileSafe 先寫同目錄暫存檔再 rename，提供原子性但不付 fsync 成本；copyFile／mirrorDir／writeJsonSafe 全走此函式"
+    },
+    {
+      "id": "symlink-utils",
+      "label": "symlink 工具",
+      "kind": "library",
+      "group": "fs",
+      "summary": "ensureSymlink／createSymlinkAtomic／symlinkWithFallback：通用 FS 能力，刻意留在 sync.js 而非搬進 xtool-dir，避免通用工具與型別專屬邏輯糾纏"
+    },
+    {
+      "id": "safety-check",
+      "label": "safety-check.js",
+      "kind": "module",
+      "group": "standalone",
+      "summary": "唯讀離線掃描同步來源，hard block 機密與平台綁定、warning 供人工審核，只列分類與位置不輸出值"
+    },
+    {
+      "id": "toml-reader",
+      "label": "toml-reader.js",
+      "kind": "library",
+      "group": "standalone",
+      "summary": "TOML 邏輯語句讀取器，純函式零 IO。section 歸屬正確性直接決定 hard block 判斷，malformed header 與未閉合 value 皆 fail closed",
+      "notes": [
+        "唯一消費者是 safety-check.js，是安全防線的回歸網，不可刪"
+      ]
+    },
+    {
+      "id": "skills-module",
+      "label": "skills.js",
+      "kind": "module",
+      "group": "standalone",
+      "summary": "skills:diff／add／remove：讀 repo 的 skills-lock.json 與本機 ~/.agents/.skill-lock.json 做三向集合差，只輸出建議指令、不執行安裝或移除"
+    },
+    {
+      "id": "xtool-dir",
+      "label": "xtool-dir.js",
+      "kind": "module",
+      "group": "standalone",
+      "summary": "xtool-dir 型的型別專屬邏輯：與 npx skills 共管 ~/.agents/skills，非 prune upsert、只認受管名字、撞名拒寫，並負責 ~/.claude 探索點橋接與 D5 閘門"
+    },
+    {
+      "id": "repo-sources",
+      "label": "repo 同步來源",
+      "kind": "database",
+      "group": "endpoints",
+      "summary": "claude/、codex/、agents/ 三個無點目錄，即進版控的設定正本；.claude/、.codex/ 等有點目錄不參與同步"
+    },
+    {
+      "id": "claude-home",
+      "label": "~/.claude",
+      "kind": "external",
+      "group": "endpoints",
+      "summary": "Claude Code 本機設定樹：CLAUDE.md、settings.json、statusline.sh、rules/，以及指向 ~/.agents/skills 的 skills symlink 橋"
+    },
+    {
+      "id": "agents-home",
+      "label": "~/.agents/skills",
+      "kind": "external",
+      "group": "endpoints",
+      "summary": "跨工具全域 skill 的正典落點，Codex 原生掃描此處；與 npx skills 共管，非本工具受管的住戶不刪不吸"
+    },
+    {
+      "id": "codex-home",
+      "label": "~/.codex",
+      "kind": "external",
+      "group": "endpoints",
+      "summary": "Codex 全域設定樹；只同步 AGENTS.md，config.toml 永不被本工具寫入或讀取"
+    }
+  ],
+  "edges": [
+    {
+      "id": "cli-to-commands",
+      "from": "cli-entry",
+      "to": "sync-commands",
+      "label": "runCommand switch"
+    },
+    {
+      "id": "cli-to-wsl",
+      "from": "cli-entry",
+      "to": "wsl-bridge",
+      "label": "case to-win-local"
+    },
+    {
+      "id": "cli-to-skills",
+      "from": "cli-entry",
+      "to": "skills-module",
+      "label": "case skills:*"
+    },
+    {
+      "id": "cli-to-safety",
+      "from": "cli-entry",
+      "to": "safety-check",
+      "label": "case safety:check"
+    },
+    {
+      "id": "commands-to-manifest",
+      "from": "sync-commands",
+      "to": "sync-manifest",
+      "label": "buildSyncItems"
+    },
+    {
+      "id": "manifest-to-dispatch",
+      "from": "sync-manifest",
+      "to": "type-dispatch",
+      "label": "SyncItem[]"
+    },
+    {
+      "id": "dispatch-to-settings",
+      "from": "type-dispatch",
+      "to": "settings-handler",
+      "label": "type=settings"
+    },
+    {
+      "id": "dispatch-to-xtool",
+      "from": "type-dispatch",
+      "to": "xtool-dir",
+      "label": "type=xtool-dir"
+    },
+    {
+      "id": "dispatch-to-fs",
+      "from": "type-dispatch",
+      "to": "fs-io",
+      "label": "type=file / dir"
+    },
+    {
+      "id": "dispatch-to-diff",
+      "from": "type-dispatch",
+      "to": "diff-engine",
+      "label": "diffFile / diffDir"
+    },
+    {
+      "id": "settings-to-fs",
+      "from": "settings-handler",
+      "to": "fs-io",
+      "label": "writeJsonSafe"
+    },
+    {
+      "id": "xtool-to-fs",
+      "from": "xtool-dir",
+      "to": "fs-io",
+      "label": "DI 注入 mirrorDir"
+    },
+    {
+      "id": "xtool-to-symlink",
+      "from": "xtool-dir",
+      "to": "symlink-utils",
+      "label": "DI 注入 ensureSymlink"
+    },
+    {
+      "id": "xtool-to-skills",
+      "from": "xtool-dir",
+      "to": "skills-module",
+      "label": "loadSkillsFromLock"
+    },
+    {
+      "id": "safety-to-toml",
+      "from": "safety-check",
+      "to": "toml-reader",
+      "label": "readTomlStatements"
+    },
+    {
+      "id": "safety-to-repo",
+      "from": "safety-check",
+      "to": "repo-sources",
+      "label": "collectSafetyScanFiles"
+    },
+    {
+      "id": "diff-to-repo",
+      "from": "diff-engine",
+      "to": "repo-sources",
+      "label": "唯讀比對"
+    },
+    {
+      "id": "fs-to-claude",
+      "from": "fs-io",
+      "to": "claude-home",
+      "label": "mirrorDir / copyFile"
+    },
+    {
+      "id": "fs-to-codex",
+      "from": "fs-io",
+      "to": "codex-home",
+      "label": "copyFile"
+    },
+    {
+      "id": "fs-to-repo",
+      "from": "fs-io",
+      "to": "repo-sources",
+      "label": "to-repo 寫入"
+    },
+    {
+      "id": "symlink-to-claude",
+      "from": "symlink-utils",
+      "to": "claude-home",
+      "label": "skills 橋接"
+    },
+    {
+      "id": "xtool-to-agents",
+      "from": "xtool-dir",
+      "to": "agents-home",
+      "label": "upsertOneSkill"
+    }
+  ],
+  "flows": [
+    {
+      "id": "to-local",
+      "label": "to-local：repo → 本機",
+      "summary": "預覽後套用；settings.json 走合併器，其餘走鏡射",
+      "steps": [
+        {
+          "node": "cli-entry",
+          "label": "解析旗標與指令"
+        },
+        {
+          "node": "sync-commands",
+          "label": "runToLocal 組出項目並確認"
+        },
+        {
+          "node": "sync-manifest",
+          "label": "buildSyncItems 具現"
+        },
+        {
+          "node": "type-dispatch",
+          "label": "依 type 分派"
+        },
+        {
+          "node": "fs-io",
+          "label": "原子寫入"
+        },
+        {
+          "node": "claude-home",
+          "label": "落地"
+        }
+      ]
+    },
+    {
+      "id": "safety-scan",
+      "label": "safety:check：唯讀掃描",
+      "summary": "commit 前檢查同步來源是否含機密或平台綁定",
+      "steps": [
+        {
+          "node": "cli-entry",
+          "label": "case safety:check"
+        },
+        {
+          "node": "safety-check",
+          "label": "掃 claude/ codex/ agents/"
+        },
+        {
+          "node": "toml-reader",
+          "label": "解析 .toml section 歸屬"
+        }
+      ]
+    },
+    {
+      "id": "skill-bridge",
+      "label": "跨工具 skill 落地",
+      "summary": "正典寫入 ~/.agents 後，於 ~/.claude 建探索點 symlink",
+      "steps": [
+        {
+          "node": "type-dispatch",
+          "label": "type 為 xtool-dir"
+        },
+        {
+          "node": "xtool-dir",
+          "label": "非 prune upsert"
+        },
+        {
+          "node": "agents-home",
+          "label": "寫入正典"
+        }
+      ]
+    },
+    {
+      "id": "win-bridge",
+      "label": "to-win-local：套用到 Windows 家目錄",
+      "summary": "僅限 WSL 內，以覆寫的 HOME 重跑 to-local",
+      "steps": [
+        {
+          "node": "cli-entry",
+          "label": "case to-win-local"
+        },
+        {
+          "node": "wsl-bridge",
+          "label": "探測 %USERPROFILE%、檢查前提後以新 HOME 重跑 to-local"
+        }
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "id": "q-theme-blacklist",
+      "text": "settings.json 的 theme 是否該補進 DEVICE_SETTINGS_KEYS 黑名單？目前每次 to-local 都會被 repo 版整鍵覆蓋",
+      "status": "open"
+    },
+    {
+      "id": "q-mcp-redesign",
+      "text": "MCP 同步重新設計時，憑證判準要如何 fail closed 且不把 OAuth／headers 帶進 repo？",
+      "status": "open"
+    }
+  ]
+}
