@@ -25,6 +25,12 @@
 
 **`groups` 決定模組分頁**：每個 group 產生一頁 `modules/<group-id>.html`，內容為該 group 的節點加上所有進出邊，對端節點以外部樣式呈現並連往其所屬模組頁。因此 group 應以功能領域切分（`authentication`、`billing`、`api`），而非「前端／後端」這類過寬的分層；group id 會直接成為檔名。未指定 `group` 的節點只出現在總覽。
 
+## 只畫存在的關係
+
+edge 的方向與 `label` 必須對應實際看到的證據；只看到 A 呼叫 B，不得反推 B 呼叫 A。
+
+**不畫「不存在」的關係。** 沒有線本身就已經表示「不會這樣跑」，再畫一條標著「禁止」「不得」「永不」的邊只是把同一件事說兩次，還會被讀成真有這條路徑。約束（明文禁令、被回歸鎖擋住的反向依賴、對敏感檔的零觸碰、刻意不提供的反向流程）寫進所屬 group 的 `description`，或寫進相關 node 的 `notes`——兩者都會出現在產出頁側欄。**約束不是 edge，沒有證據可掛，也不該佔 `sources.json` 的一個 key。**
+
 ## evidence/sources.json
 
 以 node id 或 edge id 為 key，值為證據陣列。node 與 edge 的 evidence 都放這裡，主檔不再內嵌。
@@ -43,7 +49,7 @@
 
 ## 驗證不變量
 
-由 `render_project_map.py --check` 強制執行：
+由 `node <skill-root>/scripts/render-project-map.js <地圖目錄> --check` 強制執行：
 
 - node、edge、flow、group 各自的 id 不得重複，且必須符合 ASCII kebab-case。
 - **node id 與 edge id 不得互相撞名**——evidence 以單一 id 空間索引，撞名會讓證據掛錯對象。

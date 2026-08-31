@@ -18,7 +18,7 @@ const PALETTE = ['#73daca', '#7aa2f7', '#bb9af7', '#e0af68', '#f7768e', '#9ece6a
                  '#2ac3de', '#ff9e64'];
 const NODE_H = 54;
 
-/** ELK 佈局參數：分層向下、正交路由、標籤走內聯（由 ELK 自行避開節點與彼此）。 */
+/** ELK 佈局參數：分層向下、正交路由（標籤內聯見 EDGE_LABEL_OPTIONS）。 */
 const ELK_OPTIONS = {
   'elk.algorithm': 'layered',
   'elk.direction': 'DOWN',
@@ -30,8 +30,10 @@ const ELK_OPTIONS = {
   'elk.spacing.edgeLabel': '6',
   'elk.spacing.edgeEdge': '14',
   'elk.spacing.edgeNode': '18',
-  'elk.edgeLabels.inline': 'true',
 };
+
+/** 邊標籤選項：inline 為 label 級選項，設在 root 的 layoutOptions 不會繼承，必須掛在 label 上。 */
+const EDGE_LABEL_OPTIONS = { 'elk.edgeLabels.inline': 'true' };
 
 // -----------------------------------------------------------------------------
 // 讀取與驗證
@@ -137,7 +139,8 @@ async function layout(data, nodes, edges) {
     children: nodes.map(n => ({ id: n.id, width: nodeWidth(data, n), height: NODE_H })),
     edges: edges.map(e => ({
       id: e.id, sources: [e.from], targets: [e.to],
-      labels: [{ text: e.label, width: textWidth(e.label, 11.5) + 10, height: 16 }],
+      labels: [{ text: e.label, width: textWidth(e.label, 11.5) + 10, height: 16,
+        layoutOptions: EDGE_LABEL_OPTIONS }],
     })),
   };
   const res = await new ELK().layout(graph);

@@ -1,20 +1,19 @@
 ---
 name: project-map
-description: 僅在明確呼叫時啟動——使用者輸入 `/project-map`，或明講「用 project-map」「跑 project-map skill」才執行。即使需求聽起來像專案地圖（「給我架構圖」「畫一下架構」「這專案怎麼組起來的」「我剛接手這個 repo」「給我專案大綱」），只要沒點名本 skill，一律不自動啟動；照一般方式回答即可。啟動後分析軟體專案並建立或增量更新可互動的專案地圖，呈現模組、依賴、執行流程與程式碼證據。適用於專案導覽、架構理解、功能追蹤及維護長期可延伸的視覺文件；不適用於單純目錄列表或尚未落地的架構提案。
+description: 僅在明確呼叫時啟動——使用者輸入 `/project-map`，或明講「用 project-map」「跑 project-map skill」才執行。需求聽起來像架構圖或專案地圖也一樣：只要沒點名本 skill，一律不自動啟動、照一般方式回答即可。啟動後分析軟體專案並建立或增量更新可互動的專案地圖，呈現模組、依賴、執行流程與程式碼證據。適用於專案導覽、架構理解、功能追蹤及維護長期可延伸的視覺文件；不適用於單純目錄列表或尚未落地的架構提案。
 ---
 
 # Project Map
 
 建立一份能隨專案持續成長的視覺地圖。此 skill 必須獨立運作，不呼叫或假設存在其他 skill、外部套件、CDN 或網路服務。
 
+## 組成
+
+`scripts/render-project-map.js`（產生器）、`references/schema.md`（資料格式）、`vendor/elkjs/`（佈局引擎，僅產生階段使用）。這三者屬 skill 本體，不是產物。
+
 ## 產物
 
-在專案根目錄維護：
-
-此 skill 自身的組成：`scripts/render-project-map.js`（產生器）、`references/schema.md`（資料格式）、
-`vendor/elkjs/`（佈局引擎，僅產生階段使用）。
-
-產物落在專案根目錄：
+落在專案根目錄：
 
 ```text
 docs/project-map/
@@ -53,6 +52,8 @@ docs/project-map/
 - **`groups` 即模組分頁的單位**，以功能領域切分（`authentication`、`billing`、`api`），不用「前端／後端」這類過寬分層。單一模組頁節點過多時，拆成更小的 group，不要塞進同一頁。
 - 節點與關係的擺放由 ELK 決定，不要為了排版去改資料（調整 id 順序、加空節點）。版面不理想時該調的是 group 切分或節點數。
 - **關係標籤要具體到可查證的東西**：函式名（`buildSyncItems`）、型別分派條件（`type=xtool-dir`）、協定或資料型別（`HTTP`、`讀 .skill-lock.json`）。`呼叫`、`使用`、`依賴`這類泛稱佔了版面卻沒有資訊，讀圖的人得逐條點開才知道發生什麼事。
+- **不畫「不存在」的關係**：沒有線本身就代表「不會這樣跑」，別為禁令、零觸碰或刻意不做的反向流程另畫一條標著「禁止」的邊。這類約束寫進 group 的 `description` 或 node 的 `notes`（見 [資料格式](references/schema.md) 的「只畫存在的關係」）。
+- **不留孤立節點**：沒有任何進出邊的節點在圖上只是浮著，讀者無從判斷它怎麼被用到。這類內容改寫進 group 的 `description`、node 的 `notes` 或直接以終端表格呈現，不放進 `nodes`。
 - 證據使用專案相對路徑及可選行號。程式碼移動時更新 `sources.json`，不以 README 取代實作證據。
 - **刪除 node 或 edge 時一併清掉 `sources.json` 中對應的 key**，否則 `--check` 會以孤兒條目報錯。
 - 無法確認是否仍存在的內容先設為 `status: "stale"`，不要直接刪除；確認不存在後才移除。
