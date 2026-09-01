@@ -62,6 +62,7 @@ function mergeXtoolPartialChanges(err, done, currentName) {
  * @param {{
  *   AGENTS_SKILLS_HOME: string,
  *   CLAUDE_SKILLS_HOME: string,
+ *   GEMINI_SKILLS_HOME: string,
  *   REPO_AGENTS_SKILLS: string,
  *   LOCAL_SKILL_LOCK: string,
  *   GLOBAL_EXCLUDE: string[],
@@ -81,22 +82,27 @@ function mergeXtoolPartialChanges(err, done, currentName) {
  *   diffXtoolItems: (item: object, direction: string) => object[],
  *   applyXtoolItem: (item: object, direction: string, dryRun: boolean) => Array<{action: string, label: string}>,
  *   findUnmirroredFiles: (dir: string, srcDir: string) => string[],
- *   bridgeUnsafeReason: (srcDir: string, name: string) => ({reason: string, files: string[]}|null),
+ *   bridgeUnsafeReason: (srcDir: string, name: string, endpointHome?: string) => ({reason: string, files: string[]}|null),
  *   listSkillNames: (dir: string) => string[],
  *   managedSkillNames: () => string[],
  *   isNpxManagedSkill: (name: string) => boolean,
  *   upsertOneSkill: (item: object, name: string, dryRun: boolean) => Array<{rel: string, action: string}>,
- *   bridgeSkillLink: (srcDir: string, name: string, dryRun: boolean) => ({rel: string, action: string}|null),
+ *   bridgeSkillLink: (srcDir: string, name: string, endpoint?: object|boolean, dryRun?: boolean) => ({rel: string, action: string}|null),
  * }}
  */
 function createXtoolDir(deps) {
   const {
-    AGENTS_SKILLS_HOME, CLAUDE_SKILLS_HOME, REPO_AGENTS_SKILLS, LOCAL_SKILL_LOCK,
+    AGENTS_SKILLS_HOME, CLAUDE_SKILLS_HOME, GEMINI_SKILLS_HOME, REPO_AGENTS_SKILLS, LOCAL_SKILL_LOCK,
     GLOBAL_EXCLUDE, BRIDGE_CONFLICT_LIST_MAX,
     SyncError, col,
     getFiles, diffDir, mirrorDir, lstatSyncSafe, ensureSymlink,
     itemLabel, toSyncFsError, loadSkillsFromLock,
   } = deps;
+
+  const BRIDGE_ENDPOINTS = [
+    { name: 'claude', home: CLAUDE_SKILLS_HOME, tag: '[claude 探索點]' },
+    { name: 'gemini', home: GEMINI_SKILLS_HOME, tag: '[gemini 探索點]' },
+  ];
 
   // ---------------------------------------------------------------------------
   // D5 安全閘門：真實目錄→symlink 轉換前，確認不會刪掉 repo 從未有過的內容
@@ -123,7 +129,7 @@ function createXtoolDir(deps) {
   }
 
   /**
-   * Claude 探索點被真實檔案／目錄佔用時，判斷轉成 symlink 是否會損失內容。
+   * 探索點（Claude／Gemini）被真實檔案／目錄佔用時，判斷轉成 symlink 是否會損失內容。
    * diff 與 apply 共用此判斷，確保「預覽說會跳過」與「實際跳過」不會分歧。
    *
    * 比對基準刻意用 **repo 來源目錄**而非當下的 ~/.agents 正典：to-local 會先由
@@ -132,10 +138,11 @@ function createXtoolDir(deps) {
    * 全部誤判成衝突。
    * @param {string} srcDir - repo 端的 skill 來源目錄（agents/skills/<name>）
    * @param {string} name - skill 名稱
+   * @param {string} [endpointHome=CLAUDE_SKILLS_HOME] - 探索點根目錄
    * @returns {{reason: string, files: string[]}|null} 不安全回原因，安全（或非真實目錄）回 null
    */
-  function bridgeUnsafeReason(srcDir, name) {
-    const link = path.join(CLAUDE_SKILLS_HOME, name);
+  function bridgeUnsafeReason(srcDir, name, endpointHome = CLAUDE_SKILLS_HOME) {
+    const link = path.join(endpointHome, name);
     const cur = lstatSyncSafe(link);
     if (!cur || cur.isSymbolicLink()) return null;
     // 一般檔案佔用：正典為目錄，該檔不可能是鏡射產物，一律視為未鏡射
@@ -233,8 +240,10 @@ function createXtoolDir(deps) {
         results.push(makeXtoolFileEntry(item, name, d, srcMissing));
       }
       if (direction === 'to-local') {
-        const bridge = diffBridgeLink(item, name);
-        if (bridge) results.push(bridge);
+        for (const ep of BRIDGE_ENDPOINTS) {
+          const bridge = diffBridgeLink(item, name, ep);
+          if (bridge) results.push(bridge);
+        }
       }
     }
     if (direction === 'to-repo') {
@@ -279,26 +288,27 @@ function createXtoolDir(deps) {
   }
 
   /**
-   * to-local：檢查 ~/.claude/skills/<name> 是否已是指向 ~/.agents/skills/<name> 的
+   * to-local：檢查探索點是否已是指向 ~/.agents/skills/<name> 的
    * 正確 symlink；就緒回 null，否則回一筆 diff entry（不存在→new、真實目錄/指錯→changed）。
    * @param {SyncItem} item
    * @param {string} name
+   * @param {{name: string, home: string, tag: string}} [endpoint=BRIDGE_ENDPOINTS[0]]
    * @returns {object|null}
    */
-  function diffBridgeLink(item, name) {
+  function diffBridgeLink(item, name, endpoint = BRIDGE_ENDPOINTS[0]) {
     const target = path.join(AGENTS_SKILLS_HOME, name);
-    const link = path.join(CLAUDE_SKILLS_HOME, name);
+    const link = path.join(endpoint.home, name);
     const cur = lstatSyncSafe(link);
     let ok = false;
     if (cur && cur.isSymbolicLink()) {
       try { ok = fs.readlinkSync(link) === target; } catch (_) { ok = false; }
     }
     if (ok) return null;
-    const label = `${itemLabel(item, name)} [claude 探索點]`;
+    const label = `${itemLabel(item, name)} ${endpoint.tag}`;
     const entry = { label, src: target, dest: link, verboseSrc: target, verboseDest: link, itemType: 'xtool-dir' };
     // 真實目錄／檔案佔用且含未鏡射內容：轉 symlink 會遞迴刪掉那些內容，
     // 標為 conflict（拒寫、跳過）而非 changed（將更新），避免預覽把刪除說成更新
-    const unsafe = bridgeUnsafeReason(path.join(item.src, name), name);
+    const unsafe = bridgeUnsafeReason(path.join(item.src, name), name, endpoint.home);
     if (unsafe) return { ...entry, status: 'conflict', conflictReason: `${unsafe.reason}，拒絕刪除、將跳過` };
     return { ...entry, status: cur ? 'changed' : 'new' };
   }
@@ -324,19 +334,24 @@ function createXtoolDir(deps) {
   }
 
   /**
-   * to-local 的 Claude 探索點 symlink 橋：~/.claude/skills/<name> → ~/.agents/skills/<name>。
+   * to-local 的探索點 symlink 橋：<endpoint.home>/<name> → ~/.agents/skills/<name>。
    * 幂等（正確 symlink 直接跳過）；含 D5 真實目錄→symlink 轉換（正典已先由 upsert 落在
    * ~/.agents，此處才 rm 舊真實目錄、建 link）。
    * @param {string} srcDir
    * @param {string} name
-   * @param {boolean} dryRun
+   * @param {{name: string, home: string, tag: string}|boolean} [endpoint=BRIDGE_ENDPOINTS[0]]
+   * @param {boolean} [dryRun=false]
    * @returns {{rel: string, action: string}|null}
    */
-  function bridgeSkillLink(srcDir, name, dryRun) {
-    const unsafe = bridgeUnsafeReason(srcDir, name);
+  function bridgeSkillLink(srcDir, name, endpoint = BRIDGE_ENDPOINTS[0], dryRun = false) {
+    if (typeof endpoint === 'boolean') {
+      dryRun = endpoint;
+      endpoint = BRIDGE_ENDPOINTS[0];
+    }
+    const unsafe = bridgeUnsafeReason(srcDir, name, endpoint.home);
     if (unsafe) {
       console.warn(col.yellow(
-        `  [warn] skill「${name}」的 claude 探索點含未鏡射內容（${unsafe.reason}），拒絕刪除、跳過`
+        `  [warn] skill「${name}」的 ${endpoint.name} 探索點含未鏡射內容（${unsafe.reason}），拒絕刪除、跳過`
       ));
       for (const f of unsafe.files.slice(0, BRIDGE_CONFLICT_LIST_MAX)) console.warn(col.yellow(`         - ${f}`));
       if (unsafe.files.length > BRIDGE_CONFLICT_LIST_MAX) {
@@ -345,9 +360,9 @@ function createXtoolDir(deps) {
       return null;
     }
     const target = path.join(AGENTS_SKILLS_HOME, name);
-    const link = path.join(CLAUDE_SKILLS_HOME, name);
+    const link = path.join(endpoint.home, name);
     const res = ensureSymlink(target, link, dryRun);
-    return res ? { rel: `${name} [claude 探索點]`, action: res.action } : null;
+    return res ? { rel: `${name} ${endpoint.tag}`, action: res.action } : null;
   }
 
   /**
@@ -371,8 +386,10 @@ function createXtoolDir(deps) {
         }
         for (const c of upsertOneSkill(item, name, dryRun)) changed.push(c);
         if (direction === 'to-local') {
-          const link = bridgeSkillLink(path.join(item.src, name), name, dryRun);
-          if (link) changed.push(link);
+          for (const ep of BRIDGE_ENDPOINTS) {
+            const link = bridgeSkillLink(path.join(item.src, name), name, ep, dryRun);
+            if (link) changed.push(link);
+          }
         }
       }
     } catch (e) {

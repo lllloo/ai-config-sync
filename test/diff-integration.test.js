@@ -33,9 +33,10 @@ function setupSandbox() {
   for (const name of SYNC_RUNTIME_FILES) {
     fs.copyFileSync(path.join(__dirname, '..', name), path.join(repo, name));
   }
-  // 自控 repo 內容：一個 rules 子目錄檔（dir 型代表）、codex/AGENTS.md、可攜 settings
+  // 自控 repo 內容：一個 rules 子目錄檔（dir 型代表）、codex/AGENTS.md、gemini/GEMINI.md、可攜 settings
   writeFile(path.join(repo, 'claude', 'rules', 'pkg', 'sample.md'), 'RULE-SAMPLE');
   writeFile(path.join(repo, 'codex', 'AGENTS.md'), 'CODEX-AGENTS');
+  writeFile(path.join(repo, 'gemini', 'GEMINI.md'), 'GEMINI-AGENTS');
   writeJson(path.join(repo, 'claude', 'settings.json'), BASE_SETTINGS);
   return { repo, home, root };
 }
@@ -82,6 +83,16 @@ test('runDiff (to-repo)：本機 HOME 為空 → codex/AGENTS.md 也應被回報
   try {
     const result = runDiff(repo, home);
     assert.match(result.stdout, /codex\/AGENTS\.md/, '應列出 codex/AGENTS.md');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('runDiff (to-repo)：本機 HOME 為空 → gemini/GEMINI.md 也應被回報', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    const result = runDiff(repo, home);
+    assert.match(result.stdout, /gemini\/GEMINI\.md/, '應列出 gemini/GEMINI.md');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

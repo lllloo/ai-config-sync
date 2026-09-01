@@ -10,12 +10,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、statusline.sh、rules），由 `sync.js` 管理。**全域 skill 不放這裡**（唯一落點為 `agents/skills/`，見下）。
 - **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（目前只有 `AGENTS.md`），由 `sync.js` 管理。`config.toml` **不做整檔同步、也永不被寫入或讀取**。MCP 同步已整批移除待重新設計（見 `openspec/changes/archive/*-remove-mcp-sync`）。
-- **`agents/`**（無點）— 要同步到 `~/.agents/` 的**跨工具全域** skill（`agents/skills/<name>/`），由 `sync.js` 的 `xtool-dir` 型管理。正典為 `~/.agents/skills/`（Codex 原生掃），apply 另於 `~/.claude/skills/<name>` 建 symlink 橋供 Claude Code 探索。與 `npx skills` **共管** `~/.agents/skills/`：非 prune、只認受管名字、撞名（`~/.agents/.skill-lock.json` 已登記）拒寫（見下方 Skills 管理）。
+- **`gemini/`**（無點）— 要同步到 `~/.gemini/` 的全域設定（目前只有 `GEMINI.md`），由 `sync.js` 管理。
+- **`agents/`**（無點）— 要同步到 `~/.agents/` 的**跨工具全域** skill（`agents/skills/<name>/`），由 `sync.js` 的 `xtool-dir` 型管理。正典為 `~/.agents/skills/`（Codex 原生掃），apply 另於 `~/.claude/skills/<name>` 與 `~/.gemini/config/skills/<name>` 建 symlink 橋供 Claude Code 與 Antigravity 探索。與 `npx skills` **共管** `~/.agents/skills/`：非 prune、只認受管名字、撞名（`~/.agents/.skill-lock.json` 已登記）拒寫（見下方 Skills 管理）。
 - **`.claude/`**（有點）— 本 repo 專用的 Claude Code 本地設定落點，**不參與同步、不映射到 `~/.claude/`**。目前只有 `.claude/skills`（symlink 指向 `../.agents/skills`）與本機執行期產物；日後若需 repo 專用的 `settings.json` 亦放這裡。
 - **Codex 本地 skill** — **不需建 `.codex/skills`**。Codex CLI 會自動探索 `.agents/skills`：專案層由 `repo_agents_skill_roots` 從 project root 逐層掃 `<dir>/.agents/skills`，全域層掃 `~/.agents/skills`（原始碼 `codex-rs/core-skills/src/loader.rs` 的 `skill_roots()`）。故本 repo 的 `.agents/skills` 對 Codex 直接生效，無需 symlink。
-- **`.agents/skills/`** — 本地 skill **實體目錄**（已納入版控），跨工具（Claude Code / Codex）共用來源；遵循 [Agent Skills](https://agentskills.io) 開放標準。
+- **`.agents/skills/`** — 本地 skill **實體目錄**（已納入版控），跨工具（Claude Code / Codex / Antigravity）共用來源；遵循 [Agent Skills](https://agentskills.io) 開放標準。
 
-新增同步項目：Claude 設定放 `claude/`、Codex 放 `codex/`、**全域 skill 一律放 `agents/skills/<name>/`**（跨工具，唯一落點）；新增**本地** skill 一律放 `.agents/skills/<name>/`（有點）。勿誤放到 `.claude/` 或 `.codex/`。`agents/`（無點，同步）與 `.agents/`（有點，本地）是兩回事，勿混淆。
+新增同步項目：Claude 設定放 `claude/`、Codex 放 `codex/`、Gemini/Antigravity 放 `gemini/`、**全域 skill 一律放 `agents/skills/<name>/`**（跨工具，唯一落點）；新增**本地** skill 一律放 `.agents/skills/<name>/`（有點）。勿誤放到 `.claude/` 或 `.codex/`。`agents/`（無點，同步）與 `.agents/`（有點，本地）是兩回事，勿混淆。
 
 ## 執行環境
 
@@ -54,6 +55,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `agents/skills/` | `~/.agents/skills/` | **跨工具全域** skill（`xtool-dir` 型，全域 skill 唯一落點）。正典為 `~/.agents/skills/<name>/`（真實目錄，Codex 原生掃）；apply 另建 `~/.claude/skills/<name>` symlink 橋供 Claude 探索（官方支援、自動去重）。**非 prune、與 `npx skills` 共管**：只認 repo `agents/skills/` 登記的受管名字，不刪／不吸入 npx 住戶；撞名（`~/.agents/.skill-lock.json` 已登記）拒寫、`diff` 以 `conflict` 標示。dir→symlink 轉換內生於此型的 apply，**不依賴與其他 manifest 列的相對順序** |
 | `claude/rules/` | `~/.claude/rules/` | 模組化全域規則（CLAUDE.md 的拆分檔），支援 frontmatter `paths:` 做 path-specific scoping |
 | `codex/AGENTS.md` | `~/.codex/AGENTS.md` | Codex 全域指示（跨專案規則），全文比對 |
+| `gemini/GEMINI.md` | `~/.gemini/GEMINI.md` | Antigravity 全域指示（跨專案規則），全文比對 |
 
 ### 刻意不同步（勿加入 `buildSyncItems`）
 

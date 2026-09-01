@@ -106,7 +106,7 @@ const CODEX_CONFIG_HARD_BLOCK_SECTIONS = ['model_providers', 'mcp_servers'];
 const CODEX_CONFIG_DEVICE_WARN_SECTIONS = ['profiles', 'history', 'shell_environment_policy'];
 
 /** safety:check 僅掃同步來源與 skills manifest，不掃 test/openspec/README 等文件 */
-const SAFETY_SCAN_DIRS = ['claude', 'codex', 'agents'];
+const SAFETY_SCAN_DIRS = ['claude', 'codex', 'agents', 'gemini'];
 const SAFETY_SCAN_FILES = ['skills-lock.json'];
 
 /**

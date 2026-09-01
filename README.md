@@ -1,6 +1,6 @@
 # ai-config-sync
 
-跨裝置同步 Claude Code / Codex 設定的私有 Git repo 工具。一台機器設定好，其他機器一鍵套用。
+跨裝置同步 Claude Code / Codex / Antigravity 設定的私有 Git repo 工具。一台機器設定好，其他機器一鍵套用。
 
 零外部相依，只用 Node.js 內建模組（需 Node ≥ 18）。
 
@@ -9,12 +9,12 @@
 本機設定與私有 Git repo 之間雙向同步，repo 再帶到其他裝置：
 
 ```
-本機 ~/.claude ~/.codex
+本機 ~/.claude ~/.codex ~/.gemini
    │  ▲
    │  │ to-local（套用，會先預覽）
    │  │
    ▼  │ to-repo（上傳本機設定）
- 私有 Git repo（claude/ codex/ agents/）──push/clone──▶ 其他裝置
+ 私有 Git repo（claude/ codex/ gemini/ agents/）──push/clone──▶ 其他裝置
 ```
 
 - **不碰本機敏感活檔**：`~/.claude.json` 與 `~/.codex/config.toml` 皆**永不被本工具寫入或讀取**。見 [刻意不同步](#刻意不同步)。
@@ -32,33 +32,33 @@ npm run to-local    # repo → 本機（套用，會先預覽再確認）
 
 每個項目對應到各工具的全域設定路徑（`—` 表示該工具無對應項目）：
 
-| 項目 | Claude Code<br>`~/.claude/` | Codex<br>`~/.codex/` |
-|------|------|------|
-| 全域指示／規則 | `CLAUDE.md` | `AGENTS.md` |
-| 主設定檔 | `settings.json` | —（見 [建議設定](#codex-建議設定手動套用)） |
-| Statusline | `statusline.sh` | — |
-| 跨工具全域 Skill | `agents/skills/`（見下） | `agents/skills/`（見下） |
-| 規則拆分 | `rules/` | — |
-| 本地 Skill | `.agents/skills/`（共用） | `.agents/skills/`（共用） |
+| 項目 | Claude Code<br>`~/.claude/` | Codex<br>`~/.codex/` | Antigravity<br>`~/.gemini/` |
+|------|------|------|------|
+| 全域指示／規則 | `CLAUDE.md` | `AGENTS.md` | `GEMINI.md` |
+| 主設定檔 | `settings.json` | —（見 [建議設定](#codex-建議設定手動套用)） | — |
+| Statusline | `statusline.sh` | — | — |
+| 跨工具全域 Skill | `agents/skills/`（見下） | `agents/skills/`（見下） | `agents/skills/`（見下） |
+| 規則拆分 | `rules/` | — | — |
+| 本地 Skill | `.agents/skills/`（共用） | `.agents/skills/`（共用） | `.agents/skills/`（共用） |
 
 `agents/skills/` 對應本機 `~/.agents/skills/`（正典真實目錄）：
 
 | repo 路徑 | 本機路徑 | 備註 |
 |-----------|----------|------|
-| `agents/skills/<name>/` | `~/.agents/skills/<name>/` | 正典真實目錄，Codex 原生掃描；apply 另於 `~/.claude/skills/<name>` 建 symlink 橋供 Claude Code 探索（官方支援、自動去重） |
+| `agents/skills/<name>/` | `~/.agents/skills/<name>/` | 正典真實目錄，Codex 原生掃描；apply 另於 `~/.claude/skills/<name>` 與 `~/.gemini/config/skills/<name>` 建 symlink 橋供 Claude Code 與 Antigravity 探索（官方支援、自動去重） |
 
 補充說明：
 
-- **全域指示**兩者各自獨立（`CLAUDE.md` 與 `AGENTS.md` 內容可分歧）。
+- **全域指示**各自獨立（`CLAUDE.md`、`AGENTS.md` 與 `GEMINI.md` 內容可分歧）。
 - **主設定檔**：Claude 為黑名單過濾版（排除裝置欄位，見 [settings.json 同步行為](#settingsjson-同步行為)）。
 - **MCP Server 目前不在同步範圍**：舊有的諮詢式同步已整批移除，待重新設計。請以 `claude mcp add`／`codex mcp add` 於各裝置手動維護。見 [刻意不同步](#刻意不同步)。
 - **Agent 定義**目前不在同步範圍：Claude／Codex 皆未列 agents 同步項目（原 `everything-claude-code` agent 庫已整批移除）。日後要恢復再於 `SYNC_MANIFEST` 加回。
 - **Command 定義**不在同步範圍：本 repo 已改用 skill、不再新增 command，`SYNC_MANIFEST` 未列 `commands` 同步項（有回歸鎖把關）。
 - **兩種 Skill 分層**：
-  - `agents/skills/`（跨工具全域）— repo 自帶、Git 版控、`xtool-dir` 型同步進 `~/.agents/skills/`（Codex 原生掃）並於 `~/.claude/skills/<name>` 建 symlink 橋（Claude 探索）。**全域 skill 的唯一落點**；不加 per-skill flag。
+  - `agents/skills/`（跨工具全域）— repo 自帶、Git 版控、`xtool-dir` 型同步進 `~/.agents/skills/`（Codex 原生掃）並於 `~/.claude/skills/<name>` 與 `~/.gemini/config/skills/<name>` 建 symlink 橋（Claude／Antigravity 探索）。**全域 skill 的唯一落點**；不加 per-skill flag。
   - `.agents/skills/`（本地）— 已版控、跨工具共用、**不參與** to-repo／to-local；Claude Code 靠 `.claude/skills` symlink 讀取，Codex 原生探索（見 [刻意不同步](#刻意不同步) 的 Windows 注意）。
 - **`agents/skills/` 與 `npx skills` 共管 `~/.agents/skills/`**：`xtool-dir` 為**非 prune**、只認 repo `agents/skills/` 登記的「受管名字」——對 `~/.agents/skills/` 內的 npx 住戶一律不刪、不吸回 repo。撞名守門：upsert 前若 `<name>` 已登記於 `~/.agents/.skill-lock.json`（npx 安裝必登記，本機制永不登記），即判為碰撞、拒絕覆寫並印 warning，`diff` 階段以 `conflict` 狀態標示。**本機殘留觀測**：`diff` 會列出 `~/.agents/skills/` 中未登記於 npx lock、且 repo 已無對應來源的 skill，標示為「本機有、repo 無對應來源」；這些可能是手動 skill 或已刪除的 repo skill，只觀測、不吸回、不刪除。
-- **Claude 探索點的第二道守門**：`~/.claude/skills/<name>` 若是真實目錄（舊機制產物），to-local 會把它轉成 symlink——轉換含遞迴刪除，故轉換前先比對「該目錄內是否有 repo 沒有對應來源的檔案」。有的話（例如你自己在 `~/.claude/skills/` 手寫、剛好與受管 skill 同名的 skill）一律拒絕刪除、跳過並印 warning，`diff` 同樣以 `conflict` 標示。判準是**路徑存在性**而非內容比對：本機同名檔內容較舊屬正常遷移，會照 to-local 語意覆蓋。
+- **探索點的第二道守門**：`~/.claude/skills/<name>` 或 `~/.gemini/config/skills/<name>` 若是真實目錄（舊機制產物），to-local 會把它轉成 symlink——轉換含遞迴刪除，故轉換前先比對「該目錄內是否有 repo 沒有對應來源的檔案」。有的話（例如手寫、剛好與受管 skill 同名的 skill）一律拒絕刪除、跳過並印 warning，`diff` 同樣以 `conflict` 標示。判準是**路徑存在性**而非內容比對：本機同名檔內容較舊屬正常遷移，會照 to-local 語意覆蓋。
 - **全域 Skill 與 `npx skills` 是兩套機制**：`agents/skills/` 是 repo 自帶、Git 版控、由 to-repo／to-local 同步的 skill；`skills-lock.json` 追蹤的是外部 `npx skills` CLI 安裝的 skill，不受 `sync.js` 管理，只能用 `npm run skills:diff` 比對後手動套用建議。
 - **規則拆分** `claude/rules/` 是 `CLAUDE.md` 的模組化拆分，支援 frontmatter `paths:` scoping。
 
@@ -66,7 +66,7 @@ npm run to-local    # repo → 本機（套用，會先預覽再確認）
 
 | 目錄 | 用途 |
 |------|------|
-| `claude/`、`codex/`、`agents/`（無點） | **要同步**到各工具全域設定的內容（`agents/` ↔ `~/.agents/`） |
+| `claude/`、`codex/`、`gemini/`、`agents/`（無點） | **要同步**到各工具全域設定的內容（`agents/` ↔ `~/.agents/`，`gemini/` ↔ `~/.gemini/`） |
 | `.claude/`、`.codex/`（有點） | 本 repo 專用的**本地**設定，**不參與同步** |
 | `.agents/skills/` | 本地 skill 實體目錄（已版控） |
 
@@ -206,7 +206,7 @@ npm run to-local
 
 ## 安全檢查 safety:check
 
-`npm run safety:check` 是手動、唯讀、離線的檢查，掃描 `claude/`、`codex/`、`agents/` 與 `skills-lock.json`（不掃 `test/`、`openspec/`、README 等非同步來源）。輸出只列**分類、檔案與欄位／key／行號**，不列 env 值、secret 原值或完整 HOME 路徑。
+`npm run safety:check` 是手動、唯讀、離線的檢查，掃描 `claude/`、`codex/`、`gemini/`、`agents/` 與 `skills-lock.json`（不掃 `test/`、`openspec/`、README 等非同步來源）。輸出只列**分類、檔案與欄位／key／行號**，不列 env 值、secret 原值或完整 HOME 路徑。
 
 **它不是同步流程的一部分，也不保證能阻止機密寫入 repo**。`to-repo` 只做明確不同步欄位的剝除與資料搬移，`CLAUDE.md`、rules、skills、`statusline.sh` 等皆原樣鏡射。建議流程：`npm run to-repo` 後、commit 前，跑 `npm run safety:check` 與 `git diff` 人工複核。
 
@@ -226,7 +226,7 @@ npm run to-local
 - 結構化設定中命中敏感命名 pattern 的 key path
 - `.toml` 出現裝置狀態 section（`profiles.*`／`history`／`shell_environment_policy`）
 
-**text pattern 掃描的排除**：secret／私鑰／HOME 路徑的字串掃描支援排除清單（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`），**目前為空——三個同步來源目錄全部受掃描**。
+**text pattern 掃描的排除**：secret／私鑰／HOME 路徑的字串掃描支援排除清單（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`），**目前為空——四個同步來源目錄全部受掃描**。
 
 排除的用途是原樣鏡射的上游套件文件：那類文件為說明偵測規則本就含 token／路徑樣式，掃它們會製造整類誤判。但**排除粒度必須是該 package 的具體子目錄**（如 `agents/skills/<pkg>/references/`），不得是同步來源根——清單曾誤列 `agents/skills/`，而那是三個來源根之一的全部內容且其下 skill 皆為本 repo 手寫，等於整棵跨工具全域 skill 樹不受掃描。排除只作用於 text 掃描，結構化 `.json`／`.toml` 的 hard block 不受影響。
 

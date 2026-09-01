@@ -31,14 +31,18 @@ const REPO_ROOT = __dirname;
 const HOME = os.homedir();
 const CLAUDE_HOME = path.join(HOME, '.claude');
 const CODEX_HOME = path.join(HOME, '.codex');
+const GEMINI_HOME = path.join(HOME, '.gemini');
+const GEMINI_CONFIG_HOME = path.join(GEMINI_HOME, 'config');
 const AGENTS_HOME = path.join(HOME, '.agents');
 const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
-// 跨工具全域 skill（xtool-dir）用到的三個 skill 根：
+// 跨工具全域 skill（xtool-dir）用到的 skill 根：
 //   - AGENTS_SKILLS_HOME：正典真實目錄（Codex 原生掃）
 //   - CLAUDE_SKILLS_HOME：Claude 探索點（放 symlink 橋指向正典）
+//   - GEMINI_SKILLS_HOME：Antigravity 探索點（放 symlink 橋指向正典）
 //   - REPO_AGENTS_SKILLS：repo 端受管 skill 來源（決定「受管名字」集合，兩方向皆以此為準）
 const AGENTS_SKILLS_HOME = path.join(AGENTS_HOME, 'skills');
 const CLAUDE_SKILLS_HOME = path.join(CLAUDE_HOME, 'skills');
+const GEMINI_SKILLS_HOME = path.join(GEMINI_CONFIG_HOME, 'skills');
 const REPO_AGENTS_SKILLS = path.join(REPO_ROOT, 'agents', 'skills');
 
 /**
@@ -1187,7 +1191,8 @@ function mergeSettingsBetween(localPath, repoPath, direction, dryRun = false) {
 const SYNC_AREAS = {
   claude:   { homeBase: CLAUDE_HOME,   repoDir: 'claude',   prefix: 'claude/'   },
   codex:    { homeBase: CODEX_HOME,    repoDir: 'codex',    prefix: 'codex/'    },
-  // 跨工具全域 skill 正典區：~/.agents（Codex 原生掃、Claude 透過 symlink 橋探索）
+  gemini:   { homeBase: GEMINI_HOME,   repoDir: 'gemini',   prefix: 'gemini/'   },
+  // 跨工具全域 skill 正典區：~/.agents（Codex 原生掃、Claude 與 Antigravity 透過 symlink 橋探索）
   agents:   { homeBase: AGENTS_HOME,   repoDir: 'agents',   prefix: 'agents/'   },
 };
 
@@ -1211,6 +1216,7 @@ const SYNC_MANIFEST = [
   { area: 'agents', label: 'skills',        type: 'xtool-dir' },
   { area: 'claude', label: 'rules',         type: 'dir' },
   { area: 'codex',  label: 'AGENTS.md',     type: 'file' },
+  { area: 'gemini', label: 'GEMINI.md',     type: 'file' },
 ];
 
 /**
@@ -2078,7 +2084,7 @@ let _xtoolDir = null;
 function xtoolDir() {
   if (!_xtoolDir) {
     _xtoolDir = xtoolDirModule.createXtoolDir({
-      AGENTS_SKILLS_HOME, CLAUDE_SKILLS_HOME, REPO_AGENTS_SKILLS, LOCAL_SKILL_LOCK,
+      AGENTS_SKILLS_HOME, CLAUDE_SKILLS_HOME, GEMINI_SKILLS_HOME, REPO_AGENTS_SKILLS, LOCAL_SKILL_LOCK,
       GLOBAL_EXCLUDE, BRIDGE_CONFLICT_LIST_MAX,
       SyncError, col,
       getFiles, diffDir, mirrorDir, lstatSyncSafe, ensureSymlink,

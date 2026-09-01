@@ -1324,6 +1324,19 @@ test('safety:check：codex/AGENTS.md 含絕對 HOME 路徑 → hard block exit 2
   }
 });
 
+test('safety:check：gemini/GEMINI.md 含絕對 HOME 路徑 → hard block exit 2，遮罩路徑', () => {
+  const { repo, root } = setupSafetySandbox();
+  try {
+    writeSafetyText(repo, 'gemini/GEMINI.md', '# Gemini\n見 /home/bob/.gemini/GEMINI.md\n');
+    const r = runSafety(repo);
+    assert.equal(r.status, 2, `GEMINI.md 內 HOME 路徑應 hard block\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /絕對 HOME 路徑/);
+    assert.doesNotMatch(r.stdout, /\/home\/bob/, '不得輸出完整 HOME 路徑');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('safety:check：三引號字串內的假 section header 不誤標 key 歸屬（跨行狀態感知）', () => {
   const { repo, root } = setupSafetySandbox();
   try {

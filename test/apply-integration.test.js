@@ -563,6 +563,20 @@ test('to-repo：codex/AGENTS.md 寫入 repo；本機 config.toml 不被同步', 
   }
 });
 
+test('to-repo：gemini/GEMINI.md 寫入 repo', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(home, '.gemini', 'GEMINI.md'), 'GEMINI-AGENTS');
+
+    const r = run(repo, home, ['to-repo']);
+    assert.equal(r.status, 0, `to-repo 應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.equal(fs.readFileSync(path.join(repo, 'gemini', 'GEMINI.md'), 'utf8'),
+      'GEMINI-AGENTS', 'gemini/GEMINI.md 應寫入 repo');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('to-local --yes：codex/AGENTS.md 套用到本機；本機 config.toml 原封不動', () => {
   const { repo, home, root } = setupSandbox();
   try {
@@ -577,6 +591,20 @@ test('to-local --yes：codex/AGENTS.md 套用到本機；本機 config.toml 原�
       'CODEX-B', 'codex/AGENTS.md 應套用到本機');
     assert.equal(fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8'),
       'model = "o3"\n', '本機 config.toml 須原封不動（不被 repo 內容覆寫或合併）');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('to-local --yes：gemini/GEMINI.md 套用到本機', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'gemini', 'GEMINI.md'), 'GEMINI-B');
+
+    const r = run(repo, home, ['to-local', '--yes']);
+    assert.equal(r.status, 0, `to-local 應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.equal(fs.readFileSync(path.join(home, '.gemini', 'GEMINI.md'), 'utf8'),
+      'GEMINI-B', 'gemini/GEMINI.md 應套用到本機');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -598,7 +626,7 @@ test('to-repo 中途失敗：已寫入項目照常列出、警告部分中斷', 
     assert.equal(r.status, 2, `中途失敗應 exit 2\n${r.stdout}\n${r.stderr}`);
     assert.match(r.stdout, /claude\/CLAUDE\.md/, '失敗前已寫入的項目仍應列出');
     assert.equal(fs.readFileSync(path.join(repo, 'claude', 'CLAUDE.md'), 'utf8'),
-      'GOOD-CONTENT', 'CLAUDE.md 確實已寫入');
+      'GOOD-CONTENT', '已成功寫入的檔案應保留在磁碟上');
     assert.match(r.stderr, /同步因錯誤中斷：已寫入 \d+ 筆變更/, '應警告部分中斷與已寫入筆數');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -639,8 +667,9 @@ test('diff：二進位檔差異輸出不得含沙箱絕對路徑', () => {
 // -----------------------------------------------------------------------------
 const AGENTS_SKILL = (home, name, rel) => path.join(home, '.agents', 'skills', name, rel);
 const CLAUDE_SKILL_LINK = (home, name) => path.join(home, '.claude', 'skills', name);
+const GEMINI_SKILL_LINK = (home, name) => path.join(home, '.gemini', 'config', 'skills', name);
 
-test('xtool to-local：repo agents/skills → ~/.agents 真實目錄 + ~/.claude symlink 橋', () => {
+test('xtool to-local：repo agents/skills → ~/.agents 真實目錄 + ~/.claude & ~/.gemini symlink 橋', () => {
   const { repo, home, root } = setupSandbox();
   try {
     writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'FOO');
@@ -651,10 +680,15 @@ test('xtool to-local：repo agents/skills → ~/.agents 真實目錄 + ~/.claude
     assert.equal(fs.lstatSync(AGENTS_SKILL(home, 'foo', 'SKILL.md')).isFile(), true);
     assert.equal(fs.readFileSync(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'utf8'), 'FOO');
     // ~/.claude/skills/foo 為指向正典的 symlink，內容經 symlink 可達
-    const link = CLAUDE_SKILL_LINK(home, 'foo');
-    assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'claude 探索點應為 symlink');
-    assert.equal(fs.readlinkSync(link), path.join(home, '.agents', 'skills', 'foo'));
-    assert.equal(fs.readFileSync(path.join(link, 'SKILL.md'), 'utf8'), 'FOO');
+    const claudeLink = CLAUDE_SKILL_LINK(home, 'foo');
+    assert.equal(fs.lstatSync(claudeLink).isSymbolicLink(), true, 'claude 探索點應為 symlink');
+    assert.equal(fs.readlinkSync(claudeLink), path.join(home, '.agents', 'skills', 'foo'));
+    assert.equal(fs.readFileSync(path.join(claudeLink, 'SKILL.md'), 'utf8'), 'FOO');
+    // ~/.gemini/config/skills/foo 為指向正典的 symlink，內容經 symlink 可達
+    const geminiLink = GEMINI_SKILL_LINK(home, 'foo');
+    assert.equal(fs.lstatSync(geminiLink).isSymbolicLink(), true, 'gemini 探索點應為 symlink');
+    assert.equal(fs.readlinkSync(geminiLink), path.join(home, '.agents', 'skills', 'foo'));
+    assert.equal(fs.readFileSync(path.join(geminiLink, 'SKILL.md'), 'utf8'), 'FOO');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

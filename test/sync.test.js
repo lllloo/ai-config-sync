@@ -327,13 +327,14 @@ test('buildSyncItems：manifest 順序保留、fixedFlow 項目雙向 src/dest �
 // -----------------------------------------------------------------------------
 // label 清單鎖：恢復 claude/skills 或 codex/agents 等同步層時須一併更新此處期望值
 // （CLAUDE.md「日後若要恢復…」兩段點名本測試）。
-test('drift-guard：claude／codex 各 area 的 label 清單與順序鎖定', () => {
+test('drift-guard：claude／codex／gemini 各 area 的 label 清單與順序鎖定', () => {
   for (const direction of ['to-repo', 'to-local']) {
     const items = buildSyncItems(direction);
     const byArea = (prefix) => items.filter(i => i.prefix === prefix).map(i => i.label);
     assert.deepEqual(byArea('claude/'),
       ['CLAUDE.md', 'settings.json', 'statusline.sh', 'rules']);
     assert.deepEqual(byArea('codex/'), ['AGENTS.md']);
+    assert.deepEqual(byArea('gemini/'), ['GEMINI.md']);
   }
 });
 
@@ -587,6 +588,20 @@ test('SYNC_AREAS：agents area 對應 ~/.agents，repoDir/prefix 正確', () => 
   assert.match(a.homeBase, /[\\/]\.agents$/);
   assert.equal(a.repoDir, 'agents');
   assert.equal(a.prefix, 'agents/');
+});
+
+test('SYNC_AREAS：gemini area 對應 ~/.gemini，repoDir/prefix 正確', () => {
+  const g = SYNC_AREAS.gemini;
+  assert.ok(g, 'gemini area 應存在');
+  assert.match(g.homeBase, /[\\/]\.gemini$/);
+  assert.equal(g.repoDir, 'gemini');
+  assert.equal(g.prefix, 'gemini/');
+});
+
+test('SYNC_MANIFEST：gemini/GEMINI.md 為 file 型', () => {
+  const idx = SYNC_MANIFEST.findIndex(e => e.area === 'gemini' && e.label === 'GEMINI.md');
+  assert.ok(idx >= 0, 'SYNC_MANIFEST 應含 gemini/GEMINI.md 列');
+  assert.equal(SYNC_MANIFEST[idx].type, 'file');
 });
 
 test('SYNC_MANIFEST：agents/skills 為 xtool-dir 型（全域 skill 的唯一落點）', () => {
