@@ -11,7 +11,7 @@
     "ask": [
       "Bash(git push:*)"
     ],
-    "defaultMode": "auto"
+    "defaultMode": "bypassPermissions"
   },
   "statusLine": {
     "type": "command",
