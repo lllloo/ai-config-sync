@@ -28,35 +28,74 @@ description: '僅在明確呼叫時啟動——使用者輸入 `/bmad-goal`，�
 
 ## 開跑前唯一的一次提問
 
-排好清單後、動手前，問使用者一次（用 AskUserQuestion，一次問完）：
+排好清單後、動手前，**由主線**問使用者一次（用 AskUserQuestion，一次問完）——subagent 問不了人，這一問只能在這裡做完：
 
 1. **要不要用 worktree（wt）處理？** 在目前 checkout 直接做，還是開獨立 worktree。
 2. 若選 worktree → **要不要獨立的 docker 環境？** (A) 不起 stack，只寫 code、lint／typecheck 用一次性容器；(B) 起獨立 stack 供驗證（本機 `wt-env up` 這類指令，依專案記憶）。這條分岔只有使用者知道，不自行決定。
 
-問完之後整趟不再停。多個 story 共用同一個 worktree，依序做，不為每個 story 各開一個。
+問完之後整趟不再停。多個 story 共用同一個 worktree，依序做，不為每個 story 各開一個。答案要連同工作目錄的絕對路徑寫進每一份派工 prompt。
+
+同時建好交接目錄（見「執行順序」一節），記住它的絕對路徑。
 
 開跑前先確認工作樹乾淨（`git status --short` 為空）。有未提交變更就停下來報，不自行 stash 或 commit 別人的東西——髒工作樹會讓 code-review 的 diff 混進無關改動。
 
 ## 分支與 commit
 
 - 從 `develop` 開一條**主分支**跑整趟：單一 story 用 `story/<story-key>`；多個 story 用 `goal/<epic 或簡述>`（如 `goal/epic-16`），所有 story 都在這條上依序做。
-- 每個 story 收官（狀態轉 `done`）各自 commit，訊息沿用專案慣例（`feat(模組): Story X.Y【標題】…`）。
+- 每個 story 收官（狀態轉 `done`）各自 commit，訊息沿用專案慣例（`feat(模組): Story X.Y【標題】…`）。**commit 由主線做**，在讀完 review 段交接檔、確認狀態為 `done` 之後；派工 prompt 要明寫「不要自己 commit」，避免三個 subagent 各切一刀。
 - **不合回 develop**、不 push 保護分支、不推 tag。收尾時列出主分支名與各 story 的 commit sha，合併由使用者自己做。
 
-## 執行順序
+## 執行順序：每段一個乾淨 context
 
 多個 story **依序**跑，不平行（共用同一 repo 與 sprint-status，平行會互相踩）。前一個 story 三段跑完、狀態轉 `done` 才進下一個。
 
-每個 story：
+**每個 story 的三段各派一個 subagent**（Agent tool，`subagent_type: "general-purpose"`），段與段之間不共用 context：前一段讀過的原始碼、跑過的測試輸出都不進下一段，只有交接檔進得去。這同時保住 review 的對抗性——review 段看不到 dev 段的自辯。
 
-1. **看狀態**：讀 `{implementation_artifacts}/sprint-status.yaml` 該 key 的狀態，以及 story 檔是否存在。
-2. **create-story**：狀態 `backlog` 或 story 檔不存在 → 用 Skill tool 呼叫 `bmad-create-story`，帶 story 代號。已 `ready-for-dev` 以後 → 略過並說明。
-3. **dev-story**：用 Skill tool 呼叫 `bmad-dev-story`，帶 story 檔路徑。狀態已 `review` 以後 → 略過並說明。
-4. **code-review**：用 Skill tool 呼叫 `bmad-code-review`，帶 story key；review 對象＝該 story 分支對 develop 的 diff 或未提交變更。依 triage 結果套 patch、跑 lint／test 到綠，狀態轉 `done`。
+**主線自己不做實作**，只負責：排隊、派工、讀交接檔、判斷下一段、commit、收尾。
+
+### 交接檔
+
+開跑前主線先建一個**版控外**的交接目錄並記住絕對路徑：本 session 的 scratchpad 目錄下開 `goal-handoff/`，沒有 scratchpad 就 `mktemp -d`。⛔ 不要寫進 `{output_folder}` 或 `{implementation_artifacts}`——那兩處在版控內，會弄髒工作樹、混進 code-review 的 diff。
+
+每段寫一份 `<交接目錄>/<story-key>-<段名>.md`，段名為 `create`／`dev`／`review`。內容：
+
+- 段名、story key、最終狀態（sprint-status.yaml 的值）
+- 這段做了什麼（重點，不是流水帳）
+- 改動的檔案路徑清單
+- 測試／lint 結果：跑了什麼指令、綠還是紅
+- 寫進 `deferred-work.md` 的條目，各一行
+- 下一段必須知道的前提：未完的事、踩到的坑、刻意的取捨
+
+**主線只認交接檔，不認 subagent 的純文字回覆**——回覆可能遺失、延遲數十分鐘、或被截斷（本專案已重複踩過，見 `bmad-code-review` 三層審查的紀錄）。
+
+### 派工 prompt 必含
+
+1. 用 Skill tool 呼叫哪支子 skill、帶什麼參數（story 代號或 story 檔路徑）
+2. 上一段交接檔的**絕對路徑**，要求動手前先讀（第一段沒有）
+3. 交接檔要寫到哪個**絕對路徑**，以及「**寫完才結束；⛔ 不要只在回覆裡講，主線可能收不到**」
+4. 下一節「檢查點：不停」那組規則，原樣抄進去
+5. 「失敗也要寫交接檔」：卡在哪、做到哪一步、sprint-status 現在是什麼
+6. 開跑前那次提問的結論（worktree 與 docker 怎麼選、工作目錄在哪）
+
+### 每個 story 的三段
+
+1. **看狀態**（主線做，不派工）：讀 `{implementation_artifacts}/sprint-status.yaml` 該 key 的狀態，以及 story 檔是否存在，據此決定哪幾段要跑。
+2. **create**：狀態 `backlog` 或 story 檔不存在 → 派工跑 `bmad-create-story`，帶 story 代號。已 `ready-for-dev` 以後 → 略過並說明。
+3. **dev**：派工跑 `bmad-dev-story`，帶 story 檔路徑。狀態已 `review` 以後 → 略過並說明。
+4. **review**：派工跑 `bmad-code-review`，帶 story key；review 對象＝該 story 分支對 develop 的 diff 或未提交變更。依 triage 結果套 patch、跑 lint／test 到綠，狀態轉 `done`。
 
 三段都要跑到；能省略的只有「已經完成」的段落。
 
+### 收到回報之後
+
+Agent 回報完成 → 讀交接檔，以檔案內容為準。
+
+- 檔案不存在或是空的 → 用 SendMessage 向該 agent 索取並要它補寫，**不要自己重跑那一段**（會重複改動、把工作樹弄亂）。
+- 要不到 → 主線自己用 `git status --short`、`git diff --stat` 與 sprint-status.yaml 重建交接摘要再往下走，並在收尾誠實揭露這段沒有交接檔。
+
 ## 檢查點：不停
+
+以下規則**原樣寫進每次派工的 prompt**——真正撞到檢查點的是 subagent，不是主線。
 
 三個子 skill 都有 HALT 等人確認的步驟。本 skill 啟動時使用者已經授權「全部跑完」，所以：
 
@@ -71,7 +110,10 @@ description: '僅在明確呼叫時啟動——使用者輸入 `/bmad-goal`，�
 
 - 測試紅、lint 擋 → 修到綠再進下一段，不跳段。
 - 修不掉（環境壞、缺依賴、子 skill 找不到 story）→ 該 story 在 deferred-work 記一條，狀態留在當前段，**繼續跑下一個 story**。收尾時明講。
+- subagent 自己掛掉、或交接檔要不到 → 照上面「收到回報之後」的補救走；補不回來就當這個 story 卡住，記 deferred-work、跑下一個。⛔ 不要因為交接斷了就自己接手把整段重跑一遍。
 
 ## 收尾
 
 每個 story 一行：key、跑了哪幾段、略過的段落與原因、最終狀態、commit sha、寫進 deferred-work 的條數。全部跑完再給總表。
+
+交接檔留在原地不刪——它們在版控外，是這趟唯一的完整過程紀錄，使用者要回頭查得到。收尾時附上交接目錄的絕對路徑。
