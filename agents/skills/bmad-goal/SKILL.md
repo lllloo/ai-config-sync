@@ -80,6 +80,7 @@ description: '僅在明確呼叫時啟動——使用者輸入 `/bmad-goal`，�
 ### 每個 story 的三段
 
 1. **看狀態**（主線做，不派工）：讀 `{implementation_artifacts}/sprint-status.yaml` 該 key 的狀態，以及 story 檔是否存在，據此決定哪幾段要跑。
+   ⚠ 狀態 `review` 以後**不代表 dev 做完**——story 可能只交付了部分切片（如「本輪只做後端、前端留待下一輪」）。狀態為 `review`／`done` 時再掃 story 檔：有 `- [ ]` 未勾的 Task，或 Completion Notes 出現「本輪未做」「留待下一輪」「另輪」這類字樣 ⇒ 把「要不要補跑 dev 做那段」併入開跑前那次提問，不自行略過。
 2. **create**：狀態 `backlog` 或 story 檔不存在 → 派工跑 `bmad-create-story`，帶 story 代號。已 `ready-for-dev` 以後 → 略過並說明。
 3. **dev**：派工跑 `bmad-dev-story`，帶 story 檔路徑。狀態已 `review` 以後 → 略過並說明。
 4. **review**：派工跑 `bmad-code-review`，帶 story key；review 對象＝該 story 分支對 develop 的 diff 或未提交變更。依 triage 結果套 patch、跑 lint／test 到綠，狀態轉 `done`。
@@ -92,6 +93,14 @@ Agent 回報完成 → 讀交接檔，以檔案內容為準。
 
 - 檔案不存在或是空的 → 用 SendMessage 向該 agent 索取並要它補寫，**不要自己重跑那一段**（會重複改動、把工作樹弄亂）。
 - 要不到 → 主線自己用 `git status --short`、`git diff --stat` 與 sprint-status.yaml 重建交接摘要再往下走，並在收尾誠實揭露這段沒有交接檔。
+
+### 收段：每段派工結束就收掉 agent
+
+讀完交接檔、判定這段可以往下走之後，**立刻把該段的 subagent 收掉**（`TaskStop`，schema 若未載入先用 `ToolSearch("select:TaskStop")`）。
+
+- 收的時機是「交接檔已讀到手」之後，不是「agent 回報」之後——回報可能遲到或遺失，交接檔才是準。
+- 交接檔要不到、走到「主線自己重建摘要」那條時，一樣要收：這隻 agent 已經沒有用處了。
+- 一段一收，不要留到整趟結束才一次清——本專案踩過殘留累積到十幾隻的狀況（每 story 兩隻 × 一整個 epic）。
 
 ## 檢查點：不停
 
@@ -115,5 +124,9 @@ Agent 回報完成 → 讀交接檔，以檔案內容為準。
 ## 收尾
 
 每個 story 一行：key、跑了哪幾段、略過的段落與原因、最終狀態、commit sha、寫進 deferred-work 的條數。全部跑完再給總表。
+
+選了獨立 worktree／docker stack 時，收尾固定附一行環境善後：stack 仍在跑（port、compose project 名）與收掉的指令（`cd <worktree> && wt-env down` 或 `purge`，之後 `git worktree remove <路徑>`）。不代做，由使用者決定何時收。
+
+收尾前用 `ListAgents` 掃一次，確認這趟派出的 subagent 都已收掉；還有殘留就補 `TaskStop`，並在收尾說明是哪幾隻、為什麼沒在該段收掉。
 
 交接檔留在原地不刪——它們在版控外，是這趟唯一的完整過程紀錄，使用者要回頭查得到。收尾時附上交接目錄的絕對路徑。
