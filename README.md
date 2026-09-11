@@ -192,9 +192,13 @@ npm run skills:diff   # 依建議的 npx skills add 指令安裝全域 skill（�
 rm -rf ~/.agents/skills/{bmad-goal,map,map-fast,project-map}
 rm -f ~/.claude/skills/{bmad-goal,map,map-fast,project-map}
 rm -f ~/.gemini/config/skills/{map,map-fast}
-npx skills add <your-repo> -g -y --skill bmad-goal,map,map-fast,project-map
+npx skills add <your-repo> -g -y --skill bmad-goal --skill map --skill map-fast --skill project-map
 npm run skills:diff
 ```
+
+`--skill` 不吃逗號分隔，一支一個旗標。安裝輸出末尾的「Failed to install … PromptScript does not support global skill installation」是 `npx skills` 對不支援全域安裝的 agent 的常態訊息，可忽略。
+
+**探索點由 `npx skills` 決定**（2026-09-11 於 WSL 實測，`npx skills` 1.5.25）：實體在 `~/.agents/skills/<name>`；Claude Code 得到 `~/.claude/skills/<name>` 相對路徑 symlink；Codex 與 Antigravity CLI 被歸為直接讀 `~/.agents/skills` 的「universal」工具，**不會**再寫 `~/.gemini/config/skills/`（舊機制曾在那裡建橋）。若你的 Antigravity 版本實際只讀 `~/.gemini/config/skills/`，手動補 symlink 即可：`ln -s ~/.agents/skills/<name> ~/.gemini/config/skills/<name>`。
 
 裝完檢查 `~/.agents/.skill-lock.json` 內四筆的 `skillFolderHash` 不是空字串——空值代表安裝時抓不到 GitHub tree（私有 repo 認證失敗），`npx skills update -g` 會以「Private or deleted repo」跳過它們；先 `gh auth login` 再重裝即可。
 

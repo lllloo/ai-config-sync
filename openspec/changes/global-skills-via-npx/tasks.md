@@ -33,7 +33,7 @@
 
 ## 5. 本機遷移與驗證
 
-- [ ] 5.1 依 design Migration Plan 步驟 2 移除舊產物並以 `npx skills add -g` 重裝四支
-- [ ] 5.2 檢查 `~/.agents/.skill-lock.json` 四筆 `skillFolderHash` 非空；`npm run skills:diff` 全綠
-- [ ] 5.3 Claude Code 端確認 `/map`、`/bmad-goal` 仍可被探索；Antigravity 端確認 map 可見，將實際讀取路徑寫入 README 遷移段落（若需手動 symlink，記指令）
-- [ ] 5.4 `npm run status` 全綠後 commit
+- [x] 5.1 依 design Migration Plan 步驟 2 移除舊產物並以 `npx skills add -g` 重裝四支
+- [x] 5.2 檢查 `~/.agents/.skill-lock.json` 四筆 `skillFolderHash` 非空；`npm run skills:diff` 全綠
+- [x] 5.3 Claude Code 端確認 `/map`、`/bmad-goal` 仍可被探索；Antigravity 端確認 map 可見，將實際讀取路徑寫入 README 遷移段落（若需手動 symlink，記指令）
+- [x] 5.4 `npm run status` 全綠後 commit
