@@ -3,159 +3,22 @@
 ## Purpose
 定義 repo 自寫全域 skill 的安裝契約：唯一落點為 repo 頂層 `skills/<name>/`（`npx skills` 慣例掃描目錄），安裝、更新、移除一律經 `npx skills`（`add -g`／`update -g`／`remove`）並以 `skills-lock.json` 登記，`sync.js` 的任何指令不得寫入 `~/.agents/skills/`、`~/.claude/skills/` 或其他工具探索點。前身為 `xtool-dir` 型共管同步（見 `openspec/changes/archive/*-global-skills-via-npx`），因與 `npx skills` 共寫同一目錄的守門成本過高而撤除。
 ## Requirements
-### Requirement: 跨工具全域 skill 同步區
 
-系統 SHALL 提供一個同步區 `agents/`（無點），對應本機 `~/.agents/`，與既有 `claude/`↔`~/.claude/`、`codex/`↔`~/.codex/` 命名同構。放於 `agents/skills/<name>/` 的 skill SHALL 被視為「全域跨工具」skill。「哪些 skill 跨工具」SHALL 由目錄位置決定，不引入 per-skill flag。
+### Requirement: 全域 skill 經 npx skills 安裝與更新
 
-全域 skill SHALL 只有 `agents/skills/` 一個落點；系統 SHALL NOT 提供 Claude 專屬的全域 skill 同步層。
+repo 自寫的全域 skill SHALL 唯一放於 repo 頂層 `skills/<name>/`（`npx skills` 慣例掃描容器目錄）。全域 skill 的安裝、更新與移除 SHALL 一律經 `npx skills`（`add -g`／`update -g`／`remove`），並以 `skills-lock.json` 登記（source 為本 repo 的 GitHub 位址）。`sync.js` 的任何指令 SHALL NOT 寫入、刪除或修復 `~/.agents/skills/` 與 `~/.claude/skills/` 下的任何項目，也 SHALL NOT 在 `SYNC_MANIFEST` 保有任何指向 `~/.agents/` 的同步區。
 
-#### Scenario: agents 區解析
+#### Scenario: npx skills 可直接發現全域 skill
 
-- **WHEN** `resolveSyncArea('agents')` 被呼叫
-- **THEN** 回傳 homeBase `~/.agents`、repoBase `<repo>/agents`、prefix `agents/`
+- **WHEN** 對本 repo 執行 `npx skills add <repo> --list`（不加 `--full-depth`）
+- **THEN** `skills/` 下每一支 skill SHALL 出現在可安裝清單中
 
-#### Scenario: 全域 skill 落點唯一
+#### Scenario: 安裝建議由 skills:diff 承接
 
-- **WHEN** 維護者新增一個全域 skill
-- **THEN** 該 skill 放於 repo `agents/skills/<name>/`，作為跨工具 skill 同步
-- **AND** `SYNC_MANIFEST` SHALL NOT 含 `claude` 區的 `skills` dir 型同步項
+- **WHEN** 某裝置的 `~/.agents/.skill-lock.json` 缺少 `skills-lock.json` 登記的自寫全域 skill，執行 `skills:diff`
+- **THEN** 該 skill SHALL 與其他外部 skill 一樣列於「僅在 repo」並印出 `npx skills add <repo> -g -y --skill <name>` 建議指令
 
-### Requirement: xtool-dir 非 prune upsert（共管安全）
+#### Scenario: to-local 不觸碰全域 skill 目錄
 
-`xtool-dir` 型別的 apply SHALL 只處理 repo `agents/skills/` 列出的 skill 名；對 `~/.agents/skills/` 內不受管的項（如 `npx skills` 安裝者）SHALL NOT 刪除。系統 SHALL NOT 對 `~/.agents/skills/` 套用 `mirrorDir` 的 prune-extras 語意。
-
-`diff` SHALL 觀測 `~/.agents/skills/` 中未登記於本機 npx lock、且 repo 已無對應來源的 skill，標示其為本機未受 repo 管理；此觀測 SHALL NOT 改變 apply 的非 prune 語意，也不得將該項吸回 repo 或刪除。
-
-#### Scenario: 不誤刪共管住戶
-
-- **WHEN** `~/.agents/skills/` 內同時存在受管 skill 與一個非受管（npx 安裝）skill，執行 `to-local`
-- **THEN** 受管 skill 被 upsert，非受管 skill 保持原封不動、不被刪除
-
-#### Scenario: 單一 skill 目錄內殘檔清理
-
-- **WHEN** 受管 skill 目錄內有 repo 端已移除的檔案，執行 `to-local`
-- **THEN** 該 skill 目錄內的殘檔被清除，但不影響任何 sibling skill 目錄
-
-### Requirement: Claude 探索 symlink 橋
-
-`to-local` 方向的 apply SHALL 為每個受管 skill 於 `~/.claude/skills/<name>` 建立指向 `~/.agents/skills/<name>` 的 symlink，供 Claude Code 探索（官方支援 symlink 探索）。建立行為 SHALL 幂等：已是正確 symlink 時跳過、指向錯誤時修正、懸空（目標不存在）symlink 移除後重建。既有狀態的型別判斷 SHALL 以 lstat（不跟隨 link）為準。
-
-`to-repo` 方向 SHALL NOT 建立或修復探索點：該方向的資料流為本機→repo，不寫入本機探索路徑。diff 階段對探索點狀態的檢查 SHALL 同樣限於 `to-local` 方向。
-
-#### Scenario: 建立探索點
-
-- **WHEN** 受管 skill 已寫入 `~/.agents/skills/<name>/` 而 `~/.claude/skills/<name>` 不存在，執行 `to-local`
-- **THEN** 於 `~/.claude/skills/<name>` 建立指向 `~/.agents/skills/<name>` 的 symlink
-
-#### Scenario: 幂等
-
-- **WHEN** `~/.claude/skills/<name>` 已是指向正確目標的 symlink，再次執行 `to-local`
-- **THEN** 不重建、標記為無變更
-
-#### Scenario: 懸空 symlink 修復
-
-- **WHEN** `~/.claude/skills/<name>` 為懸空 symlink（目標不存在），執行 `to-local`
-- **THEN** 該 symlink 被移除並重建為指向 `~/.agents/skills/<name>` 的正確 symlink，不因 EEXIST 失敗
-
-#### Scenario: to-repo 不觸碰探索點
-
-- **WHEN** 執行 `to-repo`，且 `~/.claude/skills/<name>` 不存在或為懸空 symlink
-- **THEN** 系統 SHALL NOT 建立或修復該 symlink
-- **AND** 該狀態 SHALL NOT 造成 `to-repo` 失敗
-
-### Requirement: 同名碰撞守門
-
-`upsert` 前，若 `<name>` 登記於 `~/.agents/.skill-lock.json`（npx 安裝的既有 skill），系統 SHALL 判定為碰撞、拒絕覆寫並輸出 warning，SHALL NOT 靜默覆寫既有 skill。lock 檔不存在 SHALL 視為沒有 npx 登記；若 lock 檔存在但無法讀取、解析或驗證格式，系統 SHALL 將登記狀態視為未知，對該受管 skill 及其探索點拒絕覆寫／跳過，SHALL NOT 把讀取失敗當成安全。此未知狀態不得阻止其他同步項目繼續，且輸出 SHALL NOT 包含 lock 內容。lock 登記 SHALL 為唯一碰撞判準：`~/.claude/skills/<name>` symlink 的存在 SHALL NOT 被當作碰撞訊號（本機制自身產物與 npx 產物在檔案系統上無法區分，誤用會破壞幂等）。碰撞或未知狀態 SHALL 於 diff 階段即以 `conflict` 狀態行標示（不印內容），並計入 diff 有差異（`EXIT_DIFF`）。
-
-#### Scenario: 撞名拒寫
-
-- **WHEN** repo `agents/skills/<name>` 與一個已登記於 `~/.agents/.skill-lock.json` 的同名 skill 衝突，執行 apply
-- **THEN** 不覆寫既有 skill、輸出碰撞 warning
-
-#### Scenario: diff 先標示碰撞
-
-- **WHEN** 存在同名碰撞，執行 `diff`
-- **THEN** 該 skill 於輸出中以 `conflict` 狀態標示，不等到 apply 才顯現
-
-#### Scenario: 重跑受管 skill 不判碰撞
-
-- **WHEN** 受管 skill 已於前次 apply 同步成功（`~/.agents/skills/<name>` 存在、`~/.claude/skills/<name>` 為本機制所建 symlink，且 `<name>` 未登記於 `~/.agents/.skill-lock.json`），再次執行 apply
-- **THEN** 不判定碰撞，正常 upsert（幂等）
-
-#### Scenario: lock 狀態未知時 fail closed
-
-- **WHEN** `~/.agents/.skill-lock.json` 存在但無法讀取、解析或驗證格式，且 repo 有受管 skill
-- **THEN** 該 skill 於 diff 以 `conflict` 標示
-- **AND** apply SHALL 拒絕覆寫該 skill，也不得建立或修復其探索點
-- **AND** 其他同步項目 SHALL 仍可繼續
-- **AND** 輸出 SHALL NOT 包含 lock 內容
-
-### Requirement: 真實目錄至 symlink 的遷移
-
-當 `~/.claude/skills/<name>` 目前為真實目錄（舊機制產物）時，apply SHALL 安全地轉換為 symlink：先確認 `~/.agents/skills/<name>` 已寫入成功，再刪除真實目錄並建立 symlink。轉換 SHALL 幂等；任一步失敗 SHALL 透過 `partialChanges` 附掛已完成變更並警告，SHALL NOT 遺失 skill 內容（dir→symlink 轉換無法原子，容許的空窗僅限 Claude 探索點短暫缺席，正典內容 SHALL 已先安全落於 `~/.agents`）。
-
-轉換 SHALL 內生於 `xtool-dir` 型的 apply，SHALL NOT 依賴其與任何其他同步項的相對順序。
-
-#### Scenario: dir 轉 symlink
-
-- **WHEN** `~/.claude/skills/<name>` 為真實目錄且 `~/.agents/skills/<name>` 已寫入，執行 apply
-- **THEN** 真實目錄被替換為指向 `~/.agents/skills/<name>` 的 symlink，內容仍可經 symlink 存取
-
-#### Scenario: 中途失敗可見
-
-- **WHEN** 轉換過程中途失敗
-- **THEN** 已完成變更附掛於 `SyncError.context.partialChanges` 並印出警告
-
-#### Scenario: 轉換不依賴 manifest 順序
-
-- **WHEN** 本機 `~/.claude/skills/<name>` 仍為舊真實目錄，執行 `to-local`
-- **THEN** `xtool-dir` apply 完成 agents 端寫入與 dir→symlink 轉換
-- **AND** 轉換結果 SHALL NOT 因 `SYNC_MANIFEST` 中其他項目的相對位置而改變
-
-### Requirement: to-repo 只讀回受管名字
-
-`to-repo` 方向 SHALL 只從 `~/.agents/skills/<受管名字>/` 讀回 repo `agents/skills/`，SHALL NOT 掃描整個 `~/.agents/skills/` 而吸入非受管（npx 安裝）skill。
-
-#### Scenario: 不吸入非受管
-
-- **WHEN** `~/.agents/skills/` 內含受管與非受管 skill，執行 `to-repo`
-- **THEN** 僅受管 skill 被寫回 repo，非受管 skill 不進入 repo
-
-### Requirement: 新同步來源納入 safety 掃描
-
-新增的 `agents/` 同步來源 SHALL 納入 `npm run safety:check` 的掃描射程（`SAFETY_SCAN_DIRS` 含 `'agents'`），SHALL NOT 讓任何寫入家目錄的同步來源逃出安全掃描。`agents/skills/` SHALL 列為 text-pattern 掃描排除前綴（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`），以避開 skill 內文的整類假陽性，其結構化掃描（secret value／私鑰／絕對 HOME 路徑）SHALL 仍照常執行。
-
-#### Scenario: agents 來源在掃描射程內
-
-- **WHEN** `agents/skills/` 內含觸發 hard block 的內容（如私鑰片段），執行 `npm run safety:check`
-- **THEN** 該問題被偵測並以 hard block（exit 2）回報，不因來源未列入 `SAFETY_SCAN_DIRS` 而漏掃
-
-#### Scenario: skill 內文不誤報
-
-- **WHEN** `agents/skills/` 下的 skill 內文含觸發 text-pattern 的字串
-- **THEN** text-pattern 掃描略過該類內文，但結構化掃描仍對其執行
-
-### Requirement: Windows symlink fallback
-
-於 Windows，當標準 dir symlink 建立失敗時，系統 SHALL 嘗試以 junction 建立探索點；junction 亦失敗時 SHALL 拋出帶 path context 的 `SyncError`，SHALL NOT 靜默略過。
-
-#### Scenario: junction fallback
-
-- **WHEN** 於 Windows 標準 symlink 因權限不足失敗
-- **THEN** 改以 junction 建立探索點；若仍失敗則拋 `SyncError` 而非靜默略過
-
-### Requirement: apply 部分變更的併入
-
-當 `xtool-dir` 型的 apply 中途拋例外時，系統 SHALL 併入兩邊的已完成變更：本次失敗前**已完成的 skill** 之變更，與 `mirrorDir` 附掛於當前 skill 的**內部**變更。任一邊 SHALL NOT 因指派而覆寫另一邊。當前 skill 的內部相對路徑 SHALL 補上 `<name>/` 前綴，使其與其他項目的顯示格式一致。
-
-已落磁碟的檔案 MUST NOT 零可見度——這是 `sync-write-safety` 之「apply 部分失敗須可見」在本型的具體化，因本型逐 skill 迴圈套用而多出「跨 skill 與 skill 內」兩層來源。
-
-#### Scenario: 兩邊都有內容時併入
-- **WHEN** apply 已完成若干 skill 後，於下一個 skill 的目錄鏡射中途失敗，且該 skill 內部已有寫入
-- **THEN** 附掛的部分變更清單 SHALL 同時包含先前已完成 skill 的變更與當前 skill 的內部變更
-- **AND** 當前 skill 的內部變更 SHALL 帶 `<name>/` 前綴
-
-#### Scenario: 單邊為空時不得覆寫另一邊
-- **WHEN** 兩層來源其中一層為空
-- **THEN** 另一層的已完成變更 SHALL 完整保留於部分變更清單中
-
+- **WHEN** 執行 `to-local`（含 `to-win-local`）
+- **THEN** `~/.agents/skills/` 與 `~/.claude/skills/` 的內容與 mtime SHALL 與執行前相同
