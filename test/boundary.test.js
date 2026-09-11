@@ -777,134 +777,12 @@ test('applySyncItems：dry-run 計入統計但不實際寫入', () => {
 });
 
 // =============================================================================
-// ensureSymlink：幂等建立/修復探索點 symlink（xtool-dir 前置能力）
-// 型別判斷一律 lstat；懸空 symlink 須修復不 EEXIST；真實目錄佔用走 D5 轉換
-// =============================================================================
-
-itUnix('ensureSymlink：link 不存在 → 建立指向 target 的 symlink（action added）', () => {
-  withTmpDir((dir) => {
-    const target = path.join(dir, 'target');
-    fs.mkdirSync(target);
-    fs.writeFileSync(path.join(target, 'SKILL.md'), 'X');
-    const link = path.join(dir, 'link');
-
-    const res = ensureSymlink(target, link);
-    assert.deepEqual(res, { action: 'added' });
-    assert.equal(fs.lstatSync(link).isSymbolicLink(), true, '應為 symlink');
-    assert.equal(fs.readlinkSync(link), target, '應指向 target');
-    assert.equal(fs.readFileSync(path.join(link, 'SKILL.md'), 'utf8'), 'X', '內容經 symlink 可達');
-  });
-});
-
-itUnix('ensureSymlink：已是正確 symlink → 回 null（幂等，不重建）', () => {
-  withTmpDir((dir) => {
-    const target = path.join(dir, 'target');
-    fs.mkdirSync(target);
-    const link = path.join(dir, 'link');
-    fs.symlinkSync(target, link);
-
-    assert.equal(ensureSymlink(target, link), null, '幂等應回 null');
-  });
-});
-
-itUnix('ensureSymlink：symlink 指向錯誤 → 修正（action updated）', () => {
-  withTmpDir((dir) => {
-    const target = path.join(dir, 'target');
-    const wrong = path.join(dir, 'wrong');
-    fs.mkdirSync(target);
-    fs.mkdirSync(wrong);
-    const link = path.join(dir, 'link');
-    fs.symlinkSync(wrong, link);
-
-    const res = ensureSymlink(target, link);
-    assert.deepEqual(res, { action: 'updated' });
-    assert.equal(fs.readlinkSync(link), target, '應改指向正確 target');
-  });
-});
-
-itUnix('ensureSymlink：懸空 symlink（目標不存在）→ unlink 重建，不因 EEXIST 失敗', () => {
-  withTmpDir((dir) => {
-    const target = path.join(dir, 'target');
-    fs.mkdirSync(target);
-    const link = path.join(dir, 'link');
-    // 先建懸空 symlink（指向不存在路徑）
-    fs.symlinkSync(path.join(dir, 'ghost'), link);
-    assert.equal(fs.existsSync(link), false, '懸空 symlink 對 existsSync 回 false');
-
-    let res;
-    assert.doesNotThrow(() => { res = ensureSymlink(target, link); });
-    assert.deepEqual(res, { action: 'updated' });
-    assert.equal(fs.readlinkSync(link), target);
-  });
-});
-
-itUnix('ensureSymlink：真實目錄佔用（D5 遷移）→ rm 後建 symlink', () => {
-  withTmpDir((dir) => {
-    const target = path.join(dir, 'agents-skill');
-    fs.mkdirSync(target);
-    fs.writeFileSync(path.join(target, 'SKILL.md'), 'CANON');
-    // link 位置是舊機制的真實目錄
-    const link = path.join(dir, 'claude-skill');
-    fs.mkdirSync(link);
-    fs.writeFileSync(path.join(link, 'SKILL.md'), 'OLD');
-
-    const res = ensureSymlink(target, link);
-    assert.deepEqual(res, { action: 'updated' });
-    assert.equal(fs.lstatSync(link).isSymbolicLink(), true, '真實目錄應被轉為 symlink');
-    assert.equal(fs.readFileSync(path.join(link, 'SKILL.md'), 'utf8'), 'CANON', '內容來自 target 正典');
-  });
-});
-
-itUnix('ensureSymlink：dry-run 不寫入但回報 action', () => {
-  withTmpDir((dir) => {
-    const target = path.join(dir, 'target');
-    fs.mkdirSync(target);
-    const link = path.join(dir, 'link');
-
-    const res = ensureSymlink(target, link, true);
-    assert.deepEqual(res, { action: 'added' });
-    assert.equal(fs.existsSync(link), false, 'dry-run 不得建立 symlink');
-  });
-});
-
-test('ensureSymlink：Windows dir symlink 失敗時退回 junction（mock 覆蓋）', () => {
-  withTmpDir((dir) => {
-    const target = path.join(dir, 'target');
-    fs.mkdirSync(target);
-    const link = path.join(dir, 'link');
-
-    const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
-    const origSymlink = fs.symlinkSync;
-    const calls = [];
-    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
-    fs.symlinkSync = (t, p, type) => {
-      calls.push(type);
-      if (type === 'dir') { const e = new Error('EPERM'); e.code = 'EPERM'; throw e; }
-      // 顯式帶 'junction'：真在 Windows 上跑時，junction 免權限而 dir symlink 需
-      // 開發者模式（不帶 type 的自動偵測不可靠）；非 Windows 平台 Node 忽略 type，
-      // 一律落成一般 symlink，故此寫法兩平台皆可
-      return origSymlink(t, p, 'junction');
-    };
-    try {
-      let res;
-      assert.doesNotThrow(() => { res = ensureSymlink(target, link); });
-      assert.deepEqual(res, { action: 'added' });
-      assert.ok(calls.includes('dir'), '應先嘗試 dir symlink');
-      assert.ok(calls.includes('junction'), 'dir 失敗後應退回 junction');
-    } finally {
-      fs.symlinkSync = origSymlink;
-      Object.defineProperty(process, 'platform', origPlatform);
-    }
-  });
-});
-
-// =============================================================================
 // safety:check：獨立、唯讀、安全輸出與 exit code
 // =============================================================================
 
-// safety:check 執行期依賴 sync.js + safety-check.js + toml-reader.js + skills.js + xtool-dir.js 五檔，
+// safety:check 執行期依賴 sync.js + safety-check.js + toml-reader.js + skills.js 四檔，
 // sandbox 需同時複製，避免單檔假設回歸（sync.js require 缺任一檔會直接崩）。
-const SAFETY_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'xtool-dir.js'];
+const SAFETY_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js'];
 
 function setupSafetySandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-safety-'));
@@ -1369,26 +1247,27 @@ test('safety:check：claude/agents 已自豁免清單移除（agent 庫已不同
   }
 });
 
-// 回歸（#8）：SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES 曾整棵排除 `agents/skills/`，
-// 而那是三個同步來源根目錄之一的**全部內容**（其下 skill 皆為本 repo 手寫，非
-// 「原樣鏡射的第三方文件」）——等於整個跨工具全域 skill 樹不受 secret／私鑰／
-// HOME 路徑掃描。清單現為空，此測試鎖住「同步來源根不得被整棵豁免」。
-test('safety:check：agents/skills 不再豁免 text pattern（同步來源根不得整棵排除）', () => {
-  const { SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES } = require('../safety-check.js');
-  assert.ok(!SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES.some(p => ['claude/', 'codex/', 'agents/'].includes(p)),
-    '排除清單不得含同步來源根目錄本身');
-  assert.ok(!SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES.includes('agents/skills/'),
-    'agents/skills/ 為全域 skill 樹全部內容，不得整棵排除');
+// 回歸（#8）：SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES 曾整棵排除舊的全域 skill 樹根
+// （今為 `skills/`），而那是掃描來源根目錄之一的**全部內容**（其下 skill 皆為本 repo
+// 手寫，非「原樣鏡射的第三方文件」）——等於整個全域 skill 樹不受 secret／私鑰／
+// HOME 路徑掃描。清單現為空，此測試鎖住「來源根不得被整棵豁免」。skills/ 雖不由
+// sync.js 寫入家目錄，但會經 npx skills add 裝進家目錄，須留在掃描射程（SAFETY_SCAN_DIRS）。
+test('safety:check：skills/ 在掃描射程內且不豁免 text pattern（來源根不得整棵排除）', () => {
+  const { SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES, SAFETY_SCAN_DIRS } = require('../safety-check.js');
+  assert.ok(SAFETY_SCAN_DIRS.includes('skills'), 'skills/ 須列於 SAFETY_SCAN_DIRS');
+  assert.ok(!SAFETY_SCAN_DIRS.includes('agents'), 'agents/ 已不存在，不得留在 SAFETY_SCAN_DIRS');
+  assert.ok(!SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES.some(p => ['claude/', 'codex/', 'skills/', 'gemini/'].includes(p)),
+    '排除清單不得含來源根目錄本身');
 
   const { repo, root } = setupSafetySandbox();
   try {
-    writeSafetyText(repo, 'agents/skills/demo/SKILL.md', '範例：/home/bob/secret 與 ghp_' + 'y'.repeat(24) + '\n');
+    writeSafetyText(repo, 'skills/demo/SKILL.md', '範例：/home/bob/secret 與 ghp_' + 'y'.repeat(24) + '\n');
     const r = runSafety(repo);
-    assert.equal(r.status, 2, `agents/skills 應照常 hard block\n${r.stdout}\n${r.stderr}`);
+    assert.equal(r.status, 2, `skills/ 應照常 hard block\n${r.stdout}\n${r.stderr}`);
     assert.match(r.stdout, /疑似機密值/);
     assert.match(r.stdout, /絕對 HOME 路徑/);
     assert.doesNotMatch(r.stdout, /\/home\/bob/, '不得輸出完整 HOME 路徑');
-    fs.rmSync(path.join(repo, 'agents', 'skills'), { recursive: true, force: true });
+    fs.rmSync(path.join(repo, 'skills'), { recursive: true, force: true });
 
     // claude/skills/ 已隨同步層移除自豁免清單撤除（repo 已無此目錄，排除屬預防性列名）：
     // 若日後重新引入且含機密樣式，text pattern 應照常攔截
@@ -1425,12 +1304,11 @@ test('safety:check：設定來源（statusline.sh）含機密樣式 → 仍 hard
 
 // =============================================================================
 // 模組邊界：功能模組不得反向 require sync.js
-// safety-check-module-boundary／skills-module-boundary／xtool-dir-module-boundary
-// 三份 spec 皆有此 SHALL NOT，此前無回歸鎖、純靠自律。註解裡提及該字串
-// （如 xtool-dir.js 檔頭的禁令說明）不算違規，故先剝除註解再比對。
+// safety-check-module-boundary／skills-module-boundary 兩份 spec 皆有此 SHALL NOT，
+// 此前無回歸鎖、純靠自律。註解裡提及該字串（如檔頭的禁令說明）不算違規，故先剝除註解再比對。
 // =============================================================================
 
-const FEATURE_MODULES = ['safety-check.js', 'toml-reader.js', 'skills.js', 'xtool-dir.js'];
+const FEATURE_MODULES = ['safety-check.js', 'toml-reader.js', 'skills.js'];
 
 /** 剝除區塊註解與行註解，避免檔頭禁令說明被誤判為真實 require。 */
 function stripJsComments(src) {

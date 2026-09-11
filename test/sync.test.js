@@ -12,7 +12,6 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
-  collectSkillDiffSummary,
   buildFullDiffList,
   diffFile,
   diffDir,
@@ -580,16 +579,6 @@ test('旗標 drift-guard：README 旗標表涵蓋 parseArgs 白名單全部旗�
   }
 });
 
-// 5.4 drift-guard：新增 agents 同步區（SYNC_AREAS + SYNC_MANIFEST 的 xtool-dir 列）
-// 須與 README 同步項目表一致；且 xtool 列必須排在 claude skills dir 列之前（順序即安全）
-test('SYNC_AREAS：agents area 對應 ~/.agents，repoDir/prefix 正確', () => {
-  const a = SYNC_AREAS.agents;
-  assert.ok(a, 'agents area 應存在');
-  assert.match(a.homeBase, /[\\/]\.agents$/);
-  assert.equal(a.repoDir, 'agents');
-  assert.equal(a.prefix, 'agents/');
-});
-
 test('SYNC_AREAS：gemini area 對應 ~/.gemini，repoDir/prefix 正確', () => {
   const g = SYNC_AREAS.gemini;
   assert.ok(g, 'gemini area 應存在');
@@ -604,15 +593,9 @@ test('SYNC_MANIFEST：gemini/GEMINI.md 為 file 型', () => {
   assert.equal(SYNC_MANIFEST[idx].type, 'file');
 });
 
-test('SYNC_MANIFEST：agents/skills 為 xtool-dir 型（全域 skill 的唯一落點）', () => {
-  const xtoolIdx = SYNC_MANIFEST.findIndex(e => e.area === 'agents' && e.label === 'skills');
-  assert.ok(xtoolIdx >= 0, 'SYNC_MANIFEST 應含 agents/skills 列');
-  assert.equal(SYNC_MANIFEST[xtoolIdx].type, 'xtool-dir');
-});
-
 // 回歸鎖（對稱於「不得含 config.toml」）：claude/skills 與 claude/commands 兩層已因
-// 無住戶移除（remove-tenantless-sync-layers）。claude/skills 若被加回，會連帶復活
-// 「xtool-dir 列須排在其之前」的順序不變式；claude/commands 則違反「一律使用
+// 無住戶移除（remove-tenantless-sync-layers）。claude/skills 若被加回，會與 npx skills
+// 在 ~/.claude/skills 建的探索 symlink 競爭（dir 型 prune-extras 會刪它）；claude/commands 則違反「一律使用
 // skill、不再新增 command」政策，且會讓他機殘留的舊 command 經 to-repo 復活。
 // 要恢復任一層須先重新評估上述後果，不得只塞回一列 manifest。
 test('SYNC_MANIFEST 回歸鎖：不得含 claude 區的 skills／commands dir 列', () => {
@@ -623,9 +606,10 @@ test('SYNC_MANIFEST 回歸鎖：不得含 claude 區的 skills／commands dir �
   }
 });
 
-test('README drift-guard：agents 同步區載於 README 同步項目表', () => {
-  assert.ok(README.includes('`agents/skills/`'), 'README 未載明 repo 路徑 agents/skills/');
-  assert.ok(README.includes('`~/.agents/skills/`'), 'README 未載明本機路徑 ~/.agents/skills/');
+test('README drift-guard：全域 skill 落點 skills/ 與 npx skills 安裝方式載於 README', () => {
+  assert.ok(README.includes('`skills/`'), 'README 未載明 repo 路徑 skills/');
+  assert.ok(README.includes('npx skills add'), 'README 未載明全域 skill 以 npx skills add 安裝');
+  assert.ok(!README.includes('`agents/skills/`'), 'README 不得再引用已移除的 agents/skills/');
 });
 
 // codex config.toml 已不再同步：SYNC_MANIFEST 不得再出現該列（回歸鎖）
@@ -644,6 +628,25 @@ test('drift-guard：MCP 型別（mcp／advisory）皆不得復活', () => {
     'type:\'mcp\'（TOML section 投影寫入）已移除，不得重新出現');
   assert.equal(SYNC_MANIFEST.some(e => e.type === 'advisory'), false,
     'type:\'advisory\'（MCP 諮詢式比對）已移除，不得重新出現');
+});
+
+// 跨工具全域 skill 同步（xtool-dir 型）已整批移除（openspec/changes/archive/*-global-skills-via-npx）：
+// 自寫全域 skill 改放 repo 頂層 skills/、經 npx skills add -g 安裝，sync.js 不再寫入
+// ~/.agents/skills／~/.claude/skills／~/.gemini/config/skills。回歸鎖：型別、agents 同步區、
+// 模組 require 與 type switch 分支皆不得復活——共管同一目錄的守門成本正是撤除的理由。
+test('drift-guard：xtool-dir 型別與 agents 同步區皆不得復活', () => {
+  assert.equal(SYNC_MANIFEST.some(e => e.type === 'xtool-dir'), false,
+    'type:\'xtool-dir\'（跨工具全域 skill 共管同步）已移除，不得重新出現');
+  assert.equal(SYNC_MANIFEST.some(e => e.area === 'agents'), false,
+    'agents 同步區已移除，SYNC_MANIFEST 不得再有 area:\'agents\' 列');
+  assert.equal(Object.prototype.hasOwnProperty.call(SYNC_AREAS, 'agents'), false,
+    'SYNC_AREAS 不得再有 agents 區（~/.agents 不由 sync.js 寫入）');
+  assert.equal(/require\(['"]\.\/xtool-dir(\.js)?['"]\)/.test(SYNC_SOURCE), false,
+    'sync.js 不得 require xtool-dir.js（模組已刪除）');
+  for (const fn of ['diffSyncItem', 'applySyncItem']) {
+    assert.equal(sliceFunctionSource(fn).includes("case 'xtool-dir'"), false,
+      `${fn} 不得保留 case 'xtool-dir'`);
+  }
 });
 
 // 回歸鎖：MCP 的 repo 來源與本機目標皆已移除，manifest 不得再指向它們
@@ -795,52 +798,6 @@ test('printToLocalPreview：preserved 的 deleted 不計入 previewStats.deleted
     { status: 'new', label: 'claude/rules/c.md' },
   ]);
   assert.deepEqual(stats, { added: 1, updated: 0, deleted: 1 });
-});
-
-// --- collectSkillDiffSummary -----------------------------------------------
-
-test('collectSkillDiffSummary：非 skills 路徑回 false、不計入', () => {
-  const summary = {};
-  assert.equal(collectSkillDiffSummary({ label: 'claude/CLAUDE.md', status: 'changed' }, summary), false);
-  assert.deepEqual(summary, {});
-});
-
-test('collectSkillDiffSummary：status 為 null（無差異）回 false', () => {
-  const summary = {};
-  assert.equal(collectSkillDiffSummary({ label: 'agents/skills/ob/SKILL.md', status: null }, summary), false);
-  assert.deepEqual(summary, {});
-});
-
-test('collectSkillDiffSummary：eol 狀態計入 changed（回歸：先前漏計顯示「共 0 個檔案」）', () => {
-  const summary = {};
-  assert.equal(collectSkillDiffSummary({ label: 'agents/skills/ob/SKILL.md', status: 'eol' }, summary), true);
-  // key 為完整前綴（agents/skills/<name>）
-  assert.deepEqual(summary['agents/skills/ob'], { added: 0, changed: 1, deleted: 0 });
-});
-
-test('collectSkillDiffSummary：new/changed/deleted 各自累加且依 skill 分組', () => {
-  const summary = {};
-  collectSkillDiffSummary({ label: 'agents/skills/ob/a.md', status: 'new' }, summary);
-  collectSkillDiffSummary({ label: 'agents/skills/ob/b.md', status: 'changed' }, summary);
-  collectSkillDiffSummary({ label: 'agents/skills/ob/c.md', status: 'deleted' }, summary);
-  collectSkillDiffSummary({ label: 'agents/skills/pen/d.md', status: 'changed' }, summary);
-  assert.deepEqual(summary['agents/skills/ob'], { added: 1, changed: 1, deleted: 1 });
-  assert.deepEqual(summary['agents/skills/pen'], { added: 0, changed: 1, deleted: 0 });
-});
-
-test('collectSkillDiffSummary：agents/skills（xtool）逐檔亦歸摘要，key 前綴為 agents/skills', () => {
-  const summary = {};
-  assert.equal(collectSkillDiffSummary({ label: 'agents/skills/mini-research/SKILL.md', status: 'new' }, summary), true);
-  assert.deepEqual(summary['agents/skills/mini-research'], { added: 1, changed: 0, deleted: 0 });
-});
-
-test('collectSkillDiffSummary：conflict 與 whole-skill 層級 entry 不歸摘要（交回逐行）', () => {
-  const summary = {};
-  // conflict 狀態（整個 skill、無檔名尾段）
-  assert.equal(collectSkillDiffSummary({ label: 'agents/skills/mini-research', status: 'conflict' }, summary), false);
-  // 摘要行（label 以 / 結尾、無檔名尾段）
-  assert.equal(collectSkillDiffSummary({ label: 'agents/skills/', status: 'new' }, summary), false);
-  assert.deepEqual(summary, {});
 });
 
 // --- buildFullDiffList ------------------------------------------------------

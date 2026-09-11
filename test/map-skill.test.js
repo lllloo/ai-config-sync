@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const MAP_ROOT = path.join(__dirname, '..', 'agents', 'skills', 'map');
+const MAP_ROOT = path.join(__dirname, '..', 'skills', 'map');
 
 function readMapFile(...parts) {
   return fs.readFileSync(path.join(MAP_ROOT, ...parts), 'utf8');

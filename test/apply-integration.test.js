@@ -21,8 +21,8 @@ const { noColorEnv, itPosixPerms } = require('./helpers.js');
 const { COMMANDS, isWsl } = require('../sync.js');
 
 // sync.js require('./safety-check.js')（後者 require('./toml-reader.js')）與
-// require('./skills.js')／require('./xtool-dir.js')，任何 `node sync.js` 指令缺任一檔即崩，故五檔同抄。
-const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js', 'xtool-dir.js'];
+// require('./skills.js')，任何 `node sync.js` 指令缺任一檔即崩，故四檔同抄。
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js'];
 
 /**
  * 建立沙箱：repo（含 sync.js + safety-check.js + toml-reader.js + skills.js 副本、git init）與 home。
@@ -68,41 +68,6 @@ function writeText(filePath, text) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, text);
 }
-
-test('lock unknown：malformed JSON 在雙向 diff/apply 拒写 skill、保留探索點', () => {
-  for (const direction of ['to-local', 'to-repo']) {
-    const { repo, home, root } = setupSandbox();
-    try {
-      const repoSkill = path.join(repo, 'agents/skills/demo/SKILL.md');
-      const localSkill = path.join(home, '.agents/skills/demo/SKILL.md');
-      const bridges = ['.claude/skills/demo', '.gemini/config/skills/demo']
-        .map(p => path.join(home, p));
-      writeText(repoSkill, 'repo skill');
-      writeText(localSkill, 'local skill');
-      for (const bridge of bridges) writeText(path.join(bridge, 'SKILL.md'), 'bridge skill');
-      writeText(path.join(home, '.agents/.skill-lock.json'), '{"SECRET-SENTINEL":');
-      writeJson(path.join(repo, 'claude/settings.json'), { language: 'repo' });
-      writeJson(path.join(home, '.claude/settings.json'), { language: 'local' });
-      const preview = run(repo, home, direction === 'to-repo' ? ['diff'] : [direction, '--dry-run']);
-      assert.match(preview.stdout, /demo.*無法確認/);
-      const applied = run(repo, home, [direction, '--yes']);
-      assert.equal(applied.status, 0, applied.stderr);
-      assert.match(applied.stderr, /無法確認.*跳過/);
-      assert.equal(fs.readFileSync(repoSkill, 'utf8'), 'repo skill');
-      assert.equal(fs.readFileSync(localSkill, 'utf8'), 'local skill');
-      for (const bridge of bridges) {
-        assert.equal(fs.lstatSync(bridge).isDirectory(), true);
-        assert.equal(fs.readFileSync(path.join(bridge, 'SKILL.md'), 'utf8'), 'bridge skill');
-      }
-      const settings = direction === 'to-local'
-        ? path.join(home, '.claude/settings.json') : path.join(repo, 'claude/settings.json');
-      assert.equal(JSON.parse(fs.readFileSync(settings)).language, direction === 'to-local' ? 'repo' : 'local');
-      const output = preview.stdout + preview.stderr + applied.stdout + applied.stderr;
-      assert.ok(!output.includes('SECRET-SENTINEL'));
-      assert.ok(!output.includes(root));
-    } finally { fs.rmSync(root, { recursive: true, force: true }); }
-  }
-});
 
 // -----------------------------------------------------------------------------
 // to-local：direction-aware diff（本機缺檔 → 將新增）+ 實際寫入本機
@@ -183,6 +148,35 @@ test('to-local：~/.claude.json 與 ~/.codex/config.toml 內容與 mtime 均不�
     assert.equal(fs.statSync(codexToml).mtimeMs, beforeCodex, 'config.toml 不得被寫入');
     // 舊版投影同步的受管 state 檔亦不得復活
     assert.equal(fs.existsSync(path.join(home, '.codex', '.ai-config-sync-mcp-state.json')), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// 全域 skill 已改由 npx skills 安裝（global-skills-via-npx）：to-local 不得再寫入、刪除
+// 或修復三個 skill 目錄下的任何項目——內容 + mtime 雙重斷言，避免「寫入相同內容」漏網。
+test('to-local：~/.agents/skills、~/.claude/skills、~/.gemini/config/skills 內容與 mtime 均不被觸碰', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'claude', 'CLAUDE.md'), 'REPO-CONTENT');
+    writeText(path.join(repo, 'skills', 'map', 'SKILL.md'), 'repo skill');
+    const canon = path.join(home, '.agents', 'skills', 'map', 'SKILL.md');
+    const bridges = [
+      path.join(home, '.claude', 'skills', 'map', 'SKILL.md'),
+      path.join(home, '.gemini', 'config', 'skills', 'map', 'SKILL.md'),
+    ];
+    for (const f of [canon, ...bridges]) writeText(f, 'local skill (older)');
+    const before = [canon, ...bridges].map(f => fs.statSync(f).mtimeMs);
+
+    const r = run(repo, home, ['to-local', '--yes']);
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+
+    [canon, ...bridges].forEach((f, i) => {
+      assert.equal(fs.readFileSync(f, 'utf8'), 'local skill (older)', `${f} 內容不得改變`);
+      assert.equal(fs.statSync(f).mtimeMs, before[i], `${f} 不得被寫入`);
+      assert.equal(fs.lstatSync(path.dirname(f)).isSymbolicLink(), false, `${f} 所在目錄不得被換成 symlink`);
+    });
+    assert.doesNotMatch(r.stdout, /skills\/map/, 'to-local 輸出不得列出 skill 項目');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -696,278 +690,6 @@ test('diff：二進位檔差異輸出不得含沙箱絕對路徑', () => {
 // 以 --dry-run --yes 讓破壞性指令安全非互動執行；缺參數的 skills:* 會回其自身
 // 參數錯誤（非「未知指令」），故 guard 只斷言「未落 default 分支」。
 // -----------------------------------------------------------------------------
-// -----------------------------------------------------------------------------
-// xtool-dir：跨工具全域 skill 雙向 apply、共管安全、碰撞守門、幂等、D5 遷移
-// managedSkillNames 以 sandbox repo/agents/skills 為準（REPO_ROOT = sandbox repo）
-// -----------------------------------------------------------------------------
-const AGENTS_SKILL = (home, name, rel) => path.join(home, '.agents', 'skills', name, rel);
-const CLAUDE_SKILL_LINK = (home, name) => path.join(home, '.claude', 'skills', name);
-const GEMINI_SKILL_LINK = (home, name) => path.join(home, '.gemini', 'config', 'skills', name);
-
-test('xtool to-local：repo agents/skills → ~/.agents 真實目錄 + ~/.claude & ~/.gemini symlink 橋', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'FOO');
-
-    const r = run(repo, home, ['to-local', '--yes']);
-    assert.equal(r.status, 0, `to-local 應 exit 0\n${r.stdout}\n${r.stderr}`);
-    // ~/.agents/skills/foo 為真實目錄、內容正確
-    assert.equal(fs.lstatSync(AGENTS_SKILL(home, 'foo', 'SKILL.md')).isFile(), true);
-    assert.equal(fs.readFileSync(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'utf8'), 'FOO');
-    // ~/.claude/skills/foo 為指向正典的 symlink，內容經 symlink 可達
-    const claudeLink = CLAUDE_SKILL_LINK(home, 'foo');
-    assert.equal(fs.lstatSync(claudeLink).isSymbolicLink(), true, 'claude 探索點應為 symlink');
-    assert.equal(fs.readlinkSync(claudeLink), path.join(home, '.agents', 'skills', 'foo'));
-    assert.equal(fs.readFileSync(path.join(claudeLink, 'SKILL.md'), 'utf8'), 'FOO');
-    // ~/.gemini/config/skills/foo 為指向正典的 symlink，內容經 symlink 可達
-    const geminiLink = GEMINI_SKILL_LINK(home, 'foo');
-    assert.equal(fs.lstatSync(geminiLink).isSymbolicLink(), true, 'gemini 探索點應為 symlink');
-    assert.equal(fs.readlinkSync(geminiLink), path.join(home, '.agents', 'skills', 'foo'));
-    assert.equal(fs.readFileSync(path.join(geminiLink, 'SKILL.md'), 'utf8'), 'FOO');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('xtool to-repo：只從 ~/.agents/skills/<受管名字> 讀回 repo，不吸入非受管住戶', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    // repo 受管：foo；本機 ~/.agents 有 foo（更新）與 npxresident（非受管）
-    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'OLD');
-    writeText(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'NEW');
-    writeText(AGENTS_SKILL(home, 'npxresident', 'SKILL.md'), 'RESIDENT');
-
-    const r = run(repo, home, ['to-repo']);
-    assert.equal(r.status, 0, `to-repo 應 exit 0\n${r.stdout}\n${r.stderr}`);
-    assert.equal(fs.readFileSync(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'utf8'),
-      'NEW', '受管 foo 應讀回 repo');
-    assert.equal(fs.existsSync(path.join(repo, 'agents', 'skills', 'npxresident')), false,
-      '非受管住戶不得被吸入 repo');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('xtool diff：觀測未受管的本機 skill，但不列 npx 住戶', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    // mem0 類型的 repo 本地 skill 被刪除後，目標機仍可能留下實體目錄；應可觀測。
-    writeText(AGENTS_SKILL(home, 'mem0-memory', 'SKILL.md'), 'STALE-LOCAL');
-    // npx 住戶仍由 npx lock 識別，不能因「觀測本機」而被誤報。
-    writeText(AGENTS_SKILL(home, 'npxresident', 'SKILL.md'), 'NPX');
-    writeJson(path.join(home, '.agents', '.skill-lock.json'), {
-      skills: { npxresident: { source: 'org/npxresident' } },
-    });
-
-    const r = run(repo, home, ['diff']);
-    assert.equal(r.status, 1, `本機殘留應計入差異\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /agents\/skills\/mem0-memory/, '應列出本機未受管 skill');
-    assert.match(r.stdout, /本機有、repo 無對應來源/, '應明確說明只觀測、不刪除');
-    assert.doesNotMatch(r.stdout, /npxresident/, 'npx 住戶不得被觀測為本機殘留');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// -----------------------------------------------------------------------------
-// Claude 探索點的 D5 轉換守門（bridgeUnsafeReason／findUnmirroredFiles）
-// ensureSymlink 對真實目錄是遞迴 rm，其安全前提「正典內容已落在 target」只由
-// upsertOneSkill 保證到「repo 有的檔案」；使用者自寫、repo 從未有過的檔案曾因此
-// 被靜默永久刪除（且預覽只印「將更新」）。以下三條同時鎖住「該擋的要擋」與
-// 「不該擋的別擋」——只測前者會讓過度保護的實作矇混過關（正常 D5 遷移全被跳過）。
-// -----------------------------------------------------------------------------
-
-test('xtool D5 守門：claude 探索點含 repo 沒有的檔案 → 拒絕刪除、使用者檔案保留', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'V2');
-    // 使用者自寫的同名 Claude-only skill：SKILL.md 撞名，notes.md 是 repo 從未有過的檔
-    writeText(path.join(home, '.claude', 'skills', 'foo', 'SKILL.md'), 'MINE');
-    writeText(path.join(home, '.claude', 'skills', 'foo', 'notes.md'), 'PRECIOUS');
-
-    const r = run(repo, home, ['to-local', '--yes']);
-    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
-    assert.equal(fs.readFileSync(path.join(home, '.claude', 'skills', 'foo', 'notes.md'), 'utf8'),
-      'PRECIOUS', 'repo 沒有的使用者檔案不得被刪除');
-    assert.equal(fs.lstatSync(CLAUDE_SKILL_LINK(home, 'foo')).isSymbolicLink(), false,
-      '含未鏡射內容時不得轉成 symlink');
-    assert.match(r.stderr, /拒絕刪除、跳過/, '應印出拒絕刪除的 warning');
-    // 正典仍照常寫入（守門只跳過 claude 側橋接，不影響 ~/.agents 同步）
-    assert.equal(fs.readFileSync(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'utf8'), 'V2');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('xtool D5 守門：diff 以 conflict 標示，不得把遞迴刪除說成「將更新」', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'V2');
-    writeText(path.join(home, '.claude', 'skills', 'foo', 'notes.md'), 'PRECIOUS');
-
-    const r = run(repo, home, ['to-local', '--dry-run', '--yes']);
-    const bridgeLine = r.stdout.split('\n').find(l => l.includes('claude 探索點'));
-    assert.ok(bridgeLine, `預覽應有探索點狀態行\n${r.stdout}`);
-    assert.match(bridgeLine, /拒絕刪除、將跳過/, '應標示拒絕刪除');
-    assert.doesNotMatch(bridgeLine, /將更新/, '不得把遞迴刪除呈現為「將更新」');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('xtool D5 守門：舊機制產物（repo 有對應來源、內容較舊）仍正常轉 symlink', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'V2');
-    // 舊機制產物：路徑都來自 repo，只是內容過時——覆蓋它是 to-local 的正常語意
-    writeText(path.join(home, '.claude', 'skills', 'foo', 'SKILL.md'), 'OLD');
-
-    const r = run(repo, home, ['to-local', '--yes']);
-    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
-    const link = CLAUDE_SKILL_LINK(home, 'foo');
-    assert.equal(fs.lstatSync(link).isSymbolicLink(), true,
-      '內容過時不等於使用者資料，不得被守門擋下');
-    assert.equal(fs.readFileSync(path.join(link, 'SKILL.md'), 'utf8'), 'V2');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('xtool 共管不誤刪：~/.agents 內非受管 skill 於 to-local 後原封不動（回歸鎖 D3）', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'FOO');
-    writeText(AGENTS_SKILL(home, 'other', 'SKILL.md'), 'OTHER'); // npx 住戶，不在 repo
-
-    const r = run(repo, home, ['to-local', '--yes']);
-    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
-    assert.equal(fs.readFileSync(AGENTS_SKILL(home, 'other', 'SKILL.md'), 'utf8'),
-      'OTHER', '非受管 skill 不得被 prune');
-    assert.equal(fs.readFileSync(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'utf8'), 'FOO');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('xtool 碰撞守門：撞名（lock 已登記）→ 拒絕覆寫、印 warning，apply 續行', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'REPO');
-    writeJson(path.join(home, '.agents', '.skill-lock.json'),
-      { skills: { foo: { source: 'org/foo' } } });
-    writeText(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'NPX-INSTALLED');
-
-    const r = run(repo, home, ['to-local', '--yes']);
-    assert.equal(r.status, 0, `碰撞為 warning、apply 應續行 exit 0\n${r.stdout}\n${r.stderr}`);
-    assert.equal(fs.readFileSync(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'utf8'),
-      'NPX-INSTALLED', '撞名 skill 不得被覆寫');
-    assert.match(r.stderr + r.stdout, /拒絕覆寫|撞名/, '應印出碰撞 warning');
-    // 不應建立 claude 探索點（跳過該 skill）
-    assert.equal(fs.existsSync(CLAUDE_SKILL_LINK(home, 'foo')), false);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('xtool diff：撞名以 conflict 狀態標示、計入 EXIT_DIFF=1', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'REPO');
-    writeJson(path.join(home, '.agents', '.skill-lock.json'),
-      { skills: { foo: { source: 'org/foo' } } });
-
-    const r = run(repo, home, ['diff']);
-    assert.equal(r.status, 1, `碰撞應計入 EXIT_DIFF=1\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /agents\/skills\/foo/, '應列出撞名 skill');
-    assert.match(r.stdout, /撞名|拒絕覆寫/, '應以 conflict 語意標示');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('xtool 幂等：受管 skill apply 成功後再 apply 不判碰撞、宣告一致', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'FOO');
-
-    const r1 = run(repo, home, ['to-local', '--yes']);
-    assert.equal(r1.status, 0, `首次 apply\n${r1.stdout}\n${r1.stderr}`);
-    // 第二次：~/.agents/skills/foo 存在、~/.claude symlink 為本機制所建、foo 未登記 lock
-    const r2 = run(repo, home, ['to-local', '--yes']);
-    assert.equal(r2.status, 0, `再次 apply\n${r2.stdout}\n${r2.stderr}`);
-    assert.match(r2.stdout, /完全一致|無需套用/, '幂等：第二次應無變更、不判碰撞');
-    assert.doesNotMatch(r2.stdout + r2.stderr, /拒絕覆寫|撞名/, '本機制自身產物不得被判為碰撞');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('xtool D5 遷移：~/.claude/skills/foo 舊真實目錄 → to-local 轉為 symlink，內容從 ~/.agents 可達', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'V2');
-    // 舊機制：~/.claude/skills/foo 為真實目錄
-    writeText(path.join(home, '.claude', 'skills', 'foo', 'SKILL.md'), 'OLD');
-
-    const r = run(repo, home, ['to-local', '--yes']);
-    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
-    // 正典寫入 ~/.agents
-    assert.equal(fs.readFileSync(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'utf8'), 'V2');
-    // 真實目錄轉為 symlink
-    const link = CLAUDE_SKILL_LINK(home, 'foo');
-    assert.equal(fs.lstatSync(link).isSymbolicLink(), true, '真實目錄應轉為 symlink');
-    assert.equal(fs.readFileSync(path.join(link, 'SKILL.md'), 'utf8'), 'V2', '內容從正典可達');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// root 會繞過檔案權限、Windows 的 chmod 不阻止在唯讀目錄內建立項目，兩者皆擋不住
-// 寫入，故此測試在該環境跳過（itPosixPerms，見 test/helpers.js）
-itPosixPerms('xtool D5 遷移中途失敗：正典已先落 ~/.agents，partialChanges 可見、警告部分中斷', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'CANON');
-    // 讓 symlink 橋建立失敗：~/.claude 設唯讀，apply 期建 ~/.claude/skills 目錄必拋
-    // （diff 期只 lstat 尚不存在的路徑，不受阻，確保失敗落在 apply 而非 diff）
-    fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
-    fs.chmodSync(path.join(home, '.claude'), 0o500);
-
-    const r = run(repo, home, ['to-local', '--yes']);
-    fs.chmodSync(path.join(home, '.claude'), 0o700); // 還原以便 rmSync 清理
-    assert.equal(r.status, 2, `中途失敗應 exit 2\n${r.stdout}\n${r.stderr}`);
-    // 正典內容已安全落在 ~/.agents（不因 symlink 失敗而遺失）
-    assert.equal(fs.readFileSync(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'utf8'), 'CANON',
-      '正典內容須已先安全落在 ~/.agents');
-    assert.match(r.stdout, /agents\/skills\/foo/, '已寫入的正典變更須列出');
-    assert.match(r.stderr, /同步因錯誤中斷|已寫入 \d+ 筆變更/, '應警告部分中斷');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// -----------------------------------------------------------------------------
-// xtool 碰撞守門的方向對稱性：to-repo 與 to-local 同樣拒絕覆寫 npx 住戶
-// （守門若被綁死在 to-local，to-repo 會把 npx 安裝的內容吸進 repo、覆蓋受管版本）
-// -----------------------------------------------------------------------------
-test('xtool 碰撞守門（to-repo）：撞名 → 拒絕覆寫 repo、印 warning、repo 內容不變', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'REPO-KEEP');
-    writeJson(path.join(home, '.agents', '.skill-lock.json'),
-      { skills: { foo: { source: 'org/foo' } } });
-    writeText(AGENTS_SKILL(home, 'foo', 'SKILL.md'), 'NPX-INSTALLED');
-
-    const r = run(repo, home, ['to-repo']);
-    assert.equal(r.status, 0, `碰撞為 warning、apply 應續行 exit 0\n${r.stdout}\n${r.stderr}`);
-    assert.equal(fs.readFileSync(path.join(repo, 'agents', 'skills', 'foo', 'SKILL.md'), 'utf8'),
-      'REPO-KEEP', 'to-repo 方向亦不得被 npx 住戶覆寫');
-    assert.match(r.stderr + r.stdout, /拒絕覆寫|撞名/, '應印出碰撞 warning');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
 // -----------------------------------------------------------------------------
 // status：exit code 為 diff 與 skills:diff 的聯集（任一有差異即 EXIT_DIFF）
 // -----------------------------------------------------------------------------

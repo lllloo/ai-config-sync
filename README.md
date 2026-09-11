@@ -14,7 +14,8 @@
    │  │ to-local（套用，會先預覽）
    │  │
    ▼  │ to-repo（上傳本機設定）
- 私有 Git repo（claude/ codex/ gemini/ agents/）──push/clone──▶ 其他裝置
+ 私有 Git repo（claude/ codex/ gemini/）──push/clone──▶ 其他裝置
+   （skills/ 另由各裝置 npx skills add 安裝，不經 to-local）
 ```
 
 - **不碰本機敏感活檔**：`~/.claude.json` 與 `~/.codex/config.toml` 皆**永不被本工具寫入或讀取**。見 [刻意不同步](#刻意不同步)。
@@ -37,15 +38,11 @@ npm run to-local    # repo → 本機（套用，會先預覽再確認）
 | 全域指示／規則 | `CLAUDE.md` | `AGENTS.md` | `GEMINI.md` |
 | 主設定檔 | `settings.json` | —（見 [建議設定](#codex-建議設定手動套用)） | — |
 | Statusline | `statusline.sh` | — | — |
-| 跨工具全域 Skill | `agents/skills/`（見下） | `agents/skills/`（見下） | `agents/skills/`（見下） |
+| 全域 Skill（自寫） | `skills/`（`npx skills` 安裝，見下） | `skills/`（同左） | `skills/`（同左） |
 | 規則拆分 | `rules/` | — | — |
 | 本地 Skill | `.agents/skills/`（共用） | `.agents/skills/`（共用） | `.agents/skills/`（共用） |
 
-`agents/skills/` 對應本機 `~/.agents/skills/`（正典真實目錄）：
-
-| repo 路徑 | 本機路徑 | 備註 |
-|-----------|----------|------|
-| `agents/skills/<name>/` | `~/.agents/skills/<name>/` | 正典真實目錄，Codex 原生掃描；apply 另於 `~/.claude/skills/<name>` 與 `~/.gemini/config/skills/<name>` 建 symlink 橋供 Claude Code 與 Antigravity 探索（官方支援、自動去重） |
+repo 頂層 `skills/<name>/` 是自寫全域 skill 的唯一落點，**不由 `sync.js` 同步**：它是 `npx skills` 的慣例掃描目錄，各裝置以 `npx skills add <your-repo> -g --skill <name>` 安裝（實體進 `~/.agents/skills/<name>/`，並由 `npx skills` 自行在 `~/.claude/skills/<name>` 等各工具探索點建 symlink），與外部 skill 一樣記在 `skills-lock.json`、由 `npm run skills:diff` 比對。更新流程：改 `skills/<name>/`、commit、push，各裝置 `npx skills update -g`。
 
 補充說明：
 
@@ -54,19 +51,18 @@ npm run to-local    # repo → 本機（套用，會先預覽再確認）
 - **MCP Server 目前不在同步範圍**：舊有的諮詢式同步已整批移除，待重新設計。請以 `claude mcp add`／`codex mcp add` 於各裝置手動維護。見 [刻意不同步](#刻意不同步)。
 - **Agent 定義**目前不在同步範圍：Claude／Codex 皆未列 agents 同步項目（原 `everything-claude-code` agent 庫已整批移除）。日後要恢復再於 `SYNC_MANIFEST` 加回。
 - **Command 定義**不在同步範圍：本 repo 已改用 skill、不再新增 command，`SYNC_MANIFEST` 未列 `commands` 同步項（有回歸鎖把關）。
-- **兩種 Skill 分層**：
-  - `agents/skills/`（跨工具全域）— repo 自帶、Git 版控、`xtool-dir` 型同步進 `~/.agents/skills/`（Codex 原生掃）並於 `~/.claude/skills/<name>` 與 `~/.gemini/config/skills/<name>` 建 symlink 橋（Claude／Antigravity 探索）。**全域 skill 的唯一落點**；不加 per-skill flag。
+- **兩種 Skill 分層**（以目錄位置分類，不加 per-skill flag）：
+  - `skills/`（全域）— repo 自寫、Git 版控、經 `npx skills add -g` 安裝到各裝置。**不參與** to-repo／to-local：`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/` 或 `~/.gemini/config/skills/`（`apply-integration.test.js` 有內容 + mtime 雙重斷言）。
   - `.agents/skills/`（本地）— 已版控、跨工具共用、**不參與** to-repo／to-local；Claude Code 靠 `.claude/skills` symlink 讀取，Codex 原生探索（見 [刻意不同步](#刻意不同步) 的 Windows 注意）。
-- **`agents/skills/` 與 `npx skills` 共管 `~/.agents/skills/`**：`xtool-dir` 為**非 prune**、只認 repo `agents/skills/` 登記的「受管名字」——對 `~/.agents/skills/` 內的 npx 住戶一律不刪、不吸回 repo。撞名守門：upsert 前若 `<name>` 已登記於 `~/.agents/.skill-lock.json`（npx 安裝必登記，本機制永不登記），即判為碰撞、拒絕覆寫並印 warning，`diff` 階段以 `conflict` 狀態標示。若 lock 檔缺失，視為沒有 npx 登記；若 lock 存在但無法讀取、解析或驗證格式，登記狀態視為未知，對該受管 skill 與探索點一律拒絕覆寫／跳過，不把讀取失敗當成安全。其他設定同步仍可繼續，輸出不包含 lock 內容。**本機殘留觀測**：`diff` 會列出 `~/.agents/skills/` 中未登記於 npx lock、且 repo 已無來源的本機 skill，標示為「本機有、repo 無對應來源」；這些可能是手動 skill 或已刪除的 repo skill，只觀測、不吸回、不刪除。
-- **探索點的第二道守門**：`~/.claude/skills/<name>` 或 `~/.gemini/config/skills/<name>` 若是真實目錄（舊機制產物），to-local 會把它轉成 symlink——轉換含遞迴刪除，故轉換前先比對「該目錄內是否有 repo 沒有對應來源的檔案」。有的話（例如手寫、剛好與受管 skill 同名的 skill）一律拒絕刪除、跳過並印 warning，`diff` 同樣以 `conflict` 標示。判準是**路徑存在性**而非內容比對：本機同名檔內容較舊屬正常遷移，會照 to-local 語意覆蓋。
-- **全域 Skill 與 `npx skills` 是兩套機制**：`agents/skills/` 是 repo 自帶、Git 版控、由 to-repo／to-local 同步的 skill；`skills-lock.json` 追蹤的是外部 `npx skills` CLI 安裝的 skill，不受 `sync.js` 管理，只能用 `npm run skills:diff` 比對後手動套用建議。
+- **全域 Skill 一律走 `npx skills`**：不論是本 repo 自寫（`skills/`，source 為本 repo）或外部來源，都記在 `skills-lock.json`、由 `npm run skills:diff` 比對後手動套用建議指令；`sync.js` 不安裝、不更新、不移除任何 skill。自寫 skill 的安裝指令固定帶 `--skill <name>`，避免把 `.agents/skills/` 下的本地 skill 一併裝成全域。
 - **規則拆分** `claude/rules/` 是 `CLAUDE.md` 的模組化拆分，支援 frontmatter `paths:` scoping。
 
 ### 目錄命名
 
 | 目錄 | 用途 |
 |------|------|
-| `claude/`、`codex/`、`gemini/`、`agents/`（無點） | **要同步**到各工具全域設定的內容（`agents/` ↔ `~/.agents/`，`gemini/` ↔ `~/.gemini/`） |
+| `claude/`、`codex/`、`gemini/`（無點） | **要同步**到各工具全域設定的內容（`gemini/` ↔ `~/.gemini/`） |
+| `skills/` | 自寫全域 skill，經 `npx skills add -g` 安裝（不由 `sync.js` 同步） |
 | `.claude/`、`.codex/`（有點） | 本 repo 專用的**本地**設定，**不參與同步** |
 | `.agents/skills/` | 本地 skill 實體目錄（已版控） |
 
@@ -163,13 +159,13 @@ node sync.js to-win-local /mnt/c/Users/Joe
 AI_CONFIG_SYNC_WIN_HOME=/mnt/c/Users/Joe npm run to-win-local
 ```
 
-實作上，這個指令**不另外實作一套同步邏輯**：它以覆寫過的 `HOME` 在子行程重跑 `to-local`（POSIX 下 Node 的 `os.homedir()` 優先讀 `$HOME`），所以預覽、確認、`settings.json` 黑名單、skills symlink 橋等行為與 `to-local` 完全一致。`--dry-run`／`--yes`／`--no-color`／`--verbose` 會原樣轉交子行程。
+實作上，這個指令**不另外實作一套同步邏輯**：它以覆寫過的 `HOME` 在子行程重跑 `to-local`（POSIX 下 Node 的 `os.homedir()` 優先讀 `$HOME`），所以預覽、確認、`settings.json` 黑名單等行為與 `to-local` 完全一致。`--dry-run`／`--yes`／`--no-color`／`--verbose` 會原樣轉交子行程。
 
 **限制與注意事項：**
 
 - 僅能在 WSL 內執行（以 `/proc/version` 的 microsoft 標記判定），否則報錯；目標與目前 `HOME` 相同時也會拒絕執行。
 - **反向不支援**：沒有 `to-win-repo`。Windows 端只當套用目的地，`to-repo` 固定在 WSL 這側做——跨 `/mnt` 抓回的檔案容易帶進換行符差異。
-- 在 `/mnt/*`（drvfs）建立 skills symlink 橋需 Windows **開發者模式**已開啟，否則會失敗。
+- 全域 skill 不在此指令範圍：Windows 側要用 skill，請在 Windows 端自行 `npx skills add`（需可 clone 本 repo 的 git 認證與 Node）。
 
 ## 部署
 
@@ -185,7 +181,22 @@ Fork 或複製本 repo 時，內容是作者的個人設定。在你的主力機
 git clone <your-repo-url>
 cd <your-repo>
 npm run to-local
+npm run skills:diff   # 依建議的 npx skills add 指令安裝全域 skill（含本 repo 自寫的）
 ```
+
+### 自寫全域 skill 從舊同步機制遷移
+
+2026-09 之前，`skills/` 下的自寫 skill 由 `sync.js` 直接鏡射到 `~/.agents/skills/` 並建 symlink 橋。已用過舊機制的裝置需一次性手動改由 `npx skills` 管理：
+
+```bash
+rm -rf ~/.agents/skills/{bmad-goal,map,map-fast,project-map}
+rm -f ~/.claude/skills/{bmad-goal,map,map-fast,project-map}
+rm -f ~/.gemini/config/skills/{map,map-fast}
+npx skills add <your-repo> -g -y --skill bmad-goal,map,map-fast,project-map
+npm run skills:diff
+```
+
+裝完檢查 `~/.agents/.skill-lock.json` 內四筆的 `skillFolderHash` 不是空字串——空值代表安裝時抓不到 GitHub tree（私有 repo 認證失敗），`npx skills update -g` 會以「Private or deleted repo」跳過它們；先 `gh auth login` 再重裝即可。
 
 ## Codex 建議設定（手動套用）
 
@@ -206,7 +217,7 @@ npm run to-local
 
 ## 安全檢查 safety:check
 
-`npm run safety:check` 是手動、唯讀、離線的檢查，掃描 `claude/`、`codex/`、`gemini/`、`agents/` 與 `skills-lock.json`（不掃 `test/`、`openspec/`、README 等非同步來源）。輸出只列**分類、檔案與欄位／key／行號**，不列 env 值、secret 原值或完整 HOME 路徑。
+`npm run safety:check` 是手動、唯讀、離線的檢查，掃描 `claude/`、`codex/`、`gemini/`、`skills/` 與 `skills-lock.json`（不掃 `test/`、`openspec/`、README 等非同步來源）。`skills/` 雖不由 `sync.js` 同步，但會經 `npx skills add` 裝進家目錄，故留在掃描射程。輸出只列**分類、檔案與欄位／key／行號**，不列 env 值、secret 原值或完整 HOME 路徑。
 
 **它不是同步流程的一部分，也不保證能阻止機密寫入 repo**。`to-repo` 只做明確不同步欄位的剝除與資料搬移，`CLAUDE.md`、rules、skills、`statusline.sh` 等皆原樣鏡射。建議流程：`npm run to-repo` 後、commit 前，跑 `npm run safety:check` 與 `git diff` 人工複核。
 
@@ -228,7 +239,7 @@ npm run to-local
 
 **text pattern 掃描的排除**：secret／私鑰／HOME 路徑的字串掃描支援排除清單（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`），**目前為空——四個同步來源目錄全部受掃描**。
 
-排除的用途是原樣鏡射的上游套件文件：那類文件為說明偵測規則本就含 token／路徑樣式，掃它們會製造整類誤判。但**排除粒度必須是該 package 的具體子目錄**（如 `agents/skills/<pkg>/references/`），不得是同步來源根——清單曾誤列 `agents/skills/`，而那是三個來源根之一的全部內容且其下 skill 皆為本 repo 手寫，等於整棵跨工具全域 skill 樹不受掃描。排除只作用於 text 掃描，結構化 `.json`／`.toml` 的 hard block 不受影響。
+排除的用途是原樣鏡射的上游套件文件：那類文件為說明偵測規則本就含 token／路徑樣式，掃它們會製造整類誤判。但**排除粒度必須是該 package 的具體子目錄**（如 `skills/<pkg>/references/`），不得是來源根——清單曾誤列整棵全域 skill 樹的根目錄，而那是來源根之一的全部內容且其下 skill 皆為本 repo 手寫，等於整棵全域 skill 樹不受掃描。排除只作用於 text 掃描，結構化 `.json`／`.toml` 的 hard block 不受影響。
 
 **輸出遮罩**：issue 的 detail（section 名、key path）除本機 HOME 遮罩外，另套通用家目錄遮罩——設定檔可能來自別台裝置，其 section 名內嵌的是**那台**裝置的家目錄（如 `[mcp_servers."C:\Users\<他人>\srv"]`），單靠本機 HOME 字串比對抓不到。detail 亦套 secret 遮罩：token 反常地作為 section／key **名**（而非 value）時，位置資訊本身就是機密值，命中 token 樣式的片段一律以 `***` 輸出。
 
@@ -264,7 +275,7 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 
 ### Skills 與 Agents
 
-- Skills 不在自動同步範圍，用 `npm run skills:diff` 查看差異。
+- Skills 不在自動同步範圍（含本 repo 自寫的 `skills/`），一律經 `npx skills` 安裝，用 `npm run skills:diff` 查看差異。
 - `.agents/skills/` 是本地 skill 實體目錄，已版控；Claude Code 靠 `.claude/skills` symlink 讀取，Codex 原生把 `.agents/skills`（專案層）與 `~/.agents/skills`（全域層）納入探索路徑、無需 symlink。
 - **Windows clone 注意**：`.claude/skills` 這個 git symlink 在 Windows 需開啟「開發者模式」（設定 → 系統 → 開發人員選項）或以管理員權限 clone，否則會 fallback 成內容為路徑字串的純文字檔，導致 Claude Code 找不到 skill。Codex 不受影響（直接讀實體目錄）。
 - Agents 目前不在同步範圍：Claude／Codex 皆未列 agents 同步項目（原 `everything-claude-code` agent 庫已整批移除），日後有需要再於 `SYNC_MANIFEST` 加回。
@@ -279,12 +290,11 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 | `safety-check.js` | `safety:check` 唯讀掃描模組，由 `sync.js` 注入共用工具（不獨立執行、不反向 require） |
 | `toml-reader.js` | TOML 邏輯語句讀取器（純函式、零 IO），由 `safety-check.js` 直接 require，供 `.toml` 掃描正確歸屬 section |
 | `skills.js` | skills 指令族（`skills:diff`／`skills:add`／`skills:remove`）模組，由 `sync.js` 經 `createSkillsHandler(deps)` 注入共用工具（不獨立執行、不反向 require） |
-| `xtool-dir.js` | `xtool-dir` 型（`agents/skills/` → `~/.agents/skills/` 正典 + `~/.claude/skills/` symlink 橋）的型別專屬同步邏輯，由 `sync.js` 經 `createXtoolDir(deps)` 注入共用工具（不獨立執行、不反向 require） |
 | `test/sync.test.js` | 同步邏輯純函式單元測試（`node:test`） |
 | `test/settings.test.js` | settings.json 純函式與 `mergeSettingsBetween` 同步心臟測試 |
 | `test/toml-reader.test.js` | TOML 讀取器測試（`safety:check` section 歸屬的回歸網） |
 | `test/skills.test.js` | skills 模組純函式與 deps-bound helper 測試（經 `createSkillsHandler` 注入） |
-| `test/fs-symlink.test.js` | symlink 與目錄工具測試（`ensureSymlink` 幂等與 D5 轉換、`createSymlinkAtomic`、Windows junction fallback、`cleanEmptyDirs`）及部分失敗可見度不變式 |
+| `test/fs-mirror.test.js` | 目錄鏡射與部分失敗可見度測試（`cleanEmptyDirs`、`mirrorDir`、`warnPartialApply`） |
 | `test/diff-integration.test.js` | diff 整合測試 |
 | `test/apply-integration.test.js` | 沙箱化 to-local／to-repo 端到端 apply 測試 |
 | `test/boundary.test.js` | 邊界情境與安全防線測試（含 `safety:check` sandbox、功能模組不得反向 require `sync.js` 的回歸鎖） |

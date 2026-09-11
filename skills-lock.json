@@ -13,6 +13,22 @@
       "source": "anthropics/skills",
       "sourceType": "github",
       "agents": "claude-code"
+    },
+    "bmad-goal": {
+      "source": "lllloo/ai-config-sync",
+      "sourceType": "github"
+    },
+    "map": {
+      "source": "lllloo/ai-config-sync",
+      "sourceType": "github"
+    },
+    "map-fast": {
+      "source": "lllloo/ai-config-sync",
+      "sourceType": "github"
+    },
+    "project-map": {
+      "source": "lllloo/ai-config-sync",
+      "sourceType": "github"
     }
   }
 }

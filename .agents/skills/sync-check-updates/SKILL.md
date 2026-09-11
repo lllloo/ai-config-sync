@@ -13,7 +13,7 @@ description: 比對本機已安裝的 skills（skills-lock.json）與各自上�
 |---|---|---|
 | skills | `skills-lock.json` 各項 `source` | 各自上游 repo |
 
-`agents/skills/map/`、`claude/CLAUDE.md`、`claude/settings.json` 為自維護內容，**不檢查**。
+`skills/`（自寫全域 skill；`skills-lock.json` 內 source 為 `lllloo/ai-config-sync` 的項目）、`claude/CLAUDE.md`、`claude/settings.json` 為自維護內容，**不檢查**。
 
 ## 步驟
 

@@ -14,7 +14,6 @@ const readline = require('readline');
 const { spawnSync } = require('child_process');
 const safetyCheckModule = require('./safety-check.js');
 const skillsModule = require('./skills.js');
-const xtoolDirModule = require('./xtool-dir.js');
 
 // =============================================================================
 // Section: Constants -- 全域常數與設定
@@ -32,18 +31,8 @@ const HOME = os.homedir();
 const CLAUDE_HOME = path.join(HOME, '.claude');
 const CODEX_HOME = path.join(HOME, '.codex');
 const GEMINI_HOME = path.join(HOME, '.gemini');
-const GEMINI_CONFIG_HOME = path.join(GEMINI_HOME, 'config');
-const AGENTS_HOME = path.join(HOME, '.agents');
-const LOCAL_SKILL_LOCK = path.join(AGENTS_HOME, '.skill-lock.json');
-// 跨工具全域 skill（xtool-dir）用到的 skill 根：
-//   - AGENTS_SKILLS_HOME：正典真實目錄（Codex 原生掃）
-//   - CLAUDE_SKILLS_HOME：Claude 探索點（放 symlink 橋指向正典）
-//   - GEMINI_SKILLS_HOME：Antigravity 探索點（放 symlink 橋指向正典）
-//   - REPO_AGENTS_SKILLS：repo 端受管 skill 來源（決定「受管名字」集合，兩方向皆以此為準）
-const AGENTS_SKILLS_HOME = path.join(AGENTS_HOME, 'skills');
-const CLAUDE_SKILLS_HOME = path.join(CLAUDE_HOME, 'skills');
-const GEMINI_SKILLS_HOME = path.join(GEMINI_CONFIG_HOME, 'skills');
-const REPO_AGENTS_SKILLS = path.join(REPO_ROOT, 'agents', 'skills');
+// ~/.agents 只讀其 npx skills lock（skills:diff 比對用）；sync.js 不寫入 ~/.agents 下任何內容
+const LOCAL_SKILL_LOCK = path.join(HOME, '.agents', '.skill-lock.json');
 
 /**
  * settings.json top-level 採黑名單制：預設同步，僅排除列於此黑名單的裝置／平台綁定欄位。
@@ -67,9 +56,6 @@ const KEYED_NOTICE_SETTINGS_KEYS = ['enabledPlugins'];
 
 /** 永遠排除的檔案名稱 */
 const GLOBAL_EXCLUDE = ['.DS_Store'];
-
-/** 探索點衝突時最多列出的檔名數（其餘以總數帶過，避免洗版） */
-const BRIDGE_CONFLICT_LIST_MAX = 5;
 
 /** help 指令排版用欄寬 */
 const CMD_COL_WIDTH = 14;
@@ -715,8 +701,8 @@ function cleanEmptyDirs(dir) {
 
 /**
  * lstat（不跟隨 link）取檔案屬性；不存在回 null，其他錯誤包成 SyncError。
- * 型別判斷一律走 lstat：statSync／existsSync 會跟隨 link，把正確 symlink 誤判
- * 成真實目錄（每次 apply 重走刪建、破壞幂等），懸空 symlink 對 existsSync 亦回 false。
+ * 消費者為 to-win-local 的 Windows 家目錄探測：用 lstat 而非 existsSync，
+ * 讓懸空 symlink 也能被辨識為「存在但非目錄」而拒絕，不被靜默當成不存在。
  * @param {string} p
  * @returns {fs.Stats|null}
  */
@@ -727,91 +713,6 @@ function lstatSyncSafe(p) {
     if (e.code === 'ENOENT') return null;
     throw toSyncFsError(e, p, '讀取連結屬性');
   }
-}
-
-/**
- * 建立 symlink：dir 型；Windows dir symlink 失敗時退回 junction（免開發者模式、
- * 對讀取工具透明）；junction 亦失敗則拋帶 path context 的 SyncError（不 silently 略過）。
- * @param {string} target - symlink 指向的絕對路徑
- * @param {string} linkPath - 要建立的 symlink 路徑（呼叫端已確保不存在）
- * @returns {void}
- */
-function symlinkWithFallback(target, linkPath) {
-  try {
-    fs.symlinkSync(target, linkPath, 'dir');
-    return;
-  } catch (e) {
-    if (process.platform !== 'win32') throw toSyncFsError(e, linkPath, '建立 symlink');
-    // Windows：dir symlink 需權限（開發者模式），退回 junction（絕對 target、免權限）
-    try {
-      fs.symlinkSync(target, linkPath, 'junction');
-    } catch (_) {
-      throw new SyncError(
-        `無法建立 symlink 或 junction（Windows 權限不足）：${toRelativePath(linkPath)}`,
-        ERR.IO_ERROR,
-        { path: linkPath },
-      );
-    }
-  }
-}
-
-/**
- * 走「暫存名 + rename」建 symlink，貼近 atomic 慣例（避免半建狀態殘留）。
- * @param {string} target
- * @param {string} linkPath - 呼叫端已確保此路徑不存在
- * @returns {void}
- */
-function createSymlinkAtomic(target, linkPath) {
-  ensureDir(path.dirname(linkPath));
-  const tmp = `${linkPath}.tmp.${crypto.randomBytes(6).toString('hex')}`;
-  registerTempFile(tmp);
-  try {
-    symlinkWithFallback(target, tmp);
-    fs.renameSync(tmp, linkPath);
-  } catch (e) {
-    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) { /* ignore */ }
-    if (e instanceof SyncError) throw e;
-    throw toSyncFsError(e, linkPath, '建立 symlink');
-  } finally {
-    tempFiles.delete(tmp);
-  }
-}
-
-/**
- * 幂等建立／修復指向 target 的 symlink。型別判斷一律 lstat（見 lstatSyncSafe）：
- *   - 已是指向 target 的正確 symlink → 跳過（回 null）
- *   - symlink 指向錯誤／懸空 → unlink 後重建
- *   - 真實檔案／目錄佔用（舊機制產物，D5）→ rm 後建 symlink；呼叫端須先確認正典
- *     內容已落在 target（~/.agents），此處 rm 才安全（不可在刪目錄後、建 link 前掉內容）。
- *     skill 橋接的呼叫端以 `xtool-dir.js` 的 bridgeUnsafeReason 把關，未鏡射者不會走到這裡
- *   - 不存在 → 直接建
- * @param {string} target - symlink 指向的絕對路徑
- * @param {string} linkPath - 要建立的 symlink 路徑
- * @param {boolean} [dryRun=false]
- * @returns {{action: string}|null} 有動作回 {action}，無變更回 null
- */
-function ensureSymlink(target, linkPath, dryRun = false) {
-  const cur = lstatSyncSafe(linkPath);
-  if (cur && cur.isSymbolicLink()) {
-    let pointsToTarget = false;
-    try { pointsToTarget = fs.readlinkSync(linkPath) === target; } catch (_) { pointsToTarget = false; }
-    if (pointsToTarget) return null;
-    if (!dryRun) {
-      try { fs.unlinkSync(linkPath); } catch (e) { throw toSyncFsError(e, linkPath, '移除舊 symlink'); }
-      createSymlinkAtomic(target, linkPath);
-    }
-    return { action: 'updated' };
-  }
-  if (cur) {
-    // 真實檔案／目錄（D5 遷移）：正典內容須已先落在 target，rm 後建 link
-    if (!dryRun) {
-      try { fs.rmSync(linkPath, { recursive: true, force: true }); } catch (e) { throw toSyncFsError(e, linkPath, '移除舊目錄'); }
-      createSymlinkAtomic(target, linkPath);
-    }
-    return { action: 'updated' };
-  }
-  if (!dryRun) createSymlinkAtomic(target, linkPath);
-  return { action: 'added' };
 }
 
 // =============================================================================
@@ -1192,8 +1093,6 @@ const SYNC_AREAS = {
   claude:   { homeBase: CLAUDE_HOME,   repoDir: 'claude',   prefix: 'claude/'   },
   codex:    { homeBase: CODEX_HOME,    repoDir: 'codex',    prefix: 'codex/'    },
   gemini:   { homeBase: GEMINI_HOME,   repoDir: 'gemini',   prefix: 'gemini/'   },
-  // 跨工具全域 skill 正典區：~/.agents（Codex 原生掃、Claude 與 Antigravity 透過 symlink 橋探索）
-  agents:   { homeBase: AGENTS_HOME,   repoDir: 'agents',   prefix: 'agents/'   },
 };
 
 /**
@@ -1213,7 +1112,6 @@ const SYNC_MANIFEST = [
   { area: 'claude', label: 'CLAUDE.md',     type: 'file' },
   { area: 'claude', label: 'settings.json', type: 'settings', fixedFlow: true },
   { area: 'claude', label: 'statusline.sh', type: 'file' },
-  { area: 'agents', label: 'skills',        type: 'xtool-dir' },
   { area: 'claude', label: 'rules',         type: 'dir' },
   { area: 'codex',  label: 'AGENTS.md',     type: 'file' },
   { area: 'gemini', label: 'GEMINI.md',     type: 'file' },
@@ -1443,7 +1341,6 @@ function diffSyncItem(item, direction) {
     case 'settings': return [diffSettingsItem(item, direction)];
     case 'file': return [diffFileItem(item)];
     case 'dir': return diffDirItems(item);
-    case 'xtool-dir': return xtoolDir().diffXtoolItems(item, direction);
     default: return [];
   }
 }
@@ -1460,7 +1357,6 @@ function applySyncItem(item, direction, dryRun) {
     case 'settings': return applyMergeItem(() => mergeSettingsBetween(item.src, item.dest, direction, dryRun), 'settings.json');
     case 'file': return applyFileItem(item, dryRun);
     case 'dir': return applyDirItem(item, dryRun);
-    case 'xtool-dir': return xtoolDir().applyXtoolItem(item, direction, dryRun);
     default: return [];
   }
 }
@@ -1696,15 +1592,9 @@ function runDiff(opts) {
   const allDiffItems = buildFullDiffList(items, diffSyncItems(items, 'to-repo'));
 
   let hasDiff = false;
-  const skillsSummary = {};
   for (const item of allDiffItems) {
-    if (collectSkillDiffSummary(item, skillsSummary)) {
-      hasDiff = true;
-      continue;
-    }
     if (printDiffItem(item, opts)) hasDiff = true;
   }
-  printSkillDiffSummaries(skillsSummary);
   noticeNewSettingsKeys(items);
   noticeLocalOnlyKeyed(items);
   if (!hasDiff) {
@@ -1720,28 +1610,6 @@ function runDiff(opts) {
 }
 
 /**
- * 收集 skills 目錄內細項差異，用於摘要顯示。涵蓋 agents/skills/（xtool-dir 型）
- * 的**逐檔** entry；conflict（整個 skill 層級、無檔名尾段）、探索點 symlink entry
- * （label 尾隨 `[claude 探索點]`、無檔名尾段）與摘要行（label 以 `/` 結尾）不歸此
- * 摘要，交回 printDiffItem 處理。
- * @param {{label: string, status: string|null}} item
- * @param {Record<string, {added: number, changed: number, deleted: number}>} summary
- * @returns {boolean} 是否已收集為 skill 摘要
- */
-function collectSkillDiffSummary(item, summary) {
-  if (item.status === null || item.status === 'conflict') return false;
-  // 需含檔名尾段（agents/skills/<name>/<file...>），whole-skill 與摘要行不匹配
-  const m = /^(agents\/skills)\/([^/]+)\/.+/.exec(item.label);
-  if (!m) return false;
-  const key = `${m[1]}/${m[2]}`;
-  if (!summary[key]) summary[key] = { added: 0, changed: 0, deleted: 0 };
-  if (item.status === 'new') summary[key].added++;
-  else if (item.status === 'changed' || item.status === 'eol') summary[key].changed++;
-  else if (item.status === 'deleted') summary[key].deleted++;
-  return true;
-}
-
-/**
  * 輸出單筆 diff 狀態
  * @param {{label: string, status: string|null, verboseSrc?: string, verboseDest?: string, dest?: string}} item
  * @param {ParsedArgs} opts
@@ -1753,7 +1621,6 @@ function printDiffItem(item, opts) {
     changed: ['changed', '有差異'],
     eol: ['eol', '僅換行符差異（CRLF/LF 或檔尾換行）'],
     deleted: ['deleted', 'repo 有、本機沒有'],
-    conflict: ['conflict', '與 npx 既有 skill 撞名，拒絕覆寫'],
   };
   if (item.status === null) {
     printStatusLine('ok', item.label);
@@ -1762,23 +1629,6 @@ function printDiffItem(item, opts) {
   }
   if (opts.verbose && item.verboseSrc) logVerbosePaths(item.verboseSrc, item.verboseDest || item.dest);
   return item.status !== null;
-}
-
-/**
- * 輸出 skill 差異摘要
- * @param {Record<string, {added: number, changed: number, deleted: number}>} summary
- */
-function printSkillDiffSummaries(summary) {
-  for (const [key, counts] of Object.entries(summary)) {
-    const parts = [];
-    if (counts.added) parts.push(`+${counts.added}`);
-    if (counts.changed) parts.push(`~${counts.changed}`);
-    if (counts.deleted) parts.push(`-${counts.deleted}`);
-    const total = counts.added + counts.changed + counts.deleted;
-    const status = counts.deleted && !counts.added ? 'deleted' : 'added';
-    // key 已是完整前綴（agents/skills/<name>）
-    printStatusLine(status, key, `${parts.join(' ')}  共 ${total} 個檔案`);
-  }
 }
 
 /**
@@ -1938,9 +1788,9 @@ async function runToLocal(opts) {
 // =============================================================================
 // Section: WSL Bridge -- to-win-local（WSL 內把 repo 套用到 Windows 家目錄）
 //
-// HOME 是模組載入時算好的 const，CLAUDE_HOME／CODEX_HOME／AGENTS_HOME 與 SYNC_AREAS
+// HOME 是模組載入時算好的 const，CLAUDE_HOME／CODEX_HOME／GEMINI_HOME 與 SYNC_AREAS
 // 全由它衍生，執行期改不了。故本指令**不另寫一套路徑解析**，而是以覆寫過的 HOME
-// 在子行程重跑自己的 to-local——語意（預覽／確認／黑名單／xtool 橋接）與既有
+// 在子行程重跑自己的 to-local——語意（預覽／確認／黑名單）與既有
 // to-local 完全一致，不存在會各自漂移的第二套同步實作。
 //
 // 可行性依據：POSIX 下 Node 的 os.homedir() 優先讀 $HOME。Windows 端家目錄在 WSL
@@ -2071,29 +1921,6 @@ function skillsHandler() {
     });
   }
   return _skillsHandler;
-}
-
-// =============================================================================
-// Section: Xtool Dir Handler -- 跨工具全域 skill（xtool-dir 型）
-// 受管名字／撞名判準／非 prune upsert／探索點橋接與 D5 閘門在 xtool-dir.js；
-// 此處僅注入共用常數與工具，並由 diffSyncItem／applySyncItem 的 type switch 轉接。
-// =============================================================================
-
-/** lazy singleton：延後到執行期建立，避開對 const 相依（col／路徑常數等）的 TDZ。 */
-let _xtoolDir = null;
-function xtoolDir() {
-  if (!_xtoolDir) {
-    _xtoolDir = xtoolDirModule.createXtoolDir({
-      AGENTS_SKILLS_HOME, CLAUDE_SKILLS_HOME, GEMINI_SKILLS_HOME, REPO_AGENTS_SKILLS, LOCAL_SKILL_LOCK,
-      GLOBAL_EXCLUDE, BRIDGE_CONFLICT_LIST_MAX,
-      SyncError, col,
-      getFiles, diffDir, mirrorDir, lstatSyncSafe, ensureSymlink,
-      itemLabel, toSyncFsError,
-      // 經 skillsHandler() 轉接而非直接注入實體：保住 skills handler 自身的 lazy 建立
-      loadSkillsFromLock: (lockPath) => skillsHandler().loadSkillsFromLock(lockPath),
-    });
-  }
-  return _xtoolDir;
 }
 
 // =============================================================================
@@ -2347,7 +2174,6 @@ if (require.main === module) {
 } else {
   module.exports = {
     // 純函式 / 輔助：供單元測試使用
-    collectSkillDiffSummary,
     buildFullDiffList,
     diffFile,
     diffDir,
@@ -2357,19 +2183,12 @@ if (require.main === module) {
     getFiles,
     mirrorDir,
     copyFile,
-    ensureSymlink,
     lstatSyncSafe,
     // WSL 橋接（to-win-local）
     isWsl,
     winPathToWslPath,
     detectWinHome,
     resolveWinHome,
-    // xtool-dir 邏輯在 xtool-dir.js；此處經 singleton wrapper re-export 供既有測試沿用
-    listSkillNames: (dir) => xtoolDir().listSkillNames(dir),
-    managedSkillNames: () => xtoolDir().managedSkillNames(),
-    isNpxManagedSkill: (name) => xtoolDir().isNpxManagedSkill(name),
-    applyXtoolItem: (item, direction, dryRun) => xtoolDir().applyXtoolItem(item, direction, dryRun),
-    diffXtoolItems: (item, direction) => xtoolDir().diffXtoolItems(item, direction),
     applySyncItems,
     diffSyncItems,
     diffDirItems,

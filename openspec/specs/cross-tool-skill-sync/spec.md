@@ -1,7 +1,7 @@
 # cross-tool-skill-sync Specification
 
 ## Purpose
-定義跨工具全域 skill 同步（`xtool-dir` 型）的契約：正典為 `~/.agents/skills/<name>/`（Codex 原生掃描），`to-local` 另於 `~/.claude/skills/<name>` 建立 symlink 橋供 Claude Code 探索。與 `npx skills` **共管**同一目錄，故為**非 prune upsert**——只認 repo `agents/skills/` 登記的受管名字，不刪、不吸入 npx 住戶；單一 skill 目錄內的殘檔可清，但不影響任何 sibling。同名碰撞以 `~/.agents/.skill-lock.json` 登記為**唯一**判準（Claude 側 symlink 存在與本機制自身產物無法區分，作為訊號會破壞幂等），碰撞時拒寫並於 diff 以 `conflict` 標示、計入 `EXIT_DIFF`。涵蓋真實目錄→symlink 的遷移、懸空 symlink 修復、`to-repo` 只讀回受管名字，以及 Windows 無 symlink 權限時的 fallback。
+定義 repo 自寫全域 skill 的安裝契約：唯一落點為 repo 頂層 `skills/<name>/`（`npx skills` 慣例掃描目錄），安裝、更新、移除一律經 `npx skills`（`add -g`／`update -g`／`remove`）並以 `skills-lock.json` 登記，`sync.js` 的任何指令不得寫入 `~/.agents/skills/`、`~/.claude/skills/` 或其他工具探索點。前身為 `xtool-dir` 型共管同步（見 `openspec/changes/archive/*-global-skills-via-npx`），因與 `npx skills` 共寫同一目錄的守門成本過高而撤除。
 ## Requirements
 ### Requirement: 跨工具全域 skill 同步區
 
