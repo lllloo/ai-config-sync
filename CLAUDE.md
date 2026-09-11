@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 目錄命名（重要）
 
 - **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、statusline.sh、rules），由 `sync.js` 管理。**全域 skill 不放這裡**（唯一落點為 repo 頂層 `skills/`、經 `npx skills` 安裝，見下）。
-- **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（目前只有 `AGENTS.md`），由 `sync.js` 管理。`config.toml` **不做整檔同步、也永不被寫入或讀取**。MCP 同步已整批移除待重新設計（推理見 git 歷史 commit 991c526 前的 `openspec/changes/archive/*-remove-mcp-sync`）。
+- **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（目前只有 `AGENTS.md`），由 `sync.js` 管理。`config.toml` **不做整檔同步、也永不被寫入或讀取**。MCP 同步已整批移除待重新設計。
 - **`gemini/`**（無點）— 要同步到 `~/.gemini/` 的全域設定（目前只有 `GEMINI.md`），由 `sync.js` 管理。
 - **`skills/`**（無點，repo 頂層）— 自寫**全域** skill（`skills/<name>/SKILL.md`），**不由 `sync.js` 同步**。這是 `npx skills` 的慣例掃描目錄：各裝置以 `npx skills add lllloo/ai-config-sync -g --skill <name>` 安裝，實體進 `~/.agents/skills/<name>/`、探索點 symlink 由 `npx skills` 自建，並與外部 skill 一樣記在 `skills-lock.json`。`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/`、`~/.gemini/config/skills/`（`apply-integration.test.js` 有內容 + mtime 雙重斷言）。舊的 `agents/` 同步區與 `xtool-dir` 型已於 `global-skills-via-npx` change 整批移除，`sync.test.js` 有回歸鎖擋其復活。
 - **`.claude/`**（有點）— 本 repo 專用的 Claude Code 本地設定落點，**不參與同步、不映射到 `~/.claude/`**。目前只有 `.claude/skills`（symlink 指向 `../.agents/skills`）與本機執行期產物；日後若需 repo 專用的 `settings.json` 亦放這裡。
@@ -90,14 +90,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 修改守則
 
-- **設計流程用 Superpowers**：功能與變更以 Superpowers 的 brainstorming 收斂，spec 放 `docs/superpowers/specs/`、plan 放 `docs/superpowers/plans/`。原 OpenSpec 工作流（`openspec/` 目錄與 `openspec-*` 本地 skill）已於 commit 991c526 後整批移除，歷史 spec 與 change 推理只留在 git 歷史，不再維護。
+- **設計流程用 Superpowers**：功能與變更以 Superpowers 的 brainstorming 收斂，spec 放 `docs/superpowers/specs/`、plan 放 `docs/superpowers/plans/`。原 OpenSpec 工作流已整批移除，不再維護。
 
 - **README.md 須同步更新**：新增/移除指令、改變同步項目、調整行為、新增旗標時必跟。指令別名表與黑名單常數清單已有 drift-guard 測試把關（漏改 README 會 fail），其餘敘述仍靠人工。
 - **新增/調整 npm script 時須同步更新 README 的指令別名表、`COMMANDS` 物件與 `runCommand` 的 `switch`**（三者為指令名稱／別名／分派的來源；三條鏈皆有 drift-guard 測試把關）。
 - **函式行數守則**：新增或重構後若某函式 > 60 行，需拆分。同步項目的宣告式資料改由 `SYNC_MANIFEST`／`SYNC_AREAS` 常數承載，`buildSyncItems`／`materializeSyncItem` 皆為小函式，無超行例外。
 - **禁止新增外部相依**：所有功能必須使用 Node.js 內建模組，不得 `npm install` 任何套件。
 - **settings.json top-level 採黑名單制**（`DEVICE_SETTINGS_KEYS`）：預設同步官方 top-level 欄位，僅排除黑名單列舉。敏感命名 key 不再被同步剝除或中止，改由 `safety:check` warning 供人工審核；`env` 區塊全部依一般同步語意同步，diff／status 不印任何設定內容。strip／preserve 由 `partitionSettingsTopLevel` 同源保證互補；增減黑名單欄位須改 `DEVICE_SETTINGS_KEYS` 常數與 README（drift-guard 測試把關）；`KEYED_NOTICE_SETTINGS_KEYS`（鍵級提示欄位）同樣須改常數與 README。
-- **本工具不同步 MCP**：`~/.claude.json` 與 `~/.codex/config.toml` 永不被寫入或讀取。不要新增 `codex/config.toml` 或整檔 manifest 列，不要讓 `type: 'mcp'`／`type: 'advisory'` 復活，也不要為了「順便清理」而刪除孤兒 state 檔。**重新設計 MCP 同步時**：憑證判準必須 fail closed（無法判定為安全即拒絕，不得加繞過旗標或例外清單），OAuth／headers／env 值／token 不得加入 repo——舊實作的完整推理見 git 歷史 commit 991c526 前的 `openspec/changes/archive/` 三份 MCP change。
+- **本工具不同步 MCP**：`~/.claude.json` 與 `~/.codex/config.toml` 永不被寫入或讀取。不要新增 `codex/config.toml` 或整檔 manifest 列，不要讓 `type: 'mcp'`／`type: 'advisory'` 復活，也不要為了「順便清理」而刪除孤兒 state 檔。**重新設計 MCP 同步時**：憑證判準必須 fail closed（無法判定為安全即拒絕，不得加繞過旗標或例外清單），OAuth／headers／env 值／token 不得加入 repo。
 - **安全審核由 `npm run safety:check` 承擔**：唯讀、離線掃描 `claude/`、`codex/`、`gemini/`、`skills/`、`skills-lock.json`（`skills/` 不由 `sync.js` 同步但會經 `npx skills` 裝進家目錄，須留在射程），不掃 `test/`、`docs/`、README 等非同步來源文件。hard block（exit 2）：secret value pattern、私鑰片段、絕對 HOME 路徑、repo settings.json 出現 `hooks`／credential helper、repo 內任何 `.toml` 出現機密載體 section（`CODEX_CONFIG_HARD_BLOCK_SECTIONS`）；warning（exit 1）：settings.json env key 清單、敏感命名 key path、`.toml` 出現裝置狀態 section（`CODEX_CONFIG_DEVICE_WARN_SECTIONS`）；clean exit 0。輸出只列分類與位置，不輸出值。text 掃描排除外部套件文件目錄（取捨與分層見 `safety-check.js` 檔頭）；增減排除目錄與兩份 section 常數須改常數與 README（drift-guard 測試把關）。
 - **嚴禁洩漏敏感資訊到輸出**：`diff`／`status` 不得顯示 env 值，`safety:check` 不得顯示 secret 原值或完整 HOME 路徑。同步流程本身不再宣稱能阻止所有機密寫入 repo；`file`／`dir` 型項目仍原樣同步，commit 前須執行 `npm run safety:check` 與人工審核。
 - **部分失敗可見度**：apply 中途拋例外時，`mirrorDir` 把已完成變更附掛到 `SyncError.context.partialChanges`，`applySyncItems` 補印、`warnPartialApply` 警告「已寫入 N 筆變更」，已寫入的檔案不得零可見度。`applyXtoolItem` 的 catch 須以 `mergeXtoolPartialChanges` **併入**兩邊（先前已完成的 skill + mirrorDir 附掛的當前 skill 內部變更，後者需補 `<name>/` 前綴），直接指派會抹掉其中一邊。操作歷史由 git 承載，不另寫 log 檔。
@@ -112,7 +112,7 @@ Skills 分兩層（**以目錄位置分類**，不加 per-skill flag）：
 | 全域（npx 安裝，不同步） | `skills/<name>/SKILL.md` | repo 自寫，經 `npx skills add lllloo/ai-config-sync -g --skill <name>` 安裝到 `~/.agents/skills/`（Codex 原生掃）＋ 各工具探索點 symlink（由 `npx skills` 自建）。與外部 skill 同記於 `skills-lock.json`、同由 `skills:diff` 比對；更新走 `npx skills update -g`（依 `skillFolderHash` 比對）。`sync.js` 不碰 |
 | 本地（不同步） | `.agents/skills/<name>/SKILL.md` | 僅限本 repo 使用，跨工具共享（Codex 等） |
 
-全域 skill 一律放 `skills/`——**無 Claude-only 全域層**（原 `claude/skills/` 同步層因無住戶已移除，見 `SYNC_MANIFEST` 回歸鎖），也**無 `sync.js` 同步的全域 skill 層**（原 `agents/skills/` 的 `xtool-dir` 型因與 `npx skills` 共管同一目錄、守門成本過高而移除，改走 `npx skills`；推理見 git 歷史 commit 991c526 前的 `openspec/changes/archive/*-global-skills-via-npx/`）。安裝指令固定帶 `--skill`，避免把 `.agents/skills/` 下的本地 skill 一併裝成全域。
+全域 skill 一律放 `skills/`——**無 Claude-only 全域層**（原 `claude/skills/` 同步層因無住戶已移除，見 `SYNC_MANIFEST` 回歸鎖），也**無 `sync.js` 同步的全域 skill 層**（原 `agents/skills/` 的 `xtool-dir` 型因與 `npx skills` 共管同一目錄、守門成本過高而移除，改走 `npx skills`）。安裝指令固定帶 `--skill`，避免把 `.agents/skills/` 下的本地 skill 一併裝成全域。
 
 本地 skill 實體放在 `.agents/skills/`。**Claude Code 端**靠 `.claude/skills` symlink（→ `../.agents/skills`）讀取。**Codex 端無需 symlink**：Codex CLI 原生把 `.agents/skills`（專案層）與 `~/.agents/skills`（全域層）納入 skill 探索路徑，直接讀同一份實體。新增本地 skill 直接放進 `.agents/skills/<name>/SKILL.md` 即可。
 
@@ -130,7 +130,7 @@ Skills 分兩層（**以目錄位置分類**，不加 per-skill flag）：
 
 目前唯一使用者是 `skill-creator`（標 `claude-code`）：Codex 自帶同名 skill，讓它掃到會相撞。與上方「以目錄位置分類、不加 per-skill flag」不衝突——那句指的是全域／本地兩層的**分類方式**；`agents` 欄位是全域層內部的**安裝目標**選擇，不影響分類。
 
-**日後若要恢復 Claude-only 全域 skill 層**（`claude/skills/`）：在 `SYNC_MANIFEST` 加回 `{ area: 'claude', label: 'skills', type: 'dir' }` 一列，並同步更新 `test/sync.test.js` 的 claude label 清單 drift-guard 與**「不得含 claude 區 skills／commands dir 列」回歸鎖**、README 同步項目表與本段兩層表。**加回前須先重新評估**：`dir` 型的 prune-extras 語意會刪掉 `npx skills` 在 `~/.claude/skills/` 建的探索 symlink，完整推理見 git 歷史 commit 991c526 前的 `openspec/changes/archive/2026-07-15-cross-tool-global-skills/` design D5 與 `2026-07-17-remove-tenantless-sync-layers`。不得只塞回一列 manifest。`commands` 層同理，且另違反「一律使用 skill、不再新增 command」政策。
+**日後若要恢復 Claude-only 全域 skill 層**（`claude/skills/`）：在 `SYNC_MANIFEST` 加回 `{ area: 'claude', label: 'skills', type: 'dir' }` 一列，並同步更新 `test/sync.test.js` 的 claude label 清單 drift-guard 與**「不得含 claude 區 skills／commands dir 列」回歸鎖**、README 同步項目表與本段兩層表。**加回前須先重新評估**：`dir` 型的 prune-extras 語意會刪掉 `npx skills` 在 `~/.claude/skills/` 建的探索 symlink。不得只塞回一列 manifest。`commands` 層同理，且另違反「一律使用 skill、不再新增 command」政策。
 
 Skills 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具移植（Cursor、Gemini CLI、Codex 等）。新增 skill 一律使用此格式，不再新增 command。
 
@@ -144,4 +144,4 @@ Skills 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具
 
 - `.DS_Store` 由 `sync.js` 的 `GLOBAL_EXCLUDE` 常數在**同步時**排除（不進 repo、也不寫到本機），與 `.gitignore` 無關——`.gitignore` 列的是 `node_modules/`、`*.log` 與 `.claude/` 下的執行期產物；`.agents/skills/` 為本地 skill 實體目錄，**已納入版控**
 - Skills 不在自動同步範圍，`skills-lock.json` 為各裝置參考清單（source of truth）
-- 上游 `npx skills` 功能追蹤**不在本 repo**：改由 obsidian-memory vault 的 `vault-watch` skill 追蹤（看板 `feeds/watch/01.index.md`，用 `gh` 自動比對狀態轉換與官方回應）。目前追 `vercel-labs/skills` 的 #743／#683／#549（跨裝置全域還原）。#743 若 merge，新裝置的全域 skill 還原可改走上游指令，屆時 `skills:diff` 印建議指令的角色可再評估；全域 skill 的安裝契約見 git 歷史 commit 991c526 前的 `openspec/specs/cross-tool-skill-sync/spec.md`
+- 上游 `npx skills` 功能追蹤**不在本 repo**：改由 obsidian-memory vault 的 `vault-watch` skill 追蹤（看板 `feeds/watch/01.index.md`，用 `gh` 自動比對狀態轉換與官方回應）。目前追 `vercel-labs/skills` 的 #743／#683／#549（跨裝置全域還原）。#743 若 merge，新裝置的全域 skill 還原可改走上游指令，屆時 `skills:diff` 印建議指令的角色可再評估

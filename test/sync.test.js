@@ -620,7 +620,7 @@ test('drift-guard：SYNC_MANIFEST 不含 codex config.toml', () => {
     'codex-config 型別已移除');
 });
 
-// MCP 同步已整批移除（推理見 git 歷史 commit 991c526 前的 openspec/changes/archive/*-remove-mcp-sync），待重新設計。
+// MCP 同步已整批移除，待重新設計。
 // 回歸鎖：兩種 MCP 型別皆不得復活——`mcp` 會投影寫入 config.toml、`advisory` 會讀本機
 // 設定產生建議指令；重新設計時應開新 change 明確決定形狀，而非讓舊型別悄悄回來。
 test('drift-guard：MCP 型別（mcp／advisory）皆不得復活', () => {
@@ -630,7 +630,7 @@ test('drift-guard：MCP 型別（mcp／advisory）皆不得復活', () => {
     'type:\'advisory\'（MCP 諮詢式比對）已移除，不得重新出現');
 });
 
-// 跨工具全域 skill 同步（xtool-dir 型）已整批移除（推理見 git 歷史 commit 991c526 前的 openspec/changes/archive/*-global-skills-via-npx）：
+// 跨工具全域 skill 同步（xtool-dir 型）已整批移除：
 // 自寫全域 skill 改放 repo 頂層 skills/、經 npx skills add -g 安裝，sync.js 不再寫入
 // ~/.agents/skills／~/.claude/skills／~/.gemini/config/skills。回歸鎖：型別、agents 同步區、
 // 模組 require 與 type switch 分支皆不得復活——共管同一目錄的守門成本正是撤除的理由。

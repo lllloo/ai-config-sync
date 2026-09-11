@@ -7,7 +7,7 @@
 // 掃描、issue 產生與 report 格式化。對外入口仍是 `node sync.js safety:check`
 // 與 `npm run safety:check`，本檔不作為獨立 CLI 執行。
 //
-// 邊界原則（推理見 git 歷史 commit 991c526 前的 openspec/changes/archive/*-extract-safety-check-module/design.md）：
+// 邊界原則：
 // - 不反向 require sync.js；共用工具（REPO_ROOT、getFiles、readFileSafe、
 //   readJson、toRelativePath、maskHome、col、EXIT_*）由 sync.js 經
 //   createSafetyChecker(deps) 注入，sync.js 以 lazy singleton 建立 checker
@@ -92,8 +92,7 @@ const SETTINGS_HARD_BLOCK_KEYS = ['hooks', 'apiKeyHelper', 'awsCredentialExport'
  * 同步（沒有同步層會先剝除），此為唯一防線——防人工把含 API key／MCP 憑證的
  * config.toml 放進 repo。比照 SETTINGS_HARD_BLOCK_KEYS 對 settings.json 的守備。
  *
- * 注意：本防線與 MCP 同步機制**無因果關係**。MCP 同步已整批移除（見
- * git 歷史 commit 991c526 前的 openspec/changes/archive/*-remove-mcp-sync），但「有人手動複製 ~/.codex/config.toml
+ * 注意：本防線與 MCP 同步機制**無因果關係**。MCP 同步已整批移除，但「有人手動複製 ~/.codex/config.toml
  * 進 repo 備份」的風險並未因此降低，故 `mcp_servers` 仍留在清單中，`toml-reader.js`
  * 亦隨之保留。不要把它們當成 MCP 同步的遺留物清掉。
  */
