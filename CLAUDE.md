@@ -112,7 +112,7 @@ Skills 分兩層（**以目錄位置分類**，不加 per-skill flag）：
 
 | 位置 | 路徑 | 說明 |
 |---|---|---|
-| 全域·跨工具（同步） | `agents/skills/<name>/SKILL.md` | `xtool-dir` 型同步到 `~/.agents/skills/`（Codex 原生掃）+ `~/.claude/skills/<name>` symlink 橋（Claude 探索）。與 `npx skills` 共管、非 prune、撞名拒寫（判準：`~/.agents/.skill-lock.json` 登記；**「claude 側 symlink 存在」不得作為訊號**——與本機制自身產物無法區分，會破壞幂等）。**claude 探索點另有一道獨立守門**（`bridgeUnsafeReason`）：見下方 D5 轉換 |
+| 全域·跨工具（同步） | `agents/skills/<name>/SKILL.md` | `xtool-dir` 型同步到 `~/.agents/skills/`（Codex 原生掃）+ `~/.claude/skills/<name>` symlink 橋（Claude 探索）。與 `npx skills` 共管、非 prune、撞名拒寫（判準：`~/.agents/.skill-lock.json` 登記；lock 缺失視為無登記，存在但無法讀取／解析／驗證時則 fail closed、拒絕該 skill 與探索點；**「claude 側 symlink 存在」不得作為訊號**——與本機制自身產物無法區分，會破壞幂等）。**claude 探索點另有一道獨立守門**（`bridgeUnsafeReason`）：見下方 D5 轉換 |
 | 本地（不同步） | `.agents/skills/<name>/SKILL.md` | 僅限本 repo 使用，跨工具共享（Codex 等） |
 
 全域 skill 一律放 `agents/skills/`，對 Claude 與 Codex 同時可見——**無 Claude-only 全域層**（原 `claude/skills/` 同步層因無住戶已移除，見 `SYNC_MANIFEST` 回歸鎖）。

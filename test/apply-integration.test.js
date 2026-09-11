@@ -69,6 +69,41 @@ function writeText(filePath, text) {
   fs.writeFileSync(filePath, text);
 }
 
+test('lock unknown：malformed JSON 在雙向 diff/apply 拒写 skill、保留探索點', () => {
+  for (const direction of ['to-local', 'to-repo']) {
+    const { repo, home, root } = setupSandbox();
+    try {
+      const repoSkill = path.join(repo, 'agents/skills/demo/SKILL.md');
+      const localSkill = path.join(home, '.agents/skills/demo/SKILL.md');
+      const bridges = ['.claude/skills/demo', '.gemini/config/skills/demo']
+        .map(p => path.join(home, p));
+      writeText(repoSkill, 'repo skill');
+      writeText(localSkill, 'local skill');
+      for (const bridge of bridges) writeText(path.join(bridge, 'SKILL.md'), 'bridge skill');
+      writeText(path.join(home, '.agents/.skill-lock.json'), '{"SECRET-SENTINEL":');
+      writeJson(path.join(repo, 'claude/settings.json'), { language: 'repo' });
+      writeJson(path.join(home, '.claude/settings.json'), { language: 'local' });
+      const preview = run(repo, home, direction === 'to-repo' ? ['diff'] : [direction, '--dry-run']);
+      assert.match(preview.stdout, /demo.*無法確認/);
+      const applied = run(repo, home, [direction, '--yes']);
+      assert.equal(applied.status, 0, applied.stderr);
+      assert.match(applied.stderr, /無法確認.*跳過/);
+      assert.equal(fs.readFileSync(repoSkill, 'utf8'), 'repo skill');
+      assert.equal(fs.readFileSync(localSkill, 'utf8'), 'local skill');
+      for (const bridge of bridges) {
+        assert.equal(fs.lstatSync(bridge).isDirectory(), true);
+        assert.equal(fs.readFileSync(path.join(bridge, 'SKILL.md'), 'utf8'), 'bridge skill');
+      }
+      const settings = direction === 'to-local'
+        ? path.join(home, '.claude/settings.json') : path.join(repo, 'claude/settings.json');
+      assert.equal(JSON.parse(fs.readFileSync(settings)).language, direction === 'to-local' ? 'repo' : 'local');
+      const output = preview.stdout + preview.stderr + applied.stdout + applied.stderr;
+      assert.ok(!output.includes('SECRET-SENTINEL'));
+      assert.ok(!output.includes(root));
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
+
 // -----------------------------------------------------------------------------
 // to-local：direction-aware diff（本機缺檔 → 將新增）+ 實際寫入本機
 // -----------------------------------------------------------------------------

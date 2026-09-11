@@ -85,7 +85,7 @@ function mergeXtoolPartialChanges(err, done, currentName) {
  *   bridgeUnsafeReason: (srcDir: string, name: string, endpointHome?: string) => ({reason: string, files: string[]}|null),
  *   listSkillNames: (dir: string) => string[],
  *   managedSkillNames: () => string[],
- *   isNpxManagedSkill: (name: string) => boolean,
+ *   isNpxManagedSkill: (name: string) => (boolean|null),
  *   upsertOneSkill: (item: object, name: string, dryRun: boolean) => Array<{rel: string, action: string}>,
  *   bridgeSkillLink: (srcDir: string, name: string, endpoint?: object|boolean, dryRun?: boolean) => ({rel: string, action: string}|null),
  * }}
@@ -193,22 +193,31 @@ function createXtoolDir(deps) {
   function listUnmanagedLocalSkillNames(managedNames) {
     const managed = new Set(managedNames);
     return listSkillNames(AGENTS_SKILLS_HOME)
-      .filter(name => !managed.has(name) && !isNpxManagedSkill(name));
+      .filter(name => !managed.has(name) && isNpxManagedSkill(name) === false);
   }
 
   /**
    * 碰撞判準（D6）：<name> 是否登記於 ~/.agents/.skill-lock.json（npx 安裝必登記，
    * 本機制永不登記）。「claude 側 symlink 存在」不得作為訊號——與本機制自身產物
-   * 無法區分，會讓第二次 apply 起誤判、破壞幂等。lock 讀取失敗時保守回 false
-   * （視為非 npx 住戶，正常同步），不因無關檔案異常中止整個 apply。
+   * 無法區分，會讓第二次 apply 起誤判、破壞幂等。lock 讀取失敗回 null（未知），
+   * 呼叫端須拒寫該 skill 與探索點，但不阻止其他設定同步。缺檔由 loader 回空物件。
    * @param {string} name
-   * @returns {boolean}
+   * @returns {boolean|null}
    */
   function isNpxManagedSkill(name) {
     let skills;
     try { skills = loadSkillsFromLock(LOCAL_SKILL_LOCK); }
-    catch (_) { return false; }
+    catch (_) { return null; }
     return Object.prototype.hasOwnProperty.call(skills, name);
+  }
+
+  /** 共用 diff/apply 的拒寫原因，不輸出底層錯誤或 lock 內容。 */
+  function skillConflictReason(name) {
+    const managed = isNpxManagedSkill(name);
+    if (managed === false) return null;
+    return managed === null
+      ? '無法確認 ~/.agents/.skill-lock.json 登記狀態，請檢查 lock 格式與讀取權限；拒絕覆寫、跳過'
+      : '已由 npx skills 登記於 ~/.agents/.skill-lock.json，拒絕覆寫、跳過';
   }
 
   // ---------------------------------------------------------------------------
@@ -230,8 +239,9 @@ function createXtoolDir(deps) {
     const results = [];
     const managedNames = managedSkillNames();
     for (const name of managedNames) {
-      if (isNpxManagedSkill(name)) {
-        results.push(makeXtoolEntry(item, name, 'conflict'));
+      const conflictReason = skillConflictReason(name);
+      if (conflictReason) {
+        results.push({ ...makeXtoolEntry(item, name, 'conflict'), conflictReason });
         continue;
       }
       const skillSrc = path.join(item.src, name);
@@ -380,8 +390,9 @@ function createXtoolDir(deps) {
     try {
       for (const name of managedSkillNames()) {
         current = name;
-        if (isNpxManagedSkill(name)) {
-          console.warn(col.yellow(`  [warn] skill「${name}」已由 npx skills 登記於 ~/.agents/.skill-lock.json，拒絕覆寫、跳過`));
+        const conflictReason = skillConflictReason(name);
+        if (conflictReason) {
+          console.warn(col.yellow(`  [warn] skill「${name}」${conflictReason}`));
           continue;
         }
         for (const c of upsertOneSkill(item, name, dryRun)) changed.push(c);

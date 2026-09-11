@@ -65,7 +65,7 @@
 
 ### Requirement: 同名碰撞守門
 
-upsert 前，若 `<name>` 登記於 `~/.agents/.skill-lock.json`（npx 安裝的既有 skill），系統 SHALL 判定為碰撞、拒絕覆寫並輸出 warning，SHALL NOT 靜默覆寫既有 skill。lock 登記 SHALL 為唯一碰撞判準：`~/.claude/skills/<name>` symlink 的存在 SHALL NOT 被當作碰撞訊號（本機制自身產物與 npx 產物在檔案系統上無法區分，誤用會破壞幂等）。碰撞 SHALL 於 diff 階段即以 `conflict` 狀態行標示（不印內容），並計入 diff 有差異（`EXIT_DIFF`）。
+`upsert` 前，若 `<name>` 登記於 `~/.agents/.skill-lock.json`（npx 安裝的既有 skill），系統 SHALL 判定為碰撞、拒絕覆寫並輸出 warning，SHALL NOT 靜默覆寫既有 skill。lock 檔不存在 SHALL 視為沒有 npx 登記；若 lock 檔存在但無法讀取、解析或驗證格式，系統 SHALL 將登記狀態視為未知，對該受管 skill 及其探索點拒絕覆寫／跳過，SHALL NOT 把讀取失敗當成安全。此未知狀態不得阻止其他同步項目繼續，且輸出 SHALL NOT 包含 lock 內容。lock 登記 SHALL 為唯一碰撞判準：`~/.claude/skills/<name>` symlink 的存在 SHALL NOT 被當作碰撞訊號（本機制自身產物與 npx 產物在檔案系統上無法區分，誤用會破壞幂等）。碰撞或未知狀態 SHALL 於 diff 階段即以 `conflict` 狀態行標示（不印內容），並計入 diff 有差異（`EXIT_DIFF`）。
 
 #### Scenario: 撞名拒寫
 
@@ -81,6 +81,14 @@ upsert 前，若 `<name>` 登記於 `~/.agents/.skill-lock.json`（npx 安裝的
 
 - **WHEN** 受管 skill 已於前次 apply 同步成功（`~/.agents/skills/<name>` 存在、`~/.claude/skills/<name>` 為本機制所建 symlink，且 `<name>` 未登記於 `~/.agents/.skill-lock.json`），再次執行 apply
 - **THEN** 不判定碰撞，正常 upsert（幂等）
+
+#### Scenario: lock 狀態未知時 fail closed
+
+- **WHEN** `~/.agents/.skill-lock.json` 存在但無法讀取、解析或驗證格式，且 repo 有受管 skill
+- **THEN** 該 skill 於 diff 以 `conflict` 標示
+- **AND** apply SHALL 拒絕覆寫該 skill，也不得建立或修復其探索點
+- **AND** 其他同步項目 SHALL 仍可繼續
+- **AND** 輸出 SHALL NOT 包含 lock 內容
 
 ### Requirement: 真實目錄至 symlink 的遷移
 

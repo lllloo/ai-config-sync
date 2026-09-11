@@ -122,8 +122,13 @@ function createSkillsHandler(deps) {
    * @throws {SyncError} JSON_PARSE 若 skills 欄位缺失或型別錯誤
    */
   function loadSkillsFromLock(lockPath) {
-    if (!fs.existsSync(lockPath)) return {};
-    const data = readJson(lockPath);
+    let data;
+    try {
+      data = readJson(lockPath);
+    } catch (e) {
+      if (e instanceof SyncError && e.code === ERR.FILE_NOT_FOUND) return {};
+      throw e;
+    }
     if (!data || typeof data.skills !== 'object' || data.skills === null || Array.isArray(data.skills)) {
       throw new SyncError(
         `skills-lock.json 格式異常：缺少 skills 物件`,

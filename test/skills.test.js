@@ -21,7 +21,7 @@ const path = require('node:path');
 
 const { createSkillsHandler, computeSkillsDiff, sanitizeForTerminal, buildInstallCommand } = require('../skills.js');
 const { SyncError, ERR, readJson, EXIT_OK, EXIT_DIFF } = require('../sync.js');
-const { withTmpFile, withTmpDir } = require('./helpers.js');
+const { withTmpFile, withTmpDir, itPosixPerms } = require('./helpers.js');
 
 // 建立測試用 handler：display 相依以 no-op 注入（runSkillsDiff 輸出另由 captureSkillsDiff 覆蓋）。
 function makeHandler() {
@@ -152,6 +152,25 @@ test('loadSkillsFromLock：skills 為陣列（非物件）應丟 JSON_PARSE 錯�
   withTmpFile(JSON.stringify({ version: 1, skills: [] }), (fp) => {
     const h = makeHandler();
     assert.throws(() => h.loadSkillsFromLock(fp), (e) => e instanceof SyncError && e.code === ERR.JSON_PARSE);
+  });
+});
+
+itPosixPerms('loadSkillsFromLock：lock 所在目錄不可讀不得被當成不存在', () => {
+  withTmpDir((dir) => {
+    const lockDir = path.join(dir, 'locked');
+    const fp = path.join(lockDir, '.skill-lock.json');
+    fs.mkdirSync(lockDir);
+    fs.writeFileSync(fp, JSON.stringify({ version: 1, skills: {} }));
+    fs.chmodSync(lockDir, 0o000);
+    try {
+      const h = makeHandler();
+      assert.throws(
+        () => h.loadSkillsFromLock(fp),
+        (e) => e instanceof SyncError && e.code === ERR.PERMISSION,
+      );
+    } finally {
+      fs.chmodSync(lockDir, 0o700);
+    }
   });
 });
 
