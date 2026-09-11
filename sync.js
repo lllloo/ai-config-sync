@@ -107,7 +107,7 @@ const COMMAND_ALIASES = Object.fromEntries(
  * @property {string} label - 顯示名稱
  * @property {string} src - 來源路徑
  * @property {string} dest - 目的路徑
- * @property {'file'|'settings'|'dir'|'xtool-dir'} type - 項目類型
+ * @property {'file'|'settings'|'dir'} type - 項目類型
  * @property {string[]} [excludePatterns] - dir 型項目的排除模式
  * @property {string} [prefix] - 顯示路徑前綴（預設 'claude/'，codex 同步項用 'codex/'）
  */
@@ -695,8 +695,7 @@ function cleanEmptyDirs(dir) {
 
 // =============================================================================
 // Section: Symlink Utilities -- symlink 建立與幂等維護
-// 供 xtool-dir 在 ~/.claude/skills/<name> 建立指向 ~/.agents/skills/<name>
-// 的探索點 symlink（Claude Code 官方支援 symlink 探索、會自動去重）。
+// 目前唯一消費者為 to-win-local 的 Windows 家目錄探測（lstatSyncSafe）。
 // =============================================================================
 
 /**
@@ -1099,7 +1098,7 @@ const SYNC_AREAS = {
  * 同步項目宣告式清單：一列 = 一個同步路徑，為所有同步項目的單一事實來源。
  * 新增同步內容只需在此加一列（不需改任何 builder 或 dispatch switch）。
  *   - area：對應 SYNC_AREAS 的 key（'claude' → ~/.claude ↔ repo claude/；'codex' → ~/.codex ↔ repo codex/）
- *   - type：'file'|'settings'|'dir'|'xtool-dir'（型別行為由 diffSyncItem／applySyncItem 分派）
+ *   - type：'file'|'settings'|'dir'（型別行為由 diffSyncItem／applySyncItem 分派）
  *   - homeLabel（選填）：本機端檔名與 repo label 不同時使用
  *   - homeRootFile（選填）：本機端目標位於 $HOME 下、不在 area homeBase 之內時使用（如 ~/.claude.json），
  *     指定後以 $HOME/<homeRootFile> 解析本機端路徑，不套用 area 的 homeBase
@@ -1315,12 +1314,6 @@ function applyDirItem(item, dryRun) {
     .map(c => ({ action: c.action, label: itemLabel(item, c.rel) }));
 }
 
-// -----------------------------------------------------------------------------
-// xtool-dir 型的專屬邏輯（受管名字、npx 撞名判準、非 prune upsert、探索點橋接
-// 與其 D5 安全閘門）全部在 xtool-dir.js；此處僅注入共用工具、由下方 type switch
-// 轉接。lazy singleton 見檔案下方 Section: Xtool Dir Handler。
-// -----------------------------------------------------------------------------
-
 /**
  * 將變更 action 對應到狀態圖示 key
  * @param {string} action - 'added' | 'updated' | 'deleted'
@@ -1521,9 +1514,9 @@ function buildFullDiffList(items, diffItems) {
   // 複製陣列，避免 mutating 呼叫端傳入的物件
   const result = [...diffItems];
 
-  // 補上無差異的 file 與 settings 項目（ok 狀態）；dir 與 xtool-dir 走摘要行
+  // 補上無差異的 file 與 settings 項目（ok 狀態）；dir 走摘要行
   for (const item of items) {
-    if (item.type === 'dir' || item.type === 'xtool-dir') continue;
+    if (item.type === 'dir') continue;
     const label = itemLabel(item);
     if (!result.some(d => d.label === label)) {
       result.push({
@@ -1538,9 +1531,9 @@ function buildFullDiffList(items, diffItems) {
     }
   }
 
-  // 補上無差異的 dir／xtool-dir 項目（以摘要行呈現，證明已被檢查）
+  // 補上無差異的 dir 項目（以摘要行呈現，證明已被檢查）
   for (const item of items) {
-    if (item.type !== 'dir' && item.type !== 'xtool-dir') continue;
+    if (item.type !== 'dir') continue;
     const prefix = `${itemLabel(item)}/`;
     const hasAny = result.some(d => d.label.startsWith(prefix));
     if (!hasAny) {
@@ -1556,8 +1549,8 @@ function buildFullDiffList(items, diffItems) {
     }
   }
 
-  // 排序：dir 與 xtool-dir（目錄類）排在後面
-  const isDirLike = t => t === 'dir' || t === 'xtool-dir';
+  // 排序：dir（目錄類）排在後面
+  const isDirLike = t => t === 'dir';
   result.sort((a, b) => {
     const aIsDir = isDirLike(a.itemType);
     const bIsDir = isDirLike(b.itemType);

@@ -4,7 +4,7 @@
 
 ## `--area` 旗標：單工具範圍同步
 
-**動機**：`SYNC_MANIFEST` 每列已有 `area` 欄位（`claude`／`codex`／`agents`），邏輯上已分區，但操作層只能全量同步。加 `--area <name>` 讓 `diff`／`to-repo`／`to-local` 可縮小到單一 area，主要價值是 `to-local` 時縮小 blast radius（只收某一 area 的 repo 端變更，不動其他 area 的本機檔）。
+**動機**：`SYNC_MANIFEST` 每列已有 `area` 欄位（`claude`／`codex`／`gemini`），邏輯上已分區，但操作層只能全量同步。加 `--area <name>` 讓 `diff`／`to-repo`／`to-local` 可縮小到單一 area，主要價值是 `to-local` 時縮小 blast radius（只收某一 area 的 repo 端變更，不動其他 area 的本機檔）。
 
 **實作落點**（2026-07 探索結論）：
 
