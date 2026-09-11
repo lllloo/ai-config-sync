@@ -221,7 +221,7 @@ npm run skills:diff
 
 ## 安全檢查 safety:check
 
-`npm run safety:check` 是手動、唯讀、離線的檢查，掃描 `claude/`、`codex/`、`gemini/`、`skills/` 與 `skills-lock.json`（不掃 `test/`、`openspec/`、README 等非同步來源）。`skills/` 雖不由 `sync.js` 同步，但會經 `npx skills add` 裝進家目錄，故留在掃描射程。輸出只列**分類、檔案與欄位／key／行號**，不列 env 值、secret 原值或完整 HOME 路徑。
+`npm run safety:check` 是手動、唯讀、離線的檢查，掃描 `claude/`、`codex/`、`gemini/`、`skills/` 與 `skills-lock.json`（不掃 `test/`、`docs/`、README 等非同步來源）。`skills/` 雖不由 `sync.js` 同步，但會經 `npx skills add` 裝進家目錄，故留在掃描射程。輸出只列**分類、檔案與欄位／key／行號**，不列 env 值、secret 原值或完整 HOME 路徑。
 
 **它不是同步流程的一部分，也不保證能阻止機密寫入 repo**。`to-repo` 只做明確不同步欄位的剝除與資料搬移，`CLAUDE.md`、rules、skills、`statusline.sh` 等皆原樣鏡射。建議流程：`npm run to-repo` 後、commit 前，跑 `npm run safety:check` 與 `git diff` 人工複核。
 

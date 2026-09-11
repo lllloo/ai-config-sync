@@ -1,6 +1,6 @@
 # Roadmap
 
-未排程的候選項目。動工前建議以 OpenSpec change proposal 收斂設計。
+未排程的候選項目。動工前建議以 Superpowers 的 brainstorming 收斂設計，spec 落在 `docs/superpowers/specs/`。
 
 ## `--area` 旗標：單工具範圍同步
 

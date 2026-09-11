@@ -814,12 +814,12 @@ function writeSafetyText(repo, rel, text) {
   fs.writeFileSync(filePath, text);
 }
 
-test('safety:check：無問題時 exit 0，且不掃 test/openspec/README', () => {
+test('safety:check：無問題時 exit 0，且不掃 test/docs/README', () => {
   const { repo, root } = setupSafetySandbox();
   try {
     const token = 'sk-' + 'x'.repeat(20);
     writeSafetyText(repo, 'test/fixture.txt', token);
-    writeSafetyText(repo, 'openspec/changes/example/spec.md', token);
+    writeSafetyText(repo, 'docs/superpowers/specs/example-design.md', token);
     writeSafetyText(repo, 'README.md', token);
     const r = runSafety(repo);
     assert.equal(r.status, 0, `非同步來源不應觸發 safety:check\n${r.stdout}\n${r.stderr}`);
