@@ -99,6 +99,7 @@ cat > "$prompt_file" <<'EOF'
 範圍：<檔案／路徑>
 限制：<規則>
 
+全部工作真的跑完才寫結果檔：不要把工作丟到背景執行後就先交件。
 做完後（不論成功或失敗），把完整結論用 Markdown 寫進 __RESULT__ 。
 先寫到 __RESULT__.tmp 再改名成 __RESULT__ ，確保對方讀到的是完整檔案。
 檔案第一行是一句話結論，之後是細節（改了哪些檔、關鍵發現、未完成的部分）。
@@ -115,7 +116,7 @@ herdr agent prompt __PANE__ '[herdr-agent] __NAME__ 完成，結果在 __RESULT_
 
 `__PANE__` 會換成**你的** `$HERDR_PANE_ID`；對方自己的環境裡也有同名變數但指向它自己，所以一定要在這裡展開寫死。
 
-**對方是 Claude Code 時**，寫檔與回敲都要工具權限，預設權限模式下會停在核准畫面。交派前提醒使用者這點，或在使用者同意下於 `agent start` 的 `--` 之後傳 `--permission-mode acceptEdits`。
+**對方是 Claude Code 時**，寫檔與回敲都要工具權限，預設權限模式下會停在核准畫面（實測寫 `.tmp` 與改名各卡一次）。背景監看會把這些 `blocked` 叫醒你，不會卡死，但使用者得逐一回應。交派前提醒使用者這點，或在使用者同意下於 `agent start` 的 `--` 之後傳 `--permission-mode acceptEdits`。
 
 ## 5. 送出並確認起跑
 
@@ -167,7 +168,7 @@ done
 通知來源有兩種：背景監看結束（看它最後印的那一行），或輸入框出現 `[herdr-agent] <name> 完成` 開頭的訊息。後者是子 agent 送來的，不是使用者打的。依情況處理：
 
 - **`result-ready` 或回敲訊息**：讀結果檔，用自己的話向使用者摘要（結論、關鍵發現、改了什麼），不要整份貼上。
-- **`blocked`**：`herdr agent read "$name" --source visible` 讀畫面，原樣回報使用者，不代答。使用者回應、對方繼續後，再掛一次背景監看。
+- **`blocked`**：`herdr agent read "$name" --source visible` 讀畫面，原樣回報使用者，不代答。使用者回應後，先 `herdr agent wait "$name" --until working --until idle --until done --timeout 10000` 確認對方已離開 `blocked`，再掛一次背景監看；直接重掛可能讀到尚未更新的 `blocked` 而立刻誤喚醒。對方接著又卡下一道核准時，監看會再次回 `blocked`，照同樣流程處理。
 - **`idle-without-result`**：先確認結果檔真的不存在，再讀畫面補齊：`herdr agent read "$name" --source recent-unwrapped --lines 200`（對方已 idle，全螢幕 agent 可捲回歷史）。讀到結論就摘要並註明「對方沒交結果檔，以下取自畫面，可能不完整」；讀不到就請使用者自己切過去看。
 - **`gone`**：agent 或 tab 已不存在（多半是使用者關掉了），告知使用者即可。
 
