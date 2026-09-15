@@ -29,6 +29,10 @@
     "project-map": {
       "source": "lllloo/ai-config-sync",
       "sourceType": "github"
+    },
+    "herdr-agent": {
+      "source": "lllloo/ai-config-sync",
+      "sourceType": "github"
     }
   }
 }
