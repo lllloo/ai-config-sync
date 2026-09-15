@@ -87,12 +87,14 @@ cat > "$prompt_file" <<EOF
 限制：<規則>
 
 做完後（不論成功或失敗）執行下面這條指令回報，<結論> 換成一句話結論，控制在 200 字內：
-herdr agent prompt $HERDR_PANE_ID "[herdr-agent] $name 完成：<結論>"
-完整說明留在你自己的畫面上就好，不要塞進這句話。
+herdr agent prompt $HERDR_PANE_ID '[herdr-agent] $name 完成：<結論>'
+結論不要含引號。完整說明留在你自己的畫面上就好，不要塞進這句話。
 EOF
 ```
 
-注意這裡的 heredoc **不加引號**（`<<EOF`），讓 `$HERDR_PANE_ID` 與 `$name` 展開成實際值；任務內容若含 `$` 要自行跳脫。
+注意這裡的 heredoc **不加引號**（`<<EOF`），讓 `$HERDR_PANE_ID` 與 `$name` 展開成實際值；任務內容若含 `$`、反引號或 `$(...)` 要自行跳脫，否則會在寫檔時被展開。
+
+**對方是 Claude Code 時**，回敲用的 `herdr agent prompt` 是一條 Bash 指令，預設權限模式下會停在核准畫面等人按，回報就永遠不會來。交派前提醒使用者這點，或在使用者同意下於 `--` 之後傳 `--permission-mode acceptEdits`。
 
 ## 5. 送出、確認起跑、然後放手
 
@@ -122,12 +124,13 @@ herdr agent wait "$name" --until working --until blocked --timeout 10000
 
 對方完成後，你的輸入框會出現一則以 `[herdr-agent] <name> 完成：` 開頭的訊息。這是子 agent 送來的，不是使用者打的，處理方式：
 
-1. 先讀對方畫面補齊細節：`herdr agent read "$name" --source recent-unwrapped --lines 200`。閒置的全螢幕 agent（Claude Code、OpenCode）`--lines` 超過可見範圍時 Herdr 會自動捲回歷史，通常足以拿到結論段。
-2. 用自己的話向使用者摘要：結論、關鍵發現、改了什麼。不要整段畫面貼上。
-3. 附上 tab ID：「該 tab 保留著，可直接切過去看完整輸出或繼續對話；不需要了用 `herdr tab close <tab_id>` 關掉。」
-4. 畫面讀不全就明說「結論可能不完整」，讓使用者自己切過去看，不要再追問對方。
+1. 先等對方落到閒置：`herdr agent wait "$name" --timeout 30000`。對方是在自己的 turn 內執行回敲指令的，回報抵達那一刻它多半還是 `working`，此時帶 `--lines` 讀取會回 `agent_not_idle`（alternate screen 的歷史只能在 idle 時靠捲動擷取）。
+2. 再讀畫面補齊細節：`herdr agent read "$name" --source recent-unwrapped --lines 200`。閒置的全螢幕 agent（Claude Code、OpenCode）`--lines` 超過可見範圍時 Herdr 會自動捲回歷史，通常足以拿到結論段。等不到 idle 就退回 `--source visible`。
+3. 用自己的話向使用者摘要：結論、關鍵發現、改了什麼。不要整段畫面貼上。
+4. 附上 tab ID：「該 tab 保留著，可直接切過去看完整輸出或繼續對話；不需要了用 `herdr tab close <tab_id>` 關掉。」
+5. 畫面讀不全就明說「結論可能不完整」，讓使用者自己切過去看，不要再追問對方。
 
-如果回報遲遲沒來，使用者問起時再去看：`herdr agent get "$name"` 看狀態，`blocked` 就讀畫面回報，`working` 就說還在跑。不要主動輪詢。
+如果回報遲遲沒來，使用者問起時再去看：`herdr agent get "$name"` 看狀態，`blocked` 就讀畫面回報（常見是回敲指令本身卡在核准），`working` 就說還在跑。不要主動輪詢。
 
 **不要自己關 tab。** 使用者常會想接著追問對方，或親自去看畫面；關掉就得從頭來。
 
