@@ -37,7 +37,7 @@ test "${HERDR_ENV:-}" = 1 && herdr status server
 
 即使旁邊已經有閒置的同種 agent，也不要拿來用。既有 agent 帶著前一段對話脈絡，會污染這次任務；而且它可能是使用者自己正在用的。
 
-新 agent 開在**目前 workspace 的新 tab**，而不是切分目前的 pane：切分會把使用者正在看的畫面擠窄，交派幾次後就剩細長條；新 tab 各自有完整畫面，sidebar 也看得到各 agent 的狀態。沿用目前 cwd、給一個看得懂的 label、不搶焦點：
+新 agent 開在**目前 workspace 的新 tab**，而不是切分目前的 pane（這是刻意偏離官方 `herdr` skill「預設切 sibling pane、非使用者要求不開 tab」的建議）：切分會把使用者正在看的畫面擠窄，交派幾次後就剩細長條；新 tab 各自有完整畫面，sidebar 也看得到各 agent 的狀態。沿用目前 cwd、給一個看得懂的 label、不搶焦點：
 
 ```bash
 created=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label "$name" --no-focus)
@@ -64,6 +64,14 @@ herdr agent read "$name" --source visible
 ```
 
 把畫面內容原樣回報給使用者，讓使用者決定怎麼回應，**不要代答**。使用者說了才用 `herdr agent send-keys "$name" <key>` 回覆。
+
+回覆後先等對方回到 idle，再往第 4 節：
+
+```bash
+herdr agent wait "$name" --until idle --until done --timeout 60000
+```
+
+啟動時卡過核准的 agent，Herdr 要看到它回到 `idle` 才會當成可以接 prompt；只離開 `blocked`（例如還在載入、顯示 `working`）不夠，這時送 prompt 會收到 `agent_not_ready`。`agent_not_ready` 是在送出任何輸入前就拒絕，等 idle 後重送是安全的，這點和第 5 節的 `timeout` 不同。等到逾時就再 `agent read` 看畫面，多半又卡在下一道提問，照同樣方式回報使用者。
 
 ## 4. 寫 prompt：對方沒有你的對話脈絡，而且要自己交出結果
 
