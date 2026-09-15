@@ -4,9 +4,7 @@
 
 ## 語言規範
 
-**一律使用繁體中文**撰寫所有內容、註解、文件、溝通訊息與 commit 訊息。技術術語可保留英文。輸出 Markdown 文件時亦同。
-
-**例外**：專案既有 commit 歷史為英文（如開源專案）時，commit 訊息跟隨專案慣例。
+**溝通一律使用繁體中文**；新增或修改文件、註解與 commit 訊息時，若專案已有明確語言慣例則沿用，否則使用繁體中文。技術術語、識別字、API 欄位及引用原文保留原樣。
 
 ## 回應風格
 
@@ -16,7 +14,7 @@
 
 ## Commit 與 Push
 
-- **Commit 不設限制**：你可自主 commit，不需事先徵求同意。
+- **Commit 不設限制**：你可自主 commit，不需事先徵求同意。僅提交本次任務相關變更，不夾帶使用者既有或其他任務的修改。
 - **Push 保護分支**：`main`、`master`、`develop`、`formal`、`release`（含 `release/*`）未經我明確要求**不得 push**；其他分支可自由 push。
 - **force push 需明確要求**：任何分支皆同，不因是 feature branch 而放行；獲授權時**一律用 `--force-with-lease`**，不用裸 `--force`。
 - **推 tag 視同 push 對外動作**：未經明確要求不推 tag。
@@ -30,11 +28,11 @@ git 檢視：
 - 改了哪些檔：`git diff --stat` / `--name-only`，**不**裸跑 `git diff`；鎖定後才 `git diff -- <單檔>` 展開
 - 提交歷史：`git log --oneline -20`，**不**裸跑 `git log`
 - 目前狀態：`git status --short`；某次提交：`git show --stat <sha>`
-- 任何仍可能很長的輸出：尾接 `| head -50`
+- 長篇檢視輸出先限量，必要時再分段讀取；測試與驗證須保留退出碼及結果摘要，不得因截斷輸出而宣稱成功。
 
 ## Commands vs Skills
 
-**一律使用 skill**，不再新增 command——skill 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具移植。
+新增可重用的代理工作流程時，**一律建立 skill，不新增 slash command**；一般 shell 指令與專案 CLI 不受此限。Skill 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具移植。
 
 ## Superpowers 啟動
 
@@ -44,3 +42,5 @@ Superpowers 僅在下列任一情況啟動：
 2. 專案根目錄已有 `docs/superpowers/`——代表該專案既有流程即為 Superpowers，後續 task 沿用。
 
 不得因 task 類型、skill 安裝狀態或你判斷可能適用而自行啟動。
+
+符合啟動條件後，僅對適用的開發任務使用對應流程；一般問答與唯讀檢視不因此進入設計、規劃或實作流程。
