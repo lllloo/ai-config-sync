@@ -12,11 +12,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（目前只有 `AGENTS.md`），由 `sync.js` 管理。`config.toml` **不做整檔同步、也永不被寫入或讀取**。MCP 同步已整批移除待重新設計。
 - **`gemini/`**（無點）— 要同步到 `~/.gemini/` 的全域設定（目前只有 `GEMINI.md`），由 `sync.js` 管理。
 - **`skills/`（已移除，勿再建立）** — 自寫**全域** skill 已拆出獨立 repo [lllloo/skills](https://github.com/lllloo/skills)（`skills/<name>/SKILL.md`），各裝置以 `npx skills add lllloo/skills -g --skill <name>` 安裝，實體進 `~/.agents/skills/<name>/`、探索點 symlink 由 `npx skills` 自建，並與外部 skill 一樣記在本 repo 的 `skills-lock.json`。**本 repo 不得再出現頂層 `skills/`**：安裝清單（lock）屬設定同步、skill 內容屬 skills repo，兩者刻意分居。`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/`、`~/.gemini/config/skills/`（`apply-integration.test.js` 有內容 + mtime 雙重斷言）。舊的 `agents/` 同步區與 `xtool-dir` 型已於 `global-skills-via-npx` change 整批移除，`sync.test.js` 有回歸鎖擋其復活。
-- **`.claude/`**（有點）— 本 repo 專用的 Claude Code 本地設定落點，**不參與同步、不映射到 `~/.claude/`**。目前只有 `.claude/skills`（symlink 指向 `../.agents/skills`）與本機執行期產物；日後若需 repo 專用的 `settings.json` 亦放這裡。
-- **Codex 本地 skill** — **不需建 `.codex/skills`**。Codex CLI 會自動探索 `.agents/skills`：專案層由 `repo_agents_skill_roots` 從 project root 逐層掃 `<dir>/.agents/skills`，全域層掃 `~/.agents/skills`（原始碼 `codex-rs/core-skills/src/loader.rs` 的 `skill_roots()`）。故本 repo 的 `.agents/skills` 對 Codex 直接生效，無需 symlink。
-- **`.agents/skills/`** — 本地 skill **實體目錄**（已納入版控），跨工具（Claude Code / Codex / Antigravity）共用來源；遵循 [Agent Skills](https://agentskills.io) 開放標準。
+- **`.claude/`**（有點）— 本 repo 專用的 Claude Code 本地設定落點，**不參與同步、不映射到 `~/.claude/`**。目前只有本機執行期產物（皆已 gitignore）；日後若需 repo 專用的 `settings.json` 亦放這裡。
+- **`.agents/skills/`（已移除，需要時再建）** — 本地 skill 層因長期無住戶已整個移除，連同 `.claude/skills` symlink。日後要恢復：建 `.agents/skills/<name>/SKILL.md` 實體目錄，並補回 `.claude/skills` → `../.agents/skills` 的 symlink 供 Claude Code 讀取（Windows clone 需「開發者模式」才會還原成真 symlink）。**Codex 端不需 symlink、也不需建 `.codex/skills`**：CLI 會自動探索 `.agents/skills`，專案層由 `repo_agents_skill_roots` 從 project root 逐層掃 `<dir>/.agents/skills`，全域層掃 `~/.agents/skills`（原始碼 `codex-rs/core-skills/src/loader.rs` 的 `skill_roots()`）。
 
-新增同步項目：Claude 設定放 `claude/`、Codex 放 `codex/`、Gemini/Antigravity 放 `gemini/`。**全域 skill 一律放 skills repo（[lllloo/skills](https://github.com/lllloo/skills)）的 `skills/<name>/`**，不放本 repo；新增**本地** skill 一律放 `.agents/skills/<name>/`（有點）。勿誤放到 `.claude/` 或 `.codex/`。`skills/`（全域，npx 安裝）與 `.agents/skills/`（本地）是兩回事，勿混淆。
+新增同步項目：Claude 設定放 `claude/`、Codex 放 `codex/`、Gemini/Antigravity 放 `gemini/`。**全域 skill 一律放 skills repo（[lllloo/skills](https://github.com/lllloo/skills)）的 `skills/<name>/`**，不放本 repo。本 repo 目前**沒有本地 skill 層**，要新增請先照上一段把 `.agents/skills/` 建回來，勿誤放到 `.claude/` 或 `.codex/`。
 
 ## 執行環境
 
@@ -105,20 +104,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Skills 管理
 
-Skills 分兩層（**以目錄位置分類**，不加 per-skill flag）：
+Skills 目前**只有全域一層**（分層**以目錄位置分類**，不加 per-skill flag）；本地層 `.agents/skills/` 因無住戶已移除，恢復方式見上方「目錄命名」。
 
 | 位置 | 路徑 | 說明 |
 |---|---|---|
 | 全域（npx 安裝，不同步） | skills repo 的 `skills/<name>/SKILL.md` | 住在 [lllloo/skills](https://github.com/lllloo/skills)，經 `npx skills add lllloo/skills -g --skill <name>` 安裝到 `~/.agents/skills/`（Codex 原生掃）＋ 各工具探索點 symlink（由 `npx skills` 自建）。與外部 skill 同記於本 repo 的 `skills-lock.json`、同由 `skills:diff` 比對；更新走 `npx skills update -g`（依 `skillFolderHash` 比對）。`sync.js` 不碰 |
-| 本地（不同步） | `.agents/skills/<name>/SKILL.md` | 僅限本 repo 使用，跨工具共享（Codex 等） |
 
-全域 skill 一律放 skills repo——**無 Claude-only 全域層**（原 `claude/skills/` 同步層因無住戶已移除，見 `SYNC_MANIFEST` 回歸鎖），也**無 `sync.js` 同步的全域 skill 層**（原 `agents/skills/` 的 `xtool-dir` 型因與 `npx skills` 共管同一目錄、守門成本過高而移除，改走 `npx skills`）。安裝指令固定帶 `--skill`，避免把 `.agents/skills/` 下的本地 skill 一併裝成全域。
+全域 skill 一律放 skills repo——**無 Claude-only 全域層**（原 `claude/skills/` 同步層因無住戶已移除，見 `SYNC_MANIFEST` 回歸鎖），也**無 `sync.js` 同步的全域 skill 層**（原 `agents/skills/` 的 `xtool-dir` 型因與 `npx skills` 共管同一目錄、守門成本過高而移除，改走 `npx skills`）。安裝指令固定帶 `--skill`，避免把來源 repo 的其他 skill 一併裝成全域。
 
-本地 skill 實體放在 `.agents/skills/`。**Claude Code 端**靠 `.claude/skills` symlink（→ `../.agents/skills`）讀取。**Codex 端無需 symlink**：Codex CLI 原生把 `.agents/skills`（專案層）與 `~/.agents/skills`（全域層）納入 skill 探索路徑，直接讀同一份實體。新增本地 skill 直接放進 `.agents/skills/<name>/SKILL.md` 即可。
-
-**Windows clone 注意**：`.claude/skills` 這個 git symlink 在 Windows 需「開發者模式」或管理員權限才會還原為真正的 symlink，否則會 fallback 成內容為路徑字串的純文字檔，導致 Claude Code 找不到 skill。在 Windows 11 設定 → 系統 → 開發人員選項中開啟即可。（Codex 不受此影響：它直接讀 `.agents/skills` 實體目錄，不經 symlink。）
-
-全域 skills 安裝狀態由 `skills-lock.json` 追蹤（`npm run skills:diff` 比對）。本地 skills 不需記錄於 `skills-lock.json`。
+全域 skills 安裝狀態由 `skills-lock.json` 追蹤（`npm run skills:diff` 比對）。
 
 **`skills-lock.json` 的 `agents` 欄位（optional）**：記的是「這台裝置要把該 skill 裝給哪個工具」的安裝意圖，不是「這支 skill 支援誰」——Agent Skills 為開放標準、預設跨工具通用，只有刻意排除時才需要這欄位。值為逗號分隔、白名單見 `skills.js` 的 `VALID_SKILL_AGENTS`（`claude-code`／`codex`），`skills:add --agent <值>`／`--agent=<值>` 寫入，`skills:diff` 的安裝建議據此接上 `--agent`：
 
@@ -142,6 +136,6 @@ Skills 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具
 
 ## 注意事項
 
-- `.DS_Store` 由 `sync.js` 的 `GLOBAL_EXCLUDE` 常數在**同步時**排除（不進 repo、也不寫到本機），與 `.gitignore` 無關——`.gitignore` 列的是 `node_modules/`、`*.log` 與 `.claude/` 下的執行期產物；`.agents/skills/` 為本地 skill 實體目錄，**已納入版控**
+- `.DS_Store` 由 `sync.js` 的 `GLOBAL_EXCLUDE` 常數在**同步時**排除（不進 repo、也不寫到本機），與 `.gitignore` 無關——`.gitignore` 列的是 `node_modules/`、`*.log` 與 `.claude/` 下的執行期產物
 - Skills 不在自動同步範圍，`skills-lock.json` 為各裝置參考清單（source of truth）
 - 上游 `npx skills` 功能追蹤**不在本 repo**：改由 obsidian-memory vault 的 `vault-watch` skill 追蹤（看板 `feeds/watch/01.index.md`，用 `gh` 自動比對狀態轉換與官方回應）。目前追 `vercel-labs/skills` 的 #743／#683／#549（跨裝置全域還原）。#743 若 merge，新裝置的全域 skill 還原可改走上游指令，屆時 `skills:diff` 印建議指令的角色可再評估

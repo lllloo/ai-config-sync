@@ -1,2 +1,0 @@
-本地 skill 實體目錄（見 CLAUDE.md「Skills 管理」）。
-目前無住戶；保留此檔以免目錄從版控消失，導致 .claude/skills symlink 懸空。

@@ -40,7 +40,6 @@ npm run to-local    # repo → 本機（套用，會先預覽再確認）
 | Statusline | `statusline.sh` | — | — |
 | 全域 Skill（自寫） | [lllloo/skills](https://github.com/lllloo/skills)（`npx skills` 安裝，見下） | 同左 | 同左 |
 | 規則拆分 | `rules/` | — | — |
-| 本地 Skill | `.agents/skills/`（共用） | `.agents/skills/`（共用） | `.agents/skills/`（共用） |
 
 自寫全域 skill **不在本 repo**，住在獨立的 [lllloo/skills](https://github.com/lllloo/skills)（`skills/<name>/SKILL.md`，`npx skills` 的慣例掃描位置）。本 repo 只保留 `skills-lock.json`——那是「這台裝置裝了哪些 skill」的清單，屬設定同步的一部分，自寫與外部來源一視同仁，由 `npm run skills:diff` 比對。
 
@@ -55,9 +54,7 @@ npm run to-local    # repo → 本機（套用，會先預覽再確認）
 - **MCP Server 目前不在同步範圍**：舊有的諮詢式同步已整批移除，待重新設計。請以 `claude mcp add`／`codex mcp add` 於各裝置手動維護。見 [刻意不同步](#刻意不同步)。
 - **Agent 定義**目前不在同步範圍：Claude／Codex 皆未列 agents 同步項目（原 `everything-claude-code` agent 庫已整批移除）。日後要恢復再於 `SYNC_MANIFEST` 加回。
 - **Command 定義**不在同步範圍：本 repo 已改用 skill、不再新增 command，`SYNC_MANIFEST` 未列 `commands` 同步項（有回歸鎖把關）。
-- **兩種 Skill 分層**（以目錄位置分類，不加 per-skill flag）：
-  - **全域**（自寫的在 [lllloo/skills](https://github.com/lllloo/skills)，外部來源各自的 repo）— 經 `npx skills add -g` 安裝到各裝置。**不參與** to-repo／to-local：`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/` 或 `~/.gemini/config/skills/`（`apply-integration.test.js` 有內容 + mtime 雙重斷言）。
-  - `.agents/skills/`（本地）— 已版控、跨工具共用、**不參與** to-repo／to-local；Claude Code 靠 `.claude/skills` symlink 讀取，Codex 原生探索（見 [刻意不同步](#刻意不同步) 的 Windows 注意）。
+- **Skill 目前只有全域一層**（自寫的在 [lllloo/skills](https://github.com/lllloo/skills)，外部來源各自的 repo）— 經 `npx skills add -g` 安裝到各裝置。**不參與** to-repo／to-local：`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/` 或 `~/.gemini/config/skills/`（`apply-integration.test.js` 有內容 + mtime 雙重斷言）。本地層 `.agents/skills/` 因無住戶已移除（見 [Skills 與 Agents](#skills-與-agents)）。
 - **全域 Skill 一律走 `npx skills`**：不論是自寫（source 為 `lllloo/skills`）或外部來源，都記在 `skills-lock.json`、由 `npm run skills:diff` 比對後手動套用建議指令；`sync.js` 不安裝、不更新、不移除任何 skill。安裝指令固定帶 `--skill <name>`，逐支安裝。
 - **規則拆分** `claude/rules/` 是 `CLAUDE.md` 的模組化拆分，支援 frontmatter `paths:` scoping。
 
@@ -67,7 +64,6 @@ npm run to-local    # repo → 本機（套用，會先預覽再確認）
 |------|------|
 | `claude/`、`codex/`、`gemini/`（無點） | **要同步**到各工具全域設定的內容（`gemini/` ↔ `~/.gemini/`） |
 | `.claude/`、`.codex/`（有點） | 本 repo 專用的**本地**設定，**不參與同步** |
-| `.agents/skills/` | 本地 skill 實體目錄（已版控） |
 
 ## 指令
 
@@ -283,8 +279,7 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 ### Skills 與 Agents
 
 - Skills 不在自動同步範圍（含自寫的 [lllloo/skills](https://github.com/lllloo/skills)），一律經 `npx skills` 安裝，用 `npm run skills:diff` 查看差異。
-- `.agents/skills/` 是本地 skill 實體目錄，已版控；Claude Code 靠 `.claude/skills` symlink 讀取，Codex 原生把 `.agents/skills`（專案層）與 `~/.agents/skills`（全域層）納入探索路徑、無需 symlink。
-- **Windows clone 注意**：`.claude/skills` 這個 git symlink 在 Windows 需開啟「開發者模式」（設定 → 系統 → 開發人員選項）或以管理員權限 clone，否則會 fallback 成內容為路徑字串的純文字檔，導致 Claude Code 找不到 skill。Codex 不受影響（直接讀實體目錄）。
+- **本地 skill 層已移除**：`.agents/skills/` 與 `.claude/skills` symlink 因長期無住戶已刪除。要恢復就建 `.agents/skills/<name>/SKILL.md`，Claude Code 端再補回 `.claude/skills` → `../.agents/skills` symlink（Windows clone 需開啟「開發者模式」才會還原成真 symlink，否則會 fallback 成純文字檔）；Codex 原生把 `.agents/skills`（專案層）與 `~/.agents/skills`（全域層）納入探索路徑、不需 symlink。
 - Agents 目前不在同步範圍：Claude／Codex 皆未列 agents 同步項目（原 `everything-claude-code` agent 庫已整批移除），日後有需要再於 `SYNC_MANIFEST` 加回。
 
 ## 專案檔案
