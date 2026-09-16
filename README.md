@@ -46,6 +46,8 @@ npm run to-local    # repo → 本機（套用，會先預覽再確認）
 
 各裝置以 `npx skills add lllloo/skills -g --skill <name>` 安裝（實體進 `~/.agents/skills/<name>/`，並由 `npx skills` 自行在 `~/.claude/skills/<name>` 等各工具探索點建 symlink）。更新流程：在 skills repo 改 skill、commit、push，各裝置 `npx skills update -g`。
 
+**要先知道哪些該更新，用 `npx skills check -g`**（依 `skillFolderHash` 比對整個 skill 資料夾，涵蓋自寫與外部來源）。這個指令**沒有列在 `npx skills --help`**（1.5.26 實測），只看 help 會以為不存在。已知上游 bug：[#954](https://github.com/vercel-labs/skills/issues/954) check 可能直接重裝 outdated 項而非只報告（別預設它唯讀）、[#286](https://github.com/vercel-labs/skills/issues/286) 有時全回 `Could not check`、[#162](https://github.com/vercel-labs/skills/issues/162) private repo 的 `skillFolderHash` 為空會讓 check／update 失效（本 repo 與 skills repo 皆 public，不受影響）。
+
 補充說明：
 
 - **全域指示**各自獨立（`CLAUDE.md`、`AGENTS.md` 與 `GEMINI.md` 內容可分歧）。
