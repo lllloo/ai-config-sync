@@ -55,7 +55,7 @@ pane_id=$(printf '%s' "$created" | node -e 'process.stdin.on("data",d=>console.l
 herdr agent start "$name" --kind "$kind" --pane "$pane_id"
 ```
 
-指令回傳代表 Herdr 已在該 pane 偵測到對方並確認可接受輸入。要傳原生參數給對方時放在 `--` 之後（例如 `-- -m gpt-5.4`），但沒必要就不要傳。
+指令回傳代表 Herdr 已在該 pane 偵測到對方並確認可接受輸入。要傳原生參數給對方時放在 `--` 之後（例如 `-- -m gpt-5.4`），但沒必要就不要傳：參數格式各家不同，對方認不得就會在啟動時直接報錯退出，`agent start` 要等滿 30 秒逾時才失敗、名稱也被清掉（實測把位置參數餵給 `agy` 會這樣，它的 prompt 要走 `-p`／`-i`）。任務內容一律走第 5 節的 prompt，不要塞進啟動參數。
 
 若回 `agent_not_ready`，表示對方啟動時就卡在核准或提問畫面（常見是信任目錄的提示）。先讀畫面：
 
