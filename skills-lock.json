@@ -15,23 +15,23 @@
       "agents": "claude-code"
     },
     "bmad-goal": {
-      "source": "lllloo/ai-config-sync",
+      "source": "lllloo/skills",
       "sourceType": "github"
     },
     "map": {
-      "source": "lllloo/ai-config-sync",
+      "source": "lllloo/skills",
       "sourceType": "github"
     },
     "map-fast": {
-      "source": "lllloo/ai-config-sync",
+      "source": "lllloo/skills",
       "sourceType": "github"
     },
     "project-map": {
-      "source": "lllloo/ai-config-sync",
+      "source": "lllloo/skills",
       "sourceType": "github"
     },
     "herdr-agent": {
-      "source": "lllloo/ai-config-sync",
+      "source": "lllloo/skills",
       "sourceType": "github"
     }
   }

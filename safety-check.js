@@ -105,20 +105,18 @@ const CODEX_CONFIG_HARD_BLOCK_SECTIONS = ['model_providers', 'mcp_servers'];
 const CODEX_CONFIG_DEVICE_WARN_SECTIONS = ['profiles', 'history', 'shell_environment_policy'];
 
 /** safety:check 僅掃同步來源與 skills manifest，不掃 test/docs/README 等文件 */
-const SAFETY_SCAN_DIRS = ['claude', 'codex', 'skills', 'gemini'];
+const SAFETY_SCAN_DIRS = ['claude', 'codex', 'gemini'];
 const SAFETY_SCAN_FILES = ['skills-lock.json'];
 
 /**
  * text pattern 掃描（secret／私鑰／HOME 路徑）排除的外部套件文件目錄前綴
- * （相對 REPO_ROOT 的 POSIX 前綴）。**目前為空**：唯一的排除項曾是舊的全域 skill 樹根（今為 `skills/`），
- * 但那是掃描來源根目錄之一的**全部內容**，且其下的 skill 皆為本 repo 手寫、
- * 非「原樣鏡射的第三方套件文件」——整個跨工具全域 skill 樹因此完全不受 secret／
- * 私鑰／HOME 路徑掃描，等同在最大的同步來源上開了個洞。
+ * （相對 REPO_ROOT 的 POSIX 前綴）。**目前為空**：唯一的排除項曾是全域 skill 樹根，
+ * 但那是掃描來源根目錄之一的**全部內容**，等同在最大的同步來源上開了個洞；
+ * 全域 skill 已拆出 lllloo/skills、不在本 repo 射程內，該排除項亦隨之撤除。
  *
  * 日後若真的引入原樣鏡射的上游套件文件（為說明偵測規則本就含 token／路徑樣式，
- * 掃它天生整類 false positive），只列**該 package 的具體子目錄**（如
- * `skills/<pkg>/references/`），不得整棵樹排除。排除只作用於 text 掃描；
- * 結構化 .json／.toml 掃描（含 hard block）不受影響。
+ * 掃它天生整類 false positive），只列**該 package 的具體子目錄**，不得整棵樹排除。
+ * 排除只作用於 text 掃描；結構化 .json／.toml 掃描（含 hard block）不受影響。
  */
 const SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES = [];
 
@@ -288,7 +286,7 @@ function createSafetyChecker(deps) {
   function runSafetyChecks() {
     const issues = [];
     for (const filePath of collectSafetyScanFiles()) {
-      // 外部套件文件（skills）只略過 text pattern 掃描；結構化掃描仍跑
+      // 排除清單內的外部套件文件只略過 text pattern 掃描；結構化掃描仍跑
       // （對 .md no-op、對未來 .json／.toml 保留 hard block 偵測）
       if (!isTextScanExcluded(filePath)) scanSafetyTextFile(filePath, issues);
       scanSafetyStructuredFile(filePath, issues);

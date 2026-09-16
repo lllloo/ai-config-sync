@@ -11,12 +11,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、statusline.sh、rules），由 `sync.js` 管理。**全域 skill 不放這裡**（唯一落點為 repo 頂層 `skills/`、經 `npx skills` 安裝，見下）。
 - **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（目前只有 `AGENTS.md`），由 `sync.js` 管理。`config.toml` **不做整檔同步、也永不被寫入或讀取**。MCP 同步已整批移除待重新設計。
 - **`gemini/`**（無點）— 要同步到 `~/.gemini/` 的全域設定（目前只有 `GEMINI.md`），由 `sync.js` 管理。
-- **`skills/`**（無點，repo 頂層）— 自寫**全域** skill（`skills/<name>/SKILL.md`），**不由 `sync.js` 同步**。這是 `npx skills` 的慣例掃描目錄：各裝置以 `npx skills add lllloo/ai-config-sync -g --skill <name>` 安裝，實體進 `~/.agents/skills/<name>/`、探索點 symlink 由 `npx skills` 自建，並與外部 skill 一樣記在 `skills-lock.json`。`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/`、`~/.gemini/config/skills/`（`apply-integration.test.js` 有內容 + mtime 雙重斷言）。舊的 `agents/` 同步區與 `xtool-dir` 型已於 `global-skills-via-npx` change 整批移除，`sync.test.js` 有回歸鎖擋其復活。
+- **`skills/`（已移除，勿再建立）** — 自寫**全域** skill 已拆出獨立 repo [lllloo/skills](https://github.com/lllloo/skills)（`skills/<name>/SKILL.md`），各裝置以 `npx skills add lllloo/skills -g --skill <name>` 安裝，實體進 `~/.agents/skills/<name>/`、探索點 symlink 由 `npx skills` 自建，並與外部 skill 一樣記在本 repo 的 `skills-lock.json`。**本 repo 不得再出現頂層 `skills/`**：安裝清單（lock）屬設定同步、skill 內容屬 skills repo，兩者刻意分居。`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/`、`~/.gemini/config/skills/`（`apply-integration.test.js` 有內容 + mtime 雙重斷言）。舊的 `agents/` 同步區與 `xtool-dir` 型已於 `global-skills-via-npx` change 整批移除，`sync.test.js` 有回歸鎖擋其復活。
 - **`.claude/`**（有點）— 本 repo 專用的 Claude Code 本地設定落點，**不參與同步、不映射到 `~/.claude/`**。目前只有 `.claude/skills`（symlink 指向 `../.agents/skills`）與本機執行期產物；日後若需 repo 專用的 `settings.json` 亦放這裡。
 - **Codex 本地 skill** — **不需建 `.codex/skills`**。Codex CLI 會自動探索 `.agents/skills`：專案層由 `repo_agents_skill_roots` 從 project root 逐層掃 `<dir>/.agents/skills`，全域層掃 `~/.agents/skills`（原始碼 `codex-rs/core-skills/src/loader.rs` 的 `skill_roots()`）。故本 repo 的 `.agents/skills` 對 Codex 直接生效，無需 symlink。
 - **`.agents/skills/`** — 本地 skill **實體目錄**（已納入版控），跨工具（Claude Code / Codex / Antigravity）共用來源；遵循 [Agent Skills](https://agentskills.io) 開放標準。
 
-新增同步項目：Claude 設定放 `claude/`、Codex 放 `codex/`、Gemini/Antigravity 放 `gemini/`。**全域 skill 一律放 `skills/<name>/`**（不同步、經 `npx skills` 安裝，唯一落點）；新增**本地** skill 一律放 `.agents/skills/<name>/`（有點）。勿誤放到 `.claude/` 或 `.codex/`。`skills/`（全域，npx 安裝）與 `.agents/skills/`（本地）是兩回事，勿混淆。
+新增同步項目：Claude 設定放 `claude/`、Codex 放 `codex/`、Gemini/Antigravity 放 `gemini/`。**全域 skill 一律放 skills repo（[lllloo/skills](https://github.com/lllloo/skills)）的 `skills/<name>/`**，不放本 repo；新增**本地** skill 一律放 `.agents/skills/<name>/`（有點）。勿誤放到 `.claude/` 或 `.codex/`。`skills/`（全域，npx 安裝）與 `.agents/skills/`（本地）是兩回事，勿混淆。
 
 ## 執行環境
 
@@ -98,7 +98,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **禁止新增外部相依**：所有功能必須使用 Node.js 內建模組，不得 `npm install` 任何套件。
 - **settings.json top-level 採黑名單制**（`DEVICE_SETTINGS_KEYS`）：預設同步官方 top-level 欄位，僅排除黑名單列舉。敏感命名 key 不再被同步剝除或中止，改由 `safety:check` warning 供人工審核；`env` 區塊全部依一般同步語意同步，diff／status 不印任何設定內容。strip／preserve 由 `partitionSettingsTopLevel` 同源保證互補；增減黑名單欄位須改 `DEVICE_SETTINGS_KEYS` 常數與 README（drift-guard 測試把關）；`KEYED_NOTICE_SETTINGS_KEYS`（鍵級提示欄位）同樣須改常數與 README。
 - **本工具不同步 MCP**：`~/.claude.json` 與 `~/.codex/config.toml` 永不被寫入或讀取。不要新增 `codex/config.toml` 或整檔 manifest 列，不要讓 `type: 'mcp'`／`type: 'advisory'` 復活，也不要為了「順便清理」而刪除孤兒 state 檔。**重新設計 MCP 同步時**：憑證判準必須 fail closed（無法判定為安全即拒絕，不得加繞過旗標或例外清單），OAuth／headers／env 值／token 不得加入 repo。
-- **安全審核由 `npm run safety:check` 承擔**：唯讀、離線掃描 `claude/`、`codex/`、`gemini/`、`skills/`、`skills-lock.json`（`skills/` 不由 `sync.js` 同步但會經 `npx skills` 裝進家目錄，須留在射程），不掃 `test/`、`docs/`、README 等非同步來源文件。hard block（exit 2）：secret value pattern、私鑰片段、絕對 HOME 路徑、repo settings.json 出現 `hooks`／credential helper、repo 內任何 `.toml` 出現機密載體 section（`CODEX_CONFIG_HARD_BLOCK_SECTIONS`）；warning（exit 1）：settings.json env key 清單、敏感命名 key path、`.toml` 出現裝置狀態 section（`CODEX_CONFIG_DEVICE_WARN_SECTIONS`）；clean exit 0。輸出只列分類與位置，不輸出值。text 掃描排除外部套件文件目錄（取捨與分層見 `safety-check.js` 檔頭）；增減排除目錄與兩份 section 常數須改常數與 README（drift-guard 測試把關）。
+- **安全審核由 `npm run safety:check` 承擔**：唯讀、離線掃描 `claude/`、`codex/`、`gemini/`、`skills-lock.json`（自寫 skill 內容已拆出 lllloo/skills，不在本 repo 射程），不掃 `test/`、`docs/`、README 等非同步來源文件。hard block（exit 2）：secret value pattern、私鑰片段、絕對 HOME 路徑、repo settings.json 出現 `hooks`／credential helper、repo 內任何 `.toml` 出現機密載體 section（`CODEX_CONFIG_HARD_BLOCK_SECTIONS`）；warning（exit 1）：settings.json env key 清單、敏感命名 key path、`.toml` 出現裝置狀態 section（`CODEX_CONFIG_DEVICE_WARN_SECTIONS`）；clean exit 0。輸出只列分類與位置，不輸出值。text 掃描排除外部套件文件目錄（取捨與分層見 `safety-check.js` 檔頭）；增減排除目錄與兩份 section 常數須改常數與 README（drift-guard 測試把關）。
 - **嚴禁洩漏敏感資訊到輸出**：`diff`／`status` 不得顯示 env 值，`safety:check` 不得顯示 secret 原值或完整 HOME 路徑。同步流程本身不再宣稱能阻止所有機密寫入 repo；`file`／`dir` 型項目仍原樣同步，commit 前須執行 `npm run safety:check` 與人工審核。
 - **部分失敗可見度**：apply 中途拋例外時，`mirrorDir` 把已完成變更附掛到 `SyncError.context.partialChanges`，`applySyncItems` 補印、`warnPartialApply` 警告「已寫入 N 筆變更」，已寫入的檔案不得零可見度。操作歷史由 git 承載，不另寫 log 檔。
   - **訊號中斷不在此機制內、也不需要在**：`handleSignal` 只做暫存檔清理與 re-raise，**不報告部分寫入**。signal handler 是 event loop 上的 JS callback，而 apply 的寫入是一整段無 await 的同步碼——訊號在寫入期間送達時 handler 排不進去，等它執行時該批寫入早已跑完。反過來說這也表示訊號不會造成寫到一半的狀態。舊版曾有 `if (isWriting)` 分支想印中斷警告，該旗標在 handler 實際執行時必為 false，是條永遠不成立的 dead code（且誤導成「訊號中斷已有可見度保證」），已移除。**不要再加回這類旗標**，除非先把寫入改成會讓出 event loop 的形式。
@@ -109,10 +109,10 @@ Skills 分兩層（**以目錄位置分類**，不加 per-skill flag）：
 
 | 位置 | 路徑 | 說明 |
 |---|---|---|
-| 全域（npx 安裝，不同步） | `skills/<name>/SKILL.md` | repo 自寫，經 `npx skills add lllloo/ai-config-sync -g --skill <name>` 安裝到 `~/.agents/skills/`（Codex 原生掃）＋ 各工具探索點 symlink（由 `npx skills` 自建）。與外部 skill 同記於 `skills-lock.json`、同由 `skills:diff` 比對；更新走 `npx skills update -g`（依 `skillFolderHash` 比對）。`sync.js` 不碰 |
+| 全域（npx 安裝，不同步） | skills repo 的 `skills/<name>/SKILL.md` | 住在 [lllloo/skills](https://github.com/lllloo/skills)，經 `npx skills add lllloo/skills -g --skill <name>` 安裝到 `~/.agents/skills/`（Codex 原生掃）＋ 各工具探索點 symlink（由 `npx skills` 自建）。與外部 skill 同記於本 repo 的 `skills-lock.json`、同由 `skills:diff` 比對；更新走 `npx skills update -g`（依 `skillFolderHash` 比對）。`sync.js` 不碰 |
 | 本地（不同步） | `.agents/skills/<name>/SKILL.md` | 僅限本 repo 使用，跨工具共享（Codex 等） |
 
-全域 skill 一律放 `skills/`——**無 Claude-only 全域層**（原 `claude/skills/` 同步層因無住戶已移除，見 `SYNC_MANIFEST` 回歸鎖），也**無 `sync.js` 同步的全域 skill 層**（原 `agents/skills/` 的 `xtool-dir` 型因與 `npx skills` 共管同一目錄、守門成本過高而移除，改走 `npx skills`）。安裝指令固定帶 `--skill`，避免把 `.agents/skills/` 下的本地 skill 一併裝成全域。
+全域 skill 一律放 skills repo——**無 Claude-only 全域層**（原 `claude/skills/` 同步層因無住戶已移除，見 `SYNC_MANIFEST` 回歸鎖），也**無 `sync.js` 同步的全域 skill 層**（原 `agents/skills/` 的 `xtool-dir` 型因與 `npx skills` 共管同一目錄、守門成本過高而移除，改走 `npx skills`）。安裝指令固定帶 `--skill`，避免把 `.agents/skills/` 下的本地 skill 一併裝成全域。
 
 本地 skill 實體放在 `.agents/skills/`。**Claude Code 端**靠 `.claude/skills` symlink（→ `../.agents/skills`）讀取。**Codex 端無需 symlink**：Codex CLI 原生把 `.agents/skills`（專案層）與 `~/.agents/skills`（全域層）納入 skill 探索路徑，直接讀同一份實體。新增本地 skill 直接放進 `.agents/skills/<name>/SKILL.md` 即可。
 

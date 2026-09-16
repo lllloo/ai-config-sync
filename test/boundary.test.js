@@ -1247,27 +1247,27 @@ test('safety:check：claude/agents 已自豁免清單移除（agent 庫已不同
   }
 });
 
-// 回歸（#8）：SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES 曾整棵排除舊的全域 skill 樹根
-// （今為 `skills/`），而那是掃描來源根目錄之一的**全部內容**（其下 skill 皆為本 repo
-// 手寫，非「原樣鏡射的第三方文件」）——等於整個全域 skill 樹不受 secret／私鑰／
-// HOME 路徑掃描。清單現為空，此測試鎖住「來源根不得被整棵豁免」。skills/ 雖不由
-// sync.js 寫入家目錄，但會經 npx skills add 裝進家目錄，須留在掃描射程（SAFETY_SCAN_DIRS）。
-test('safety:check：skills/ 在掃描射程內且不豁免 text pattern（來源根不得整棵排除）', () => {
+// 回歸（#8）：SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES 曾整棵排除全域 skill 樹根，而那是
+// 掃描來源根目錄之一的**全部內容**——等於整棵樹不受 secret／私鑰／HOME 路徑掃描。
+// 清單現為空，此測試鎖住「來源根不得被整棵豁免」。全域 skill 已拆出 lllloo/skills，
+// `skills/` 不再是本 repo 的掃描來源；`skills-lock.json` 仍留在 SAFETY_SCAN_FILES。
+test('safety:check：來源根不得整棵排除，且 skills/、agents/ 已不在掃描射程', () => {
   const { SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES, SAFETY_SCAN_DIRS } = require('../safety-check.js');
-  assert.ok(SAFETY_SCAN_DIRS.includes('skills'), 'skills/ 須列於 SAFETY_SCAN_DIRS');
+  assert.ok(!SAFETY_SCAN_DIRS.includes('skills'), 'skills/ 已拆出獨立 repo，不得留在 SAFETY_SCAN_DIRS');
   assert.ok(!SAFETY_SCAN_DIRS.includes('agents'), 'agents/ 已不存在，不得留在 SAFETY_SCAN_DIRS');
-  assert.ok(!SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES.some(p => ['claude/', 'codex/', 'skills/', 'gemini/'].includes(p)),
+  assert.ok(!SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES.some(p => ['claude/', 'codex/', 'gemini/'].includes(p)),
     '排除清單不得含來源根目錄本身');
 
   const { repo, root } = setupSafetySandbox();
   try {
-    writeSafetyText(repo, 'skills/demo/SKILL.md', '範例：/home/bob/secret 與 ghp_' + 'y'.repeat(24) + '\n');
-    const r = runSafety(repo);
-    assert.equal(r.status, 2, `skills/ 應照常 hard block\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /疑似機密值/);
-    assert.match(r.stdout, /絕對 HOME 路徑/);
-    assert.doesNotMatch(r.stdout, /\/home\/bob/, '不得輸出完整 HOME 路徑');
-    fs.rmSync(path.join(repo, 'skills'), { recursive: true, force: true });
+    // skills-lock.json 仍在射程（SAFETY_SCAN_FILES 刻意不導出，故以行為斷言）：
+    // 縮小 SAFETY_SCAN_DIRS 時不得連 lock 檔一併掉出掃描
+    writeSafetyText(repo, 'skills-lock.json',
+      '{"version":1,"skills":{"x":{"source":"ghp_' + 'q'.repeat(24) + '"}}}\n');
+    const r1 = runSafety(repo);
+    assert.equal(r1.status, 2, `skills-lock.json 應留在掃描射程\n${r1.stdout}\n${r1.stderr}`);
+    assert.match(r1.stdout, /疑似機密值/);
+    fs.rmSync(path.join(repo, 'skills-lock.json'), { force: true });
 
     // claude/skills/ 已隨同步層移除自豁免清單撤除（repo 已無此目錄，排除屬預防性列名）：
     // 若日後重新引入且含機密樣式，text pattern 應照常攔截
