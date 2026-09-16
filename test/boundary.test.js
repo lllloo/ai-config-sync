@@ -20,7 +20,6 @@ const {
   getFiles,
   mirrorDir,
   copyFile,
-  ensureSymlink,
   applySyncItems,
   readFileSafe,
   readJson,
