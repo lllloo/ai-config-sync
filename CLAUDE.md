@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 目錄命名（重要）
 
-- **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、statusline.sh、rules），由 `sync.js` 管理。**全域 skill 不放這裡**（唯一落點為 repo 頂層 `skills/`、經 `npx skills` 安裝，見下）。
+- **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、statusline.sh、rules），由 `sync.js` 管理。**全域 skill 不放這裡**（唯一落點為獨立的 skills repo、經 `npx skills` 安裝，見下）。
 - **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（目前只有 `AGENTS.md`），由 `sync.js` 管理。`config.toml` **不做整檔同步、也永不被寫入或讀取**。MCP 同步已整批移除待重新設計。
 - **`gemini/`**（無點）— 要同步到 `~/.gemini/` 的全域設定（目前只有 `GEMINI.md`），由 `sync.js` 管理。
 - **`skills/`（已移除，勿再建立）** — 自寫**全域** skill 已拆出獨立 repo [lllloo/skills](https://github.com/lllloo/skills)（`skills/<name>/SKILL.md`），各裝置以 `npx skills add lllloo/skills -g --skill <name>` 安裝，實體進 `~/.agents/skills/<name>/`、探索點 symlink 由 `npx skills` 自建，並與外部 skill 一樣記在本 repo 的 `skills-lock.json`。**本 repo 不得再出現頂層 `skills/`**：安裝清單（lock）屬設定同步、skill 內容屬 skills repo，兩者刻意分居。`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/`、`~/.gemini/config/skills/`（`apply-integration.test.js` 有內容 + mtime 雙重斷言）。舊的 `agents/` 同步區與 `xtool-dir` 型已於 `global-skills-via-npx` change 整批移除，`sync.test.js` 有回歸鎖擋其復活。

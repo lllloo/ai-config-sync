@@ -218,6 +218,29 @@ test('parseArgs：未知旗標（含 typo）拋 INVALID_ARGS 而非靜默忽略'
   }
 });
 
+test('parseArgs：skills:add 的 --agent 原樣轉入 extraArgs（npm run 會吃掉 -- 分隔符）', () => {
+  // 回歸：npm run skills:add -- foo org/repo --agent codex 到 sync.js 時 argv 已無 `--`，
+  // --agent 曾被未知旗標白名單擋下，README 記載的用法整條不可用
+  assert.deepEqual(
+    withArgv(['skills:add', 'foo', 'org/repo', '--agent', 'codex'], () => parseArgs()).extraArgs,
+    ['foo', 'org/repo', '--agent', 'codex'],
+  );
+  assert.deepEqual(
+    withArgv(['sa', '--agent=claude-code', 'foo', 'org/repo'], () => parseArgs()).extraArgs,
+    ['--agent=claude-code', 'foo', 'org/repo'],
+  );
+});
+
+test('parseArgs：--agent 只對 skills:add 放行，其他指令仍拋 INVALID_ARGS', () => {
+  for (const argv of [['to-local', '--agent', 'codex'], ['to-repo', '--agent=codex'], ['--agent', 'codex', 'skills:add']]) {
+    assert.throws(
+      () => withArgv(argv, () => parseArgs()),
+      (e) => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
+      `應對 ${argv.join(' ')} 拋 INVALID_ARGS`,
+    );
+  }
+});
+
 test('parseArgs：--no-color 設定 noColor 旗標', () => {
   assert.equal(withArgv(['diff', '--no-color'], () => parseArgs()).noColor, true);
   assert.equal(withArgv(['diff'], () => parseArgs()).noColor, false);

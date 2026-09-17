@@ -5,7 +5,7 @@
 //
 // 由 sync.js 以 createSkillsHandler(deps) DI 建立、經 runCommand 分派呼叫。
 // 只讀 repo 的 skills-lock.json 與本機 ~/.agents/.skill-lock.json 做集合比對並
-// 輸出建議指令，不參與 file／dir／settings 同步核心，也不掃 agents/skills/ 目錄。
+// 輸出建議指令，不參與 file／dir／settings 同步核心，也不掃任何 skill 目錄。
 //
 // 反向 require 禁令：本檔 **不** require('./sync.js')。共用常數與工具（REPO_ROOT、
 // LOCAL_SKILL_LOCK、exit code、SyncError／ERR、readJson／writeJsonSafe、
@@ -26,7 +26,7 @@ const path = require('path');
  * 判斷 skill name 是否為物件的自有屬性（成員關係判定）
  * 一律用 hasOwnProperty 而非真值索引：skill name 允許 constructor／valueOf／
  * __proto__ 等字面，真值索引會走原型鏈誤判為存在；而值為 null／空字串的合法
- * 登記項也會被誤判為不存在。同 sync.js 的 isNpxManagedSkill。
+ * 登記項也會被誤判為不存在。
  * @param {object} obj
  * @param {string} key
  * @returns {boolean}
@@ -247,8 +247,8 @@ function createSkillsHandler(deps) {
 
   /**
    * 從 extraArgs 抽出 --agent <值> / --agent=<值>，回傳值與其餘位置引數
-   * 刻意在此解析而非 parseArgs：`npm run skills:add -- ...` 的旗標一律落進 extraArgs，
-   * 兩種呼叫路徑（npm run 與直接 CLI）因此共用同一段解析。
+   * 刻意在此解析而非 parseArgs：parseArgs 只負責對 skills:add 把 --agent 原樣放行進
+   * extraArgs（npm run 會吃掉 `--`，不能仰賴分隔符），值的解析與白名單驗證集中於此。
    * @param {string[]} extraArgs
    * @returns {{agents: string|null, rest: string[]}}
    * @throws {SyncError} 缺值或值非法時

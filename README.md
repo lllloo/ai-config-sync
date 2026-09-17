@@ -130,6 +130,7 @@ node --test --test-name-pattern="<name>" test/<file>.test.js  # 單一測試
 | `--yes` | 略過互動確認（別名 `--force`）；非互動環境（CI／pipe）執行 to-local 時必加，否則報錯而非卡住 |
 | `--no-color` | 關閉色彩輸出（亦支援 `NO_COLOR`；`FORCE_COLOR` 可強制開啟） |
 | `--verbose` | 顯示詳細路徑與檔案大小 |
+| `--agent` | **僅 `skills:add`**：指定安裝目標工具（`--agent <值>` 或 `--agent=<值>`，白名單 `claude-code`／`codex`）；用於其他指令會拋 `INVALID_ARGS` |
 | `--version` | 顯示版本號（別名 `-v`） |
 | `--help` | 顯示指令說明（別名 `-h`） |
 
@@ -228,7 +229,7 @@ npm run skills:diff
 
 - 已知 token 值樣式、私鑰片段、絕對 HOME 路徑（含 JSON 內跳脫的 Windows 路徑 `C:\\Users\\…`）
 - `claude/settings.json` 出現 `hooks` 或 credential helper 欄位
-- repo 內任何 `.toml` 出現機密載體 section（`model_providers.*`／`mcp_servers.*`），只印 section 路徑不印值
+- repo 內任何 `.toml` 出現機密載體 section（`model_providers.*`／`mcp_servers.*`），含 root 層 dotted key（`mcp_servers.a.b = ..`）與 inline table（`mcp_servers = { .. }`）等價寫法，只印 section 路徑不印值
 - repo 內任何 `.toml` 出現**無法解析的結構**，只印行號不印值（fail closed——結構解不出來時 section 歸屬不可信，機密判斷失去依據）：
   - 無法解析的 section header（如 `[mcp_servers` 未閉合）
   - 未閉合的 TOML value（如 `notify = [` 之後直接接下一個 section header）

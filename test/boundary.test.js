@@ -1013,6 +1013,49 @@ test('safety:check：MCP 同步移除後，repo .toml 的 mcp_servers section �
   }
 });
 
+// 回歸：TOML 的 root 層 dotted key／inline table 與 section header 語意等價
+// （`mcp_servers.a.command = ..` ≡ `[mcp_servers.a]`），只查 header 會被整條繞過。
+test('safety:check：root 層 dotted key／inline table 形式的機密 section 同樣 hard block', () => {
+  for (const body of [
+    'mcp_servers.acme.command = "v"\n',
+    'model_providers = { x = { base_url = "v" } }\n',
+    '"mcp_servers".acme.url = "v"\n',
+    '"\\u006dcp_servers".acme.url = "v"\n',
+  ]) {
+    const { repo, root } = setupSafetySandbox();
+    try {
+      writeSafetyText(repo, 'codex/config.toml', body);
+      const r = runSafety(repo);
+      assert.equal(r.status, 2, `應 exit 2：${body}\n${r.stdout}\n${r.stderr}`);
+      assert.match(r.stdout, /不應同步 codex 機密 section/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('safety:check：root 層 key 名無法解碼時 fail closed（hard block）', () => {
+  const { repo, root } = setupSafetySandbox();
+  try {
+    writeSafetyText(repo, 'codex/config.toml', '"\\qmcp".x = "v"\n');
+    const r = runSafety(repo);
+    assert.equal(r.status, 2, `${r.stdout}\n${r.stderr}`);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('safety:check：section 內的同名 dotted key 不誤判（機密 section 只在 top-level 有意義）', () => {
+  const { repo, root } = setupSafetySandbox();
+  try {
+    writeSafetyText(repo, 'codex/config.toml', '[tools]\nmcp_servers.x = "v"\n');
+    const r = runSafety(repo);
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // 回歸（F2）：section 名含 ] 的引號 key 曾讓 header 解析失敗、key 誤掛前一 section，
 // 使機密 section 的 hard block 靜默降級成 warning（exit 2 → exit 1）——CI 若以
 // exit 2 當閘門就會放行含 MCP 憑證的 config.toml。

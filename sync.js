@@ -70,7 +70,6 @@ const STATUS_ICONS = {
   eol:     { icon: '\u2248', color: 'dim'    },  // 僅換行符差異（CRLF/LF 或檔尾換行）
   up:      { icon: '\u2191', color: 'cyan'   },  // 本機有、repo 沒有
   down:    { icon: '\u2193', color: 'yellow' },  // repo 有、本機沒有
-  conflict:{ icon: '!', color: 'red'    },  // ownership 不明或與 npx skill 撞名
 };
 
 /**
@@ -694,7 +693,7 @@ function cleanEmptyDirs(dir) {
 }
 
 // =============================================================================
-// Section: Symlink Utilities -- symlink 建立與幂等維護
+// Section: Symlink Utilities -- 不跟隨 link 的屬性讀取
 // 目前唯一消費者為 to-win-local 的 Windows 家目錄探測（lstatSyncSafe）。
 // =============================================================================
 
@@ -1391,8 +1390,8 @@ function applySyncItems(items, direction, opts) {
       changes = applySyncItem(item, direction, dryRun);
     } catch (e) {
       // 單項中途失敗：先把該項已完成的變更（mirrorDir 附掛的 partialChanges）補進
-      // 統計與輸出，再把整體已套用清單附掛給呼叫端（warnPartialApply 印中斷警告）——
-      // 與 handleSignal 的訊號中斷警告互補，讓「例外中斷」路徑的部分寫入同樣可見
+      // 統計與輸出，再把整體已套用清單附掛給呼叫端（warnPartialApply 印中斷警告），
+      // 讓「例外中斷」路徑的部分寫入可見（訊號中斷不會造成部分寫入，見 handleSignal）
       if (e instanceof SyncError) {
         for (const c of e.context.partialChanges || []) record({ action: c.action, label: itemLabel(item, c.rel) });
         delete e.context.partialChanges;
@@ -1618,7 +1617,7 @@ function printDiffItem(item, opts) {
   if (item.status === null) {
     printStatusLine('ok', item.label);
   } else if (statusMap[item.status]) {
-    printStatusLine(statusMap[item.status][0], item.label, item.conflictReason || statusMap[item.status][1]);
+    printStatusLine(statusMap[item.status][0], item.label, statusMap[item.status][1]);
   }
   if (opts.verbose && item.verboseSrc) logVerbosePaths(item.verboseSrc, item.verboseDest || item.dest);
   return item.status !== null;
@@ -1660,7 +1659,7 @@ function runToRepo(opts) {
     const items = buildSyncItems('to-repo');
     // 首次出現 key 須在 apply 前取樣（寫入後 repo 已含新 key，差集恆空），提示留到摘要後印
     const newSettingsKeys = collectNewSettingsKeys(items);
-    const { stats, changeLog } = applySyncItems(items, 'to-repo', opts);
+    const { stats } = applySyncItems(items, 'to-repo', opts);
 
     console.log('');
     printSummary(stats);
@@ -1693,7 +1692,6 @@ function printToLocalPreview(diffResults) {
     if (d.status === 'new') printStatusLine('added', d.label, '將新增');
     else if (d.status === 'changed') printStatusLine('changed', d.label, '將更新');
     else if (d.status === 'eol') printStatusLine('eol', d.label, '將更新（僅換行符差異）');
-    else if (d.status === 'conflict') printStatusLine('conflict', d.label, d.conflictReason || '撞名 npx skill，將跳過不覆寫');
     else if (d.status === 'deleted' && d.preserved) printStatusLine('up', d.label, '本機保留（repo 無對應來源，不會刪除）');
     else if (d.status === 'deleted') printStatusLine('deleted', d.label, '將刪除');
   }
@@ -1701,7 +1699,6 @@ function printToLocalPreview(diffResults) {
   const previewStats = { added: 0, updated: 0, deleted: 0 };
   for (const d of diffResults) {
     if (d.status === 'deleted' && d.preserved) continue; // mirrorDir 不會刪，不計入
-    if (d.status === 'conflict') continue; // 撞名跳過、不寫入，不計入 stats
     const key = statusToStatsKey(d.status);
     if (key) previewStats[key]++;
   }
@@ -1958,6 +1955,11 @@ function parseArgs() {
       result.showVersion = true;
     } else if (arg === '--help' || arg === '-h') {
       result.showHelp = true;
+    } else if (result.command === 'skills:add' && (arg === '--agent' || arg.startsWith('--agent='))) {
+      // 帶值旗標原樣轉入 extraArgs，由 skills.js 的 extractAgentOption 解析與驗證。
+      // npm run 會吃掉 `--` 分隔符，故不能仰賴 pastSeparator 放行；只對 skills:add 開放，
+      // 其他指令的 --agent 仍走下方未知旗標拒絕。
+      result.extraArgs.push(arg);
     } else if (arg.startsWith('-')) {
       // 不在白名單的旗標（含 typo 如 --dryrun、--dri-run）：拒絕而非靜默忽略。
       // 否則 `--dry-run` 打錯字會略過預覽直接真寫入，使安全閘門失效。
@@ -2043,6 +2045,7 @@ function runHelp() {
   console.log(`    ${col.cyan('--yes')}                  略過互動確認（非互動環境必加，別名 --force）`);
   console.log(`    ${col.cyan('--no-color')}             關閉色彩輸出（亦支援 NO_COLOR 環境變數）`);
   console.log(`    ${col.cyan('--verbose')}              顯示詳細路徑與檔案大小`);
+  console.log(`    ${col.cyan('--agent <值>')}           僅 skills:add：指定安裝目標工具（claude-code／codex）`);
   console.log(`    ${col.cyan('--version')}              顯示版本號（別名 -v）`);
   console.log(`    ${col.cyan('--help')}                 顯示此說明（別名 -h）`);
 

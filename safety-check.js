@@ -225,6 +225,7 @@ function createSafetyChecker(deps) {
     for (const st of readTomlStatements(content)) {
       if (st.type === 'section') { section = handleTomlSection(st, filePath, issues); continue; }
       if (st.type !== 'kv') continue;
+      if (section === '') checkTomlRootKey(st, filePath, issues);
       const keyPath = section ? `${section}.${st.key}` : st.key;
       if (SENSITIVE_KEY_PATTERN.test(keyPath)) addSafetyIssue(issues, 'warning', '敏感命名 key path', filePath, keyPath);
     }
@@ -255,6 +256,22 @@ function createSafetyChecker(deps) {
       addSafetyIssue(issues, 'warning', 'codex 裝置狀態 section 需人工審核', filePath, st.name);
     }
     return st.name;
+  }
+
+  /**
+   * root 層 kv 的 key 第一段即 top-level table 名：`mcp_servers.a.command = ..` 與
+   * `mcp_servers = { .. }` 語意等同 `[mcp_servers.a]`，只查 section header 會被整條繞過。
+   * 套同一份 hard block／warn 清單；key 名無法解碼同樣 fail closed。
+   * section 內的 kv 不查——這些名稱只在 top-level 才是機密載體。
+   */
+  function checkTomlRootKey(st, filePath, issues) {
+    if (splitTomlKey(st.key) === null) {
+      addSafetyIssue(issues, 'hard', '無法解碼的 TOML key 名', filePath, `line ${st.line}`);
+    } else if (isCodexSecretSection(st.key)) {
+      addSafetyIssue(issues, 'hard', '不應同步 codex 機密 section', filePath, st.key);
+    } else if (isCodexDeviceWarnSection(st.key)) {
+      addSafetyIssue(issues, 'warning', 'codex 裝置狀態 section 需人工審核', filePath, st.key);
+    }
   }
 
   // 比對 section 的第一個 dotted 片段（引號感知去引號 + 跳脫解碼後）：`[mcp_servers]`／
