@@ -1099,12 +1099,10 @@ const SYNC_AREAS = {
  *   - area：對應 SYNC_AREAS 的 key（'claude' → ~/.claude ↔ repo claude/；'codex' → ~/.codex ↔ repo codex/）
  *   - type：'file'|'settings'|'dir'（型別行為由 diffSyncItem／applySyncItem 分派）
  *   - homeLabel（選填）：本機端檔名與 repo label 不同時使用
- *   - homeRootFile（選填）：本機端目標位於 $HOME 下、不在 area homeBase 之內時使用（如 ~/.claude.json），
- *     指定後以 $HOME/<homeRootFile> 解析本機端路徑，不套用 area 的 homeBase
  *   - fixedFlow：true 代表 src 恆為本機端、dest 恆為 repo 端，不隨 direction 交換
  *     （settings.json 由 mergeSettingsBetween 依 direction 決定流向）
  *   - exclude（選填，僅 dir 型）：glob 片段陣列，diffDir／mirrorDir 以 matchExclude 略過對應相對路徑
- * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, homeLabel?: string, homeRootFile?: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[]}>}
+ * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, homeLabel?: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[]}>}
  */
 const SYNC_MANIFEST = [
   { area: 'claude', label: 'CLAUDE.md',     type: 'file' },
@@ -1136,9 +1134,7 @@ function resolveSyncArea(area) {
 function materializeSyncItem(entry, direction) {
   const { homeBase, repoBase, prefix } = resolveSyncArea(entry.area);
   const label = entry.label;
-  const homePath = entry.homeRootFile
-    ? path.join(HOME, entry.homeRootFile)
-    : path.join(homeBase, entry.homeLabel || label);
+  const homePath = path.join(homeBase, entry.homeLabel || label);
   const repoPath = path.join(repoBase, label);
   const isToRepo = direction === 'to-repo';
   // fixedFlow：src 恆為本機端、dest 恆為 repo 端（由 merge 函式內部依 direction 決定流向）
@@ -2202,13 +2198,7 @@ if (require.main === module) {
     writeFileSafe,
     toSyncFsError,
     askConfirm,
-    // skills 邏輯在 skills.js；此處經 skillsModule／singleton wrapper re-export 供既有測試沿用
-    runSkillsRemove: (opts) => skillsHandler().runSkillsRemove(opts),
-    computeSkillsDiff: skillsModule.computeSkillsDiff,
-    sanitizeForTerminal: skillsModule.sanitizeForTerminal,
-    validateSkillName: (name) => skillsHandler().validateSkillName(name),
     statusToStatsKey,
-    parseSkillSource: (opts) => skillsHandler().parseSkillSource(opts),
     parseArgs,
     assertNoSwallowedNpmFlags,
     toRelativePath,
@@ -2221,7 +2211,6 @@ if (require.main === module) {
     collectNewSettingsKeys,
     findLocalOnlyKeyedEntries,
     collectLocalOnlyKeyed,
-    loadSkillsFromLock: (lockPath) => skillsHandler().loadSkillsFromLock(lockPath),
     DEVICE_SETTINGS_KEYS,
     KEYED_NOTICE_SETTINGS_KEYS,
     SyncError,

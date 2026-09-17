@@ -16,7 +16,6 @@ const {
   readTomlStatements,
   matchTomlHeader,
   splitTomlKey,
-  isIncompleteTomlValue,
 } = require('../toml-reader.js');
 
 /**
@@ -103,21 +102,6 @@ test('splitTomlKey：header 內部空白不影響片段', () => {
 });
 
 // -----------------------------------------------------------------------------
-// isIncompleteTomlValue：跨行續行偵測
-// -----------------------------------------------------------------------------
-test('isIncompleteTomlValue：未閉合陣列與三引號字串判為未完結', () => {
-  assert.equal(isIncompleteTomlValue('['), true);
-  assert.equal(isIncompleteTomlValue('"""'), true);
-  assert.equal(isIncompleteTomlValue('[1, 2]'), false);
-  assert.equal(isIncompleteTomlValue('"dark"'), false);
-});
-
-test('isIncompleteTomlValue：字串／註解內的 ] 不計入括號深度', () => {
-  assert.equal(isIncompleteTomlValue('["a]b"]'), false, '引號內的 ] 不得減少深度');
-  assert.equal(isIncompleteTomlValue('[ # 註解含 ]'), true, '註解內的 ] 不得閉合陣列');
-});
-
-// -----------------------------------------------------------------------------
 // readTomlStatements：跨行語法完整保留 + section 歸屬正確
 // -----------------------------------------------------------------------------
 test('readTomlStatements：多行陣列併入續行，其後 key 仍歸屬同 section', () => {
@@ -170,6 +154,7 @@ notifications = [
 theme = "x"
 `);
   assert.equal(kvs.length, 2);
+  assert.ok(kvs[0].value.includes('"a"'), '註解內的 ] 不得提前閉合陣列（其後元素須併入 value）');
   assert.deepEqual(kvs[1], { section: 'tui', key: 'theme', value: '"x"' },
     '註解內的 ] 不得使 theme 掉出 section');
 });

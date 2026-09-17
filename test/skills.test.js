@@ -2,14 +2,14 @@
 
 // =============================================================================
 // skills.js 單元測試：對稱 toml-reader.test.js，集中驗證 skills 模組的純函式與
-// deps-bound helper（不經 sync.js re-export），證明 skills.js 可獨立於 sync.js 測試。
+// deps-bound helper，證明 skills.js 可獨立於 sync.js 測試。
 //
 // - computeSkillsDiff／sanitizeForTerminal 為模組層純函式，直接 require。
 // - loadSkillsFromLock／validateSkillName／validateSkillSource／parseSkillSource
 //   為 deps-bound，經 createSkillsHandler 注入 SyncError／ERR／readJson 後由回傳
-//   物件取得（runCommand 只用三個對外方法，這些 helper 是 re-export／測試 seam）。
+//   物件取得（runCommand 只用三個對外方法，這些 helper 是測試 seam）。
 // runSkillsAdd／runSkillsRemove 的端到端行為（含寫入 skills-lock.json）由
-// apply-integration.test.js 沙箱 spawn 覆蓋，name 驗證拒絕路徑由 boundary.test.js 覆蓋。
+// apply-integration.test.js 沙箱 spawn 覆蓋。
 // runSkillsDiff 的建議指令輸出（兩分支對稱性）於本檔尾以攔截 console.log 直接覆蓋。
 // =============================================================================
 
@@ -59,6 +59,7 @@ test('computeSkillsDiff：兩邊皆空時三類皆空', () => {
 
 test('sanitizeForTerminal：剝除 ANSI escape、換行與控制字元', () => {
   assert.equal(sanitizeForTerminal('a\x1b[31mb\nc\r\x07'), 'a[31mbc');
+  assert.equal(sanitizeForTerminal('https://ok/x'), 'https://ok/x', '正常字串不受影響');
 });
 
 // --- validateSkillName / validateSkillSource（deps-bound）---------------------
@@ -95,6 +96,15 @@ test('parseSkillSource：URL 有尾部斜線仍可解析', () => {
   assert.deepEqual(result, { name: 'skill', source: 'org/repo' });
 });
 
+test('parseSkillSource：URL 有多餘路徑段', () => {
+  // https://skills.sh/org/repo/skill/extra — 4+ segments after host，預期只取前三段
+  const h = makeHandler();
+  const result = h.parseSkillSource({
+    extraArgs: ['https://skills.sh/org/repo/skill/extra'],
+  });
+  assert.deepEqual(result, { name: 'skill', source: 'org/repo' });
+});
+
 test('parseSkillSource：name + source 雙引數', () => {
   const h = makeHandler();
   const result = h.parseSkillSource({ extraArgs: ['my-skill', 'org/repo'] });
@@ -125,6 +135,38 @@ test('parseSkillSource：name 含換行應丟錯（log injection 防護）', () 
   );
 });
 
+test('parseSkillSource：單一非 URL 引數應丟錯', () => {
+  const h = makeHandler();
+  assert.throws(
+    () => h.parseSkillSource({ extraArgs: ['my-skill'] }),
+    e => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
+  );
+});
+
+test('parseSkillSource：source 含換行應丟錯（log injection 防護）', () => {
+  const h = makeHandler();
+  assert.throws(
+    () => h.parseSkillSource({ extraArgs: ['my-skill', 'org/repo\nrm -rf'] }),
+    e => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
+  );
+});
+
+test('parseSkillSource：source 含 ANSI escape 應丟錯', () => {
+  const h = makeHandler();
+  assert.throws(
+    () => h.parseSkillSource({ extraArgs: ['my-skill', 'org/repo\x1b[31m'] }),
+    e => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
+  );
+});
+
+test('parseSkillSource：name 含特殊字元應丟錯', () => {
+  const h = makeHandler();
+  assert.throws(
+    () => h.parseSkillSource({ extraArgs: ['my skill', 'org/repo'] }),
+    e => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
+  );
+});
+
 // --- loadSkillsFromLock（deps-bound）-----------------------------------------
 
 test('loadSkillsFromLock：檔案不存在回傳空物件', () => {
@@ -143,6 +185,13 @@ test('loadSkillsFromLock：正常格式回傳 skills 物件', () => {
 
 test('loadSkillsFromLock：skills 欄位缺失應丟 JSON_PARSE 錯誤', () => {
   withTmpFile(JSON.stringify({ version: 1 }), (fp) => {
+    const h = makeHandler();
+    assert.throws(() => h.loadSkillsFromLock(fp), (e) => e instanceof SyncError && e.code === ERR.JSON_PARSE);
+  });
+});
+
+test('loadSkillsFromLock：skills 為 null 應丟 JSON_PARSE 錯誤', () => {
+  withTmpFile(JSON.stringify({ version: 1, skills: null }), (fp) => {
     const h = makeHandler();
     assert.throws(() => h.loadSkillsFromLock(fp), (e) => e instanceof SyncError && e.code === ERR.JSON_PARSE);
   });
@@ -341,6 +390,14 @@ test('runSkillsAdd：已存在時輸出經清洗的 source、不覆寫', () => {
 test('runSkillsAdd：已存在但缺 source 時提示不印 undefined', () => {
   const { out } = runSkillsMutation('add', { version: 1, skills: { foo: {} } }, ['foo', 'org/repo']);
   assert.doesNotMatch(out, /undefined/, `缺 source 不應 echo undefined，實際：\n${out}`);
+});
+
+test('runSkillsRemove：含 ANSI escape 的 name 在驗證階段被擋（非落到「不存在」靜默回傳）', () => {
+  // mutation-safe：若移除 validateSkillName 呼叫，此 name 會落到「不在 lock → return EXIT_OK」而不拋
+  assert.throws(
+    () => makeHandler().runSkillsRemove({ extraArgs: ['\x1b[2Jmalicious'] }),
+    e => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
+  );
 });
 
 test('runSkillsRemove：名為 constructor 但未登記時視為不存在、不寫檔', () => {

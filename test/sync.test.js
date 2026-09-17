@@ -22,12 +22,8 @@ const {
   readJson,
   matchExclude,
   statusToStatsKey,
-  parseSkillSource,
   parseArgs,
   toRelativePath,
-  loadSkillsFromLock,
-  computeSkillsDiff,
-  sanitizeForTerminal,
   buildSyncItems,
   materializeSyncItem,
   getFiles,
@@ -90,72 +86,6 @@ test('statusToStatsKey：未知狀態回傳 null', () => {
   assert.equal(statusToStatsKey(null), null);
   assert.equal(statusToStatsKey('unknown'), null);
   assert.equal(statusToStatsKey(undefined), null);
-});
-
-// -----------------------------------------------------------------------------
-// parseSkillSource
-// -----------------------------------------------------------------------------
-test('parseSkillSource：skills.sh URL 解析', () => {
-  const result = parseSkillSource({
-    extraArgs: ['https://skills.sh/anthropics/skills/web-search'],
-  });
-  assert.equal(result.name, 'web-search');
-  assert.equal(result.source, 'anthropics/skills');
-});
-
-test('parseSkillSource：name + source 雙引數', () => {
-  const result = parseSkillSource({ extraArgs: ['my-skill', 'org/repo'] });
-  assert.equal(result.name, 'my-skill');
-  assert.equal(result.source, 'org/repo');
-});
-
-test('parseSkillSource：缺少引數應丟 SyncError', () => {
-  assert.throws(
-    () => parseSkillSource({ extraArgs: [] }),
-    (err) => err instanceof SyncError && err.code === ERR.INVALID_ARGS,
-  );
-});
-
-test('parseSkillSource：skills.sh URL 格式錯誤應丟錯', () => {
-  assert.throws(
-    () => parseSkillSource({ extraArgs: ['https://skills.sh/onlyone'] }),
-    (err) => err instanceof SyncError && err.code === ERR.INVALID_ARGS,
-  );
-});
-
-test('parseSkillSource：單一非 URL 引數應丟錯', () => {
-  assert.throws(
-    () => parseSkillSource({ extraArgs: ['my-skill'] }),
-    (err) => err instanceof SyncError && err.code === ERR.INVALID_ARGS,
-  );
-});
-
-test('parseSkillSource：name 含換行應丟錯（log injection 防護）', () => {
-  assert.throws(
-    () => parseSkillSource({ extraArgs: ['evil\nname', 'org/repo'] }),
-    (err) => err instanceof SyncError && err.code === ERR.INVALID_ARGS,
-  );
-});
-
-test('parseSkillSource：source 含換行應丟錯（log injection 防護）', () => {
-  assert.throws(
-    () => parseSkillSource({ extraArgs: ['my-skill', 'org/repo\nrm -rf'] }),
-    (err) => err instanceof SyncError && err.code === ERR.INVALID_ARGS,
-  );
-});
-
-test('parseSkillSource：source 含 ANSI escape 應丟錯', () => {
-  assert.throws(
-    () => parseSkillSource({ extraArgs: ['my-skill', 'org/repo\x1b[31m'] }),
-    (err) => err instanceof SyncError && err.code === ERR.INVALID_ARGS,
-  );
-});
-
-test('parseSkillSource：name 含特殊字元應丟錯', () => {
-  assert.throws(
-    () => parseSkillSource({ extraArgs: ['my skill', 'org/repo'] }),
-    (err) => err instanceof SyncError && err.code === ERR.INVALID_ARGS,
-  );
 });
 
 // -----------------------------------------------------------------------------
@@ -292,29 +222,6 @@ test('materializeSyncItem：homeLabel 允許 repo 與本機使用不同檔名', 
   assert.match(item.dest, /[\/]codex[\/]repo-name\.json$/);
 });
 
-// homeRootFile 同樣無 manifest 使用者，以合成 entry 保留覆蓋。
-// 語意為「本機端落在 $HOME 下、不套用 area 的 homeBase」，故本例的 codex area
-// 不應出現 .codex 中繼目錄——這正是它與 homeLabel 的差別所在
-test('materializeSyncItem：homeRootFile 讓本機端直接落在 $HOME 下、略過 homeBase', () => {
-  const entry = { area: 'codex', label: 'repo-name.json', homeRootFile: '.root-level.json', type: 'file', fixedFlow: true };
-  const item = materializeSyncItem(entry, 'to-local');
-  assert.equal(item.label, 'repo-name.json');
-  assert.equal(item.src, path.join(os.homedir(), '.root-level.json'));
-  assert.doesNotMatch(item.src, /\.codex/);
-  assert.match(item.dest, /[\/]codex[\/]repo-name\.json$/);
-});
-
-// homeRootFile 優先於 homeLabel：兩者同時存在時走 $HOME 分支，homeLabel 不生效
-test('materializeSyncItem：homeRootFile 與 homeLabel 並存時以 homeRootFile 為準', () => {
-  const entry = {
-    area: 'codex', label: 'repo-name.json', homeLabel: 'ignored.json',
-    homeRootFile: '.root-level.json', type: 'file', fixedFlow: true,
-  };
-  const item = materializeSyncItem(entry, 'to-local');
-  assert.equal(item.src, path.join(os.homedir(), '.root-level.json'));
-  assert.doesNotMatch(item.src, /ignored/);
-});
-
 test('materializeSyncItem：dir 型 exclude 欄位 propagate 為 excludePatterns', () => {
   const withExclude = materializeSyncItem(
     { area: 'claude', label: 'rules', type: 'dir', exclude: ['*.tmp', 'draft/**'] }, 'to-repo');
@@ -358,31 +265,6 @@ test('drift-guard：claude／codex／gemini 各 area 的 label 清單與順序�
     assert.deepEqual(byArea('codex/'), ['AGENTS.md']);
     assert.deepEqual(byArea('gemini/'), ['GEMINI.md']);
   }
-});
-
-// -----------------------------------------------------------------------------
-// computeSkillsDiff：三向集合差
-// -----------------------------------------------------------------------------
-test('computeSkillsDiff：正確分出 onlyInRepo / onlyInLocal / inBoth', () => {
-  const repo = { a: {}, b: {}, shared: {} };
-  const local = { c: {}, shared: {} };
-  const r = computeSkillsDiff(repo, local);
-  assert.deepEqual(r.onlyInRepo.sort(), ['a', 'b']);
-  assert.deepEqual(r.onlyInLocal, ['c']);
-  assert.deepEqual(r.inBoth, ['shared']);
-});
-
-test('computeSkillsDiff：兩邊皆空時三類皆空', () => {
-  const r = computeSkillsDiff({}, {});
-  assert.deepEqual(r, { onlyInRepo: [], onlyInLocal: [], inBoth: [] });
-});
-
-// -----------------------------------------------------------------------------
-// sanitizeForTerminal：移除控制字元（log-injection 防護）
-// -----------------------------------------------------------------------------
-test('sanitizeForTerminal：剝除 ANSI escape、換行與控制字元', () => {
-  assert.equal(sanitizeForTerminal('a\x1b[31mb\nc\r\x07'), 'a[31mbc');
-  assert.equal(sanitizeForTerminal('https://ok/x'), 'https://ok/x', '正常字串不受影響');
 });
 
 // -----------------------------------------------------------------------------
@@ -676,42 +558,13 @@ test('drift-guard：xtool-dir 型別與 agents 同步區皆不得復活', () => 
 test('drift-guard：SYNC_MANIFEST 不含 MCP 來源列', () => {
   assert.equal(SYNC_MANIFEST.some(e => e.label === 'mcp.json'), false,
     'claude/mcp.json 與 codex/mcp.json 已刪除，不應出現在 SYNC_MANIFEST');
-  assert.equal(SYNC_MANIFEST.some(e => e.homeRootFile === '.claude.json'), false,
-    '~/.claude.json 為高風險敏感活檔，不得再被任何 manifest 列指向');
-});
-
-// -----------------------------------------------------------------------------
-// loadSkillsFromLock：skills-lock.json 讀取與格式驗證
-// 避免格式異常時靜默回退成空物件，誤判為「無差異」
-// -----------------------------------------------------------------------------
-test('loadSkillsFromLock：檔案不存在回傳空物件', () => {
-  const result = loadSkillsFromLock('/nonexistent/path/skills-lock.json');
-  assert.deepEqual(result, {});
-});
-
-test('loadSkillsFromLock：正常格式回傳 skills 物件', () => {
-  withTmpFile(JSON.stringify({ skills: { foo: { source: 'x/y' } } }), (fp) => {
-    const result = loadSkillsFromLock(fp);
-    assert.deepEqual(result, { foo: { source: 'x/y' } });
-  });
-});
-
-test('loadSkillsFromLock：skills 欄位缺失應丟 JSON_PARSE 錯誤', () => {
-  withTmpFile(JSON.stringify({ version: 1 }), (fp) => {
-    assert.throws(() => loadSkillsFromLock(fp), (e) => e instanceof SyncError && e.code === ERR.JSON_PARSE);
-  });
-});
-
-test('loadSkillsFromLock：skills 為 null 應丟 JSON_PARSE 錯誤', () => {
-  withTmpFile(JSON.stringify({ skills: null }), (fp) => {
-    assert.throws(() => loadSkillsFromLock(fp), (e) => e instanceof SyncError && e.code === ERR.JSON_PARSE);
-  });
-});
-
-test('loadSkillsFromLock：skills 為陣列（非物件）應丟 JSON_PARSE 錯誤', () => {
-  withTmpFile(JSON.stringify({ skills: [] }), (fp) => {
-    assert.throws(() => loadSkillsFromLock(fp), (e) => e instanceof SyncError && e.code === ERR.JSON_PARSE);
-  });
+  // 以 materialize 後的實際路徑判斷（不綁特定欄位名），任何機制指向 ~/.claude.json 都會被擋
+  const claudeJson = path.join(os.homedir(), '.claude.json');
+  for (const entry of SYNC_MANIFEST) {
+    const item = materializeSyncItem(entry, 'to-local');
+    assert.ok(item.src !== claudeJson && item.dest !== claudeJson,
+      '~/.claude.json 為高風險敏感活檔，不得再被任何 manifest 列指向');
+  }
 });
 
 // -----------------------------------------------------------------------------

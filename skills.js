@@ -15,7 +15,7 @@
 // 對外契約：createSkillsHandler(deps) 回傳的 { runSkillsDiff, runSkillsAdd,
 // runSkillsRemove } 三個方法供 runCommand 分派。其餘 deps-bound helper
 // （loadSkillsFromLock／validateSkillName／validateSkillSource／parseSkillSource）
-// 一併附在回傳物件上，僅作 sync.js re-export 與單元測試的 seam，不由 runCommand 使用。
+// 一併附在回傳物件上，僅作單元測試的 seam，不由 runCommand 使用。
 // 純函式 computeSkillsDiff／sanitizeForTerminal 無注入需求，於模組層直接匯出。
 // =============================================================================
 
@@ -394,7 +394,7 @@ function createSkillsHandler(deps) {
   return {
     // runCommand 分派用的對外三方法
     runSkillsDiff, runSkillsAdd, runSkillsRemove,
-    // deps-bound helper：僅供 sync.js re-export 與單元測試，不由 runCommand 使用
+    // deps-bound helper：僅供單元測試，不由 runCommand 使用
     loadSkillsFromLock, validateSkillName, validateSkillSource, parseSkillSource,
     validateSkillAgents, extractAgentOption,
   };

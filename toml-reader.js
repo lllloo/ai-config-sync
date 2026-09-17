@@ -59,16 +59,6 @@ function scanTomlValueState(text) {
 }
 
 /**
- * 判斷 value 文字是否尚未完結（多行陣列未閉合或三引號字串未閉合），需併入續行。
- * @param {string} text
- * @returns {boolean}
- */
-function isIncompleteTomlValue(text) {
-  const state = scanTomlValueState(text);
-  return state.depth > 0 || state.openTriple;
-}
-
-/**
  * 找出 section 名的結束位置：自 `from` 起掃到第一個「不在引號內」的 `]`。
  * TOML 允許 section 名含引號 key（`[projects."/home/a]b"]`），引號內的 `]` 不得
  * 視為閉合——用 regex `[^\]]+` 會在此提前截斷、整行無法辨識為 header，導致其下
@@ -293,9 +283,8 @@ function readTomlStatements(content) {
   return statements;
 }
 
-// scanTomlValueState 僅為 isIncompleteTomlValue 的內部實作細節，無外部消費者、不導出
+// scanTomlValueState 僅為 consumeTomlValue 的內部實作細節，無外部消費者、不導出
 module.exports = {
-  isIncompleteTomlValue,
   matchTomlHeader,
   splitTomlKey,
   readTomlStatements,
