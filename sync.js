@@ -1098,11 +1098,10 @@ const SYNC_AREAS = {
  * 新增同步內容只需在此加一列（不需改任何 builder 或 dispatch switch）。
  *   - area：對應 SYNC_AREAS 的 key（'claude' → ~/.claude ↔ repo claude/；'codex' → ~/.codex ↔ repo codex/）
  *   - type：'file'|'settings'|'dir'（型別行為由 diffSyncItem／applySyncItem 分派）
- *   - homeLabel（選填）：本機端檔名與 repo label 不同時使用
  *   - fixedFlow：true 代表 src 恆為本機端、dest 恆為 repo 端，不隨 direction 交換
  *     （settings.json 由 mergeSettingsBetween 依 direction 決定流向）
  *   - exclude（選填，僅 dir 型）：glob 片段陣列，diffDir／mirrorDir 以 matchExclude 略過對應相對路徑
- * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, homeLabel?: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[]}>}
+ * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[]}>}
  */
 const SYNC_MANIFEST = [
   { area: 'claude', label: 'CLAUDE.md',     type: 'file' },
@@ -1127,14 +1126,14 @@ function resolveSyncArea(area) {
  * 將一列 manifest 依同步方向 materialize 成 SyncItem。
  * fixedFlow 項目 src/dest 固定（home→repo），其餘依 direction 交換。
  * dir 型可選 `exclude`：propagate 為 `excludePatterns`，供 diffDir／mirrorDir 略過（matchExclude）。
- * @param {{area: keyof typeof SYNC_AREAS, label: string, homeLabel?: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[]}} entry
+ * @param {{area: keyof typeof SYNC_AREAS, label: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[]}} entry
  * @param {'to-repo'|'to-local'} direction
  * @returns {SyncItem}
  */
 function materializeSyncItem(entry, direction) {
   const { homeBase, repoBase, prefix } = resolveSyncArea(entry.area);
   const label = entry.label;
-  const homePath = path.join(homeBase, entry.homeLabel || label);
+  const homePath = path.join(homeBase, label);
   const repoPath = path.join(repoBase, label);
   const isToRepo = direction === 'to-repo';
   // fixedFlow：src 恆為本機端、dest 恆為 repo 端（由 merge 函式內部依 direction 決定流向）

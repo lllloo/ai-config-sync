@@ -212,16 +212,6 @@ test('materializeSyncItem：fixedFlow 項目 src/dest 不隨方向交換', () =>
   assert.match(toRepo.dest, /[\\/]claude[\\/]settings\.json$/);
 });
 
-// homeLabel 目前無 manifest 使用者（隨 MCP 同步移除），但它是 materializer 的通用能力，
-// 以合成 entry 保留覆蓋，避免下次有人需要「repo 與本機檔名不同」時才發現壞掉
-test('materializeSyncItem：homeLabel 允許 repo 與本機使用不同檔名', () => {
-  const entry = { area: 'codex', label: 'repo-name.json', homeLabel: 'local-name.toml', type: 'file', fixedFlow: true };
-  const item = materializeSyncItem(entry, 'to-local');
-  assert.equal(item.label, 'repo-name.json');
-  assert.match(item.src, /[\/]\.codex[\/]local-name\.toml$/);
-  assert.match(item.dest, /[\/]codex[\/]repo-name\.json$/);
-});
-
 test('materializeSyncItem：dir 型 exclude 欄位 propagate 為 excludePatterns', () => {
   const withExclude = materializeSyncItem(
     { area: 'claude', label: 'rules', type: 'dir', exclude: ['*.tmp', 'draft/**'] }, 'to-repo');
