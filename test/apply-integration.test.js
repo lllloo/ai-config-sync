@@ -17,7 +17,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { noColorEnv, itPosixPerms } = require('./helpers.js');
+const { noColorEnv } = require('./helpers.js');
 const { COMMANDS, isWsl } = require('../sync.js');
 
 // sync.js require('./safety-check.js')（後者 require('./toml-reader.js')）與

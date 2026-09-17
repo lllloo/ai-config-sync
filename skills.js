@@ -405,5 +405,4 @@ module.exports = {
   computeSkillsDiff,
   sanitizeForTerminal,
   buildInstallCommand,
-  VALID_SKILL_AGENTS,
 };

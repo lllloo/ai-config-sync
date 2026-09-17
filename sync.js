@@ -2179,7 +2179,6 @@ if (require.main === module) {
     getFiles,
     mirrorDir,
     copyFile,
-    lstatSyncSafe,
     // WSL 橋接（to-win-local）
     isWsl,
     winPathToWslPath,
@@ -2205,7 +2204,6 @@ if (require.main === module) {
     askConfirm,
     // skills 邏輯在 skills.js；此處經 skillsModule／singleton wrapper re-export 供既有測試沿用
     runSkillsRemove: (opts) => skillsHandler().runSkillsRemove(opts),
-    runSafetyCheck,
     computeSkillsDiff: skillsModule.computeSkillsDiff,
     sanitizeForTerminal: skillsModule.sanitizeForTerminal,
     validateSkillName: (name) => skillsHandler().validateSkillName(name),
