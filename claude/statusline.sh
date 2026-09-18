@@ -4,6 +4,8 @@ input=$(cat)
 
 # Parse with bash regex (no subprocesses)
 [[ $input =~ \"display_name\":\"([^\"]+)\" ]] && MODEL="${BASH_REMATCH[1]#Claude }" && MODEL="${MODEL% (*}"
+[[ $input =~ \"effort\":\{\"level\":\"([^\"]+)\"\} ]] && EFFORT="${BASH_REMATCH[1]}"
+[[ -n "$EFFORT" ]] && MODEL="${MODEL} (${EFFORT})"
 [[ $input =~ \"current_dir\":\"([^\"]+)\" ]]  && DIR="${BASH_REMATCH[1]}"
 [[ $input =~ \"used_percentage\":([0-9]+) ]]   && PCT="${BASH_REMATCH[1]}"
 PCT=${PCT:-0}
@@ -89,7 +91,7 @@ if [ -n "$BRANCH_OUT" ]; then
     [ "$DIRTY" -eq 1 ]  && GIT_STATUS="${GIT_STATUS} *"
     [ -z "$GIT_STATUS" ] && GIT_STATUS=" ✓"
 
-    echo "[$MODEL] 📁 $FOLDER | 🌿 $BRANCH${GIT_STATUS} | ${PCT}% ctx${RATE_STR}"
+    echo "$MODEL 📁 $FOLDER | 🌿 $BRANCH${GIT_STATUS} | ${PCT}% ctx${RATE_STR}"
 else
-    echo "[$MODEL] 📁 $FOLDER | ${PCT}% ctx${RATE_STR}"
+    echo "$MODEL 📁 $FOLDER | ${PCT}% ctx${RATE_STR}"
 fi
