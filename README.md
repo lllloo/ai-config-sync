@@ -97,7 +97,7 @@ npm run skills:remove -- <name>         # 從 skills-lock.json 移除記錄
 | `claude-code` | `~/.claude/skills/<name>` 實體 | 只有 Claude Code |
 | `codex` | `~/.agents/skills/<name>` 實體，不建 symlink | 只有 Codex |
 
-目前唯一使用者是 `skill-creator`（標 `claude-code`）：Codex 自帶同名 skill，讓它掃到會相撞。增減白名單值須改 `skills.js` 的 `VALID_SKILL_AGENTS` 常數與本表。
+目前 `skills-lock.json` 無任何項目使用此欄位（原使用者 `skill-creator` 已移除）；欄位保留，Codex 自帶同名 skill 的相撞情境日後仍可能再現。增減白名單值須改 `skills.js` 的 `VALID_SKILL_AGENTS` 常數與本表。
 
 測試：
 

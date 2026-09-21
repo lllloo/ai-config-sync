@@ -9,11 +9,6 @@
       "source": "kepano/obsidian-skills",
       "sourceType": "github"
     },
-    "skill-creator": {
-      "source": "anthropics/skills",
-      "sourceType": "github",
-      "agents": "claude-code"
-    },
     "bmad-goal": {
       "source": "lllloo/skills",
       "sourceType": "github"

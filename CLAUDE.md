@@ -121,7 +121,7 @@ Skills 目前**只有全域一層**（分層**以目錄位置分類**，不加 p
 | `claude-code` | `~/.claude/skills/<name>` 實體 | 只有 Claude Code |
 | `codex` | `~/.agents/skills/<name>` 實體，不建 symlink | 只有 Codex |
 
-目前唯一使用者是 `skill-creator`（標 `claude-code`）：Codex 自帶同名 skill，讓它掃到會相撞。與上方「以目錄位置分類、不加 per-skill flag」不衝突——那句指的是全域／本地兩層的**分類方式**；`agents` 欄位是全域層內部的**安裝目標**選擇，不影響分類。
+目前 `skills-lock.json` 無任何項目使用此欄位（原使用者 `skill-creator` 已移除）；欄位保留，Codex 自帶同名 skill 的相撞情境日後仍可能再現。與上方「以目錄位置分類、不加 per-skill flag」不衝突——那句指的是全域／本地兩層的**分類方式**；`agents` 欄位是全域層內部的**安裝目標**選擇，不影響分類。
 
 **日後若要恢復 Claude-only 全域 skill 層**（`claude/skills/`）：在 `SYNC_MANIFEST` 加回 `{ area: 'claude', label: 'skills', type: 'dir' }` 一列，並同步更新 `test/sync.test.js` 的 claude label 清單 drift-guard 與**「不得含 claude 區 skills／commands dir 列」回歸鎖**、README 同步項目表與本段兩層表。**加回前須先重新評估**：`dir` 型的 prune-extras 語意會刪掉 `npx skills` 在 `~/.claude/skills/` 建的探索 symlink。不得只塞回一列 manifest。`commands` 層同理，且另違反「一律使用 skill、不再新增 command」政策。
 
