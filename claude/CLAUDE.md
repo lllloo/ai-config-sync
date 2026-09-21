@@ -51,6 +51,6 @@ git 檢視：
 Superpowers 僅在下列任一情況啟動：
 
 1. 我明確要求使用 Superpowers，或明確呼叫其 skill；
-2. 專案根目錄已有 `docs/superpowers/`——代表該專案既有流程即為 Superpowers，後續 task 沿用。
+2. 專案根目錄已有 `docs/superpowers/`——代表該專案既有流程即為 Superpowers，但**每次仍須先問我要不要用**，我同意才啟動（問題夠簡單時常不需要）。
 
 不得因 task 類型、skill 安裝狀態或你判斷可能適用而自行啟動。
