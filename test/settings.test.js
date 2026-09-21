@@ -200,10 +200,11 @@ test('loadStrippedSettings：敏感命名未知欄位照常同步（含 keyboard
   });
 });
 
-test('回歸：原白名單 10 欄位翻轉後全數仍可攜（不被黑名單或 pattern 誤傷）', () => {
+test('回歸：原白名單欄位（theme 除外）翻轉後仍可攜（不被黑名單或 pattern 誤傷）', () => {
   const formerAllowlist = [
     'env', 'permissions', 'statusLine', 'enabledPlugins', 'extraKnownMarketplaces',
-    'language', 'spinnerTipsEnabled', 'theme',
+    'language', 'spinnerTipsEnabled',
+    // 'theme' 原在此清單，已改列 DEVICE_SETTINGS_KEYS（各機主題不同）
     'skipDangerousModePermissionPrompt', 'skipAutoPermissionPrompt',
   ];
   for (const key of formerAllowlist) {
