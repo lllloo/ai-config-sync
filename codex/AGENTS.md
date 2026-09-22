@@ -19,6 +19,11 @@
 - **force push 需明確要求**：任何分支皆同，不因是 feature branch 而放行；獲授權時**一律用 `--force-with-lease`**，不用裸 `--force`。
 - **推 tag 視同 push 對外動作**：未經明確要求不推 tag。
 
+## Worktree
+
+- **開 worktree 前先問我要不要獨立執行環境**（docker stack 等），不自行決定。只寫 code 不需要；要跑測試或實測才需要。
+- worktree 做完**不自動 merge／rebase**：回報摘要，等我裁定；合併、push、收 stack 各自徵詢。
+
 ## 檢視低污染慣例（git）
 
 **操作慣例、不是守門**：檢視類指令的預設輸出是給人在終端捲動看的，全文灌進 context 多半是雜訊。一律先取「摘要級」，需要細節再按需單檔展開，不一次抓全庫。
@@ -39,7 +44,7 @@ git 檢視：
 Superpowers 僅在下列任一情況啟動：
 
 1. 我明確要求使用 Superpowers，或明確呼叫其 skill；
-2. 專案根目錄已有 `docs/superpowers/`——代表該專案既有流程即為 Superpowers，後續 task 沿用。
+2. 專案根目錄已有 `docs/superpowers/`——代表該專案既有流程即為 Superpowers，但**每次仍須先問我要不要用**，我同意才啟動（問題夠簡單時常不需要）。
 
 不得因 task 類型、skill 安裝狀態或你判斷可能適用而自行啟動。
 
