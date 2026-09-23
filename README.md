@@ -30,6 +30,8 @@ npm run to-repo     # 本機 → repo（上傳你的設定）
 npm run to-local    # repo → 本機（套用，會先預覽再確認）
 ```
 
+或在本 repo 開 Claude Code／Codex 說「同步」：AI 依 `AGENTS.md` 的「同步流程」以 git 歷史判斷每一項該往哪邊同步，列出提案等你確認後才寫入。
+
 ## 同步項目
 
 每個項目對應到各工具的全域設定路徑（`—` 表示該工具無對應項目）：

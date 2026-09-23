@@ -44,6 +44,30 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 
 **全域旗標**（`node sync.js` 直接呼叫時可用）：`--dry-run`、`--yes`（別名 `--force`，略過互動確認；非互動環境執行 to-local 必加）、`--verbose`、`--version`、`--help`。**不在白名單內的旗標（含 typo 如 `--dryrun`）會拋 `INVALID_ARGS` 而非被靜默忽略**——避免打錯字略過 dry-run 真寫入。**npm run 傳旗標必須以 `--` 分隔**（`npm run to-repo -- --dry-run`）：不加 `--` 時旗標被 npm 攔截、傳不進 `sync.js`；`main()` 開頭的 `assertNoSwallowedNpmFlags` 會偵測 `npm_config_dry_run`／`npm_config_yes` 並拋 `INVALID_ARGS` fail fast，杜絕「以為在預覽、實際真寫入」。指令別名：`d`/`s`/`tr`/`tl`/`twl`/`sd`/`sa`/`sr`（`safety:check` 無別名）。
 
+## 同步流程（由 AI 判斷方向）
+
+使用者說「同步」「sync」時照下列步驟做——使用者不自己跑 npm 指令，一律由 AI 以 `node sync.js <指令>` 執行（免去 npm `--` 分隔的陷阱）。
+
+1. **收**：`git pull --ff-only`；失敗（分岔）即停下回報，不自行 merge／rebase。
+2. **找差異**：`node sync.js diff`（exit 0 無差異 → 跳到步驟 6）。
+3. **判方向**：`sync.js` 沒有「上次同步」基準，以 **git 歷史當基準**，逐項比對本機內容：
+   - file 與 `rules/` 下各檔：`git hash-object --path=<repo 路徑> <本機檔>`（`--path` 讓 `.gitattributes` 的 eol 正規化生效），與 `git log --format=%H -- <repo 路徑>` 各版的 `git rev-parse <sha>:<repo 路徑>` 比對。
+   - `settings.json`：**逐 top-level key** 比對。本機可攜形取自 `require('./sync.js').loadStrippedSettings(<本機路徑>).clean`，歷史版本取自 `git show <sha>:claude/settings.json`；`DEVICE_SETTINGS_KEYS` 不比。
+
+   | 本機內容 | 判定 | 動作 |
+   |---|---|---|
+   | 等於 repo HEAD | 已同步 | 無 |
+   | 等於 repo 歷史舊版 | 本機落後 | 採 repo 版 |
+   | 不在歷史中，repo HEAD 相對本機只少不多 | 本機新改動 | 採本機版 |
+   | 不在歷史中，repo HEAD 另有本機沒有的內容（段落、子鍵、檔案） | 可能雙方都改 | 讀兩邊內容提合併版，或逐點請使用者裁定 |
+
+   `rules/` 單邊存在的檔：路徑從未進過 repo 歷史 → 本機新增；repo 曾有、後來刪除且本機內容等於刪前版本 → repo 已刪，本機跟著刪；其餘列給使用者裁定。
+4. **提案並確認**：列出「項目／判定／動作」表（合併版附差異），**使用者確認前不得寫入任何檔案**。
+5. **執行**：全部採 repo 版 → `node sync.js to-local --yes`；全部採本機版 → `node sync.js to-repo`。混合時先把本機收斂成最終版本（採 repo 版的檔案從 repo 複製到本機；採 repo 版的 settings key 只改本機該 key、黑名單 key 保留；合併版寫到本機），再跑一次 `node sync.js to-repo`。
+6. **把關與提交**：`node sync.js safety:check`（exit 2 即停下回報）→ 給使用者看 `git diff --stat` → commit（沿用專案格式，如 `chore(sync): …`）。**repo 公開，push `main` 須使用者明確同意。**
+7. **skills**：`node sync.js skills:diff` 只列差異與建議指令，裝／移除由使用者決定。`orca-cli`／`orchestration` 由 Orca 自裝、固定列為本機多裝，忽略即可。
+8. **Windows 端**（僅 WSL 內、使用者要求時）：`node sync.js to-win-local --dry-run` 預覽，確認後 `--yes`。
+
 ## 同步項目與對應
 
 | repo 路徑 | 本機路徑 | 備註 |
