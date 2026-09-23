@@ -251,7 +251,7 @@ test('drift-guard：claude／codex／gemini 各 area 的 label 清單與順序�
     const items = buildSyncItems(direction);
     const byArea = (prefix) => items.filter(i => i.prefix === prefix).map(i => i.label);
     assert.deepEqual(byArea('claude/'),
-      ['CLAUDE.md', 'settings.json', 'statusline.sh', 'rules']);
+      ['CLAUDE.md', 'settings.json', 'statusline.sh']);
     assert.deepEqual(byArea('codex/'), ['AGENTS.md']);
     assert.deepEqual(byArea('gemini/'), ['GEMINI.md']);
   }

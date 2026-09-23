@@ -56,7 +56,6 @@ AI 一律以 `node sync.js <指令>` 執行，免去 npm 的 `--` 分隔陷阱�
 | `claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | 全文比對 |
 | `claude/settings.json` | `~/.claude/settings.json` | top-level 黑名單制：排除 `DEVICE_SETTINGS_KEYS`（裝置偏好、`hooks`），其餘整鍵同步、不合併；細節見 README「settings.json 同步行為」 |
 | `claude/statusline.sh` | `~/.claude/statusline.sh` | 全文比對 |
-| `claude/rules/` | `~/.claude/rules/` | 目錄鏡射（含刪除） |
 | `codex/AGENTS.md` | `~/.codex/AGENTS.md` | 全文比對 |
 | `gemini/GEMINI.md` | `~/.gemini/GEMINI.md` | 全文比對 |
 
@@ -64,6 +63,7 @@ AI 一律以 `node sync.js <指令>` 執行，免去 npm 的 `--` 分隔陷阱�
 
 - **`~/.codex/config.toml`**、**`~/.claude.json`** — 永不被本工具寫入或讀取（測試以內容 + mtime 雙重斷言把關）。不要新增 `codex/config.toml` 或整檔 manifest 列。
 - **MCP Server 定義（兩端）** — 不同步，待重新設計，各裝置以官方 CLI 手動維護。重新設計時憑證判準必須 fail closed，OAuth／headers／env 值／token 不得進 repo；不要順手刪除舊版孤兒 state 檔。
+- **`~/.claude/rules/`** — 全域規則一律寫進 `claude/CLAUDE.md`，不再拆檔，也不同步此目錄。
 - **`advisory`／`mcp`／`xtool-dir` 型別不得復活**（`sync.test.js` 回歸鎖）。
 
 ## 架構不變式

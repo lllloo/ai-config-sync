@@ -114,16 +114,14 @@ function runSync(repo, home, args) {
 }
 
 /**
- * 佈置一個「先寫成功幾筆、再中途失敗」的 to-local：rules 目錄有兩個檔案，
- * 其中一個的本機落點被目錄佔用（copyFile 讀 dest 得 EISDIR）。
+ * 佈置一個「先寫成功幾筆、再中途失敗」的 to-local：CLAUDE.md 先寫成功，
+ * codex/AGENTS.md 的本機父目錄被一般檔案佔用——預覽的 diff 只見 dest 不存在（列為新增），
+ * 到 apply 寫入時才拋錯。
  */
 function seedPartialFailure(repo, home) {
   writeText(path.join(repo, 'claude', 'CLAUDE.md'), 'REPO-CLAUDE');
-  writeText(path.join(repo, 'claude', 'rules', 'a.md'), 'rule-a');
-  writeText(path.join(repo, 'claude', 'rules', 'b.md'), 'rule-b');
-  const blocked = path.join(home, '.claude', 'rules', 'b.md');
-  fs.mkdirSync(blocked, { recursive: true });
-  fs.writeFileSync(path.join(blocked, 'occupied.txt'), 'x');
+  writeText(path.join(repo, 'codex', 'AGENTS.md'), 'REPO-AGENTS');
+  writeText(path.join(home, '.codex'), 'occupied');
 }
 
 test('warnPartialApply：apply 中途失敗時警告已寫入筆數、exit 2', () => {
@@ -149,10 +147,9 @@ test('warnPartialApply：dry-run 失敗不印「已寫入」警告（無實際�
   const { root, repo, home } = setupSpawnSandbox();
   try {
     writeText(path.join(home, '.claude', 'CLAUDE.md'), 'LOCAL-CLAUDE');
-    writeText(path.join(home, '.claude', 'rules', 'a.md'), 'rule-a');
-    writeText(path.join(home, '.claude', 'rules', 'b.md'), 'rule-b');
+    writeText(path.join(home, '.codex', 'AGENTS.md'), 'LOCAL-AGENTS');
     // repo 端落點被目錄佔用 → copyFile 讀 dest 得 EISDIR，dry-run 亦會拋
-    const blocked = path.join(repo, 'claude', 'rules', 'b.md');
+    const blocked = path.join(repo, 'codex', 'AGENTS.md');
     fs.mkdirSync(blocked, { recursive: true });
     fs.writeFileSync(path.join(blocked, 'occupied.txt'), 'x');
 

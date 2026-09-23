@@ -647,9 +647,9 @@ test('to-repo 中途失敗：已寫入項目照常列出、警告部分中斷', 
   const { repo, home, root } = setupSandbox();
   try {
     writeText(path.join(home, '.claude', 'CLAUDE.md'), 'GOOD-CONTENT');
-    // 讓 dir 型項目（rules）同步失敗：repo 端同名路徑是目錄，寫檔／比對必拋錯
-    writeText(path.join(home, '.claude', 'rules', 'pkg', 'zzz.md'), 'Z');
-    fs.mkdirSync(path.join(repo, 'claude', 'rules', 'pkg', 'zzz.md'), { recursive: true });
+    // 讓後段項目（codex/AGENTS.md）同步失敗：repo 端同名路徑是目錄，寫檔／比對必拋錯
+    writeText(path.join(home, '.codex', 'AGENTS.md'), 'Z');
+    fs.mkdirSync(path.join(repo, 'codex', 'AGENTS.md'), { recursive: true });
 
     const r = run(repo, home, ['to-repo']);
     assert.equal(r.status, 2, `中途失敗應 exit 2\n${r.stdout}\n${r.stderr}`);

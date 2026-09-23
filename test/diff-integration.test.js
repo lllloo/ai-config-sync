@@ -33,8 +33,7 @@ function setupSandbox() {
   for (const name of SYNC_RUNTIME_FILES) {
     fs.copyFileSync(path.join(__dirname, '..', name), path.join(repo, name));
   }
-  // 自控 repo 內容：一個 rules 子目錄檔（dir 型代表）、codex/AGENTS.md、gemini/GEMINI.md、可攜 settings
-  writeFile(path.join(repo, 'claude', 'rules', 'pkg', 'sample.md'), 'RULE-SAMPLE');
+  // 自控 repo 內容：codex/AGENTS.md、gemini/GEMINI.md、可攜 settings
   writeFile(path.join(repo, 'codex', 'AGENTS.md'), 'CODEX-AGENTS');
   writeFile(path.join(repo, 'gemini', 'GEMINI.md'), 'GEMINI-AGENTS');
   writeJson(path.join(repo, 'claude', 'settings.json'), BASE_SETTINGS);
@@ -70,8 +69,8 @@ test('runDiff (to-repo)：本機 HOME 為空 → 回 EXIT_DIFF 並將 repo 檔�
     const result = runDiff(repo, home);
     assert.equal(result.status, 1, `預期 EXIT_DIFF=1，實得 ${result.status}\n${result.stdout}\n${result.stderr}`);
     assert.match(result.stdout, /repo 有、本機沒有/, '應出現 deleted 訊息');
-    assert.match(result.stdout, /\[-\] claude\/rules\/pkg\/sample\.md.*repo 有、本機沒有/,
-      '應將 repo dir 型目錄下的檔案逐一列為 deleted');
+    assert.match(result.stdout, /\[-\] codex\/AGENTS\.md.*repo 有、本機沒有/,
+      '應將 repo 有、本機沒有的檔案列為 deleted');
     assert.doesNotMatch(result.stdout, /本機與 repo 完全一致/, '不該宣告完全一致');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

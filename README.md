@@ -42,7 +42,6 @@ npm run to-local    # repo → 本機（套用，會先預覽再確認）
 | 主設定檔 | `settings.json` | —（見 [建議設定](#codex-建議設定手動套用)） | — |
 | Statusline | `statusline.sh` | — | — |
 | 全域 Skill（自寫） | [lllloo/skills](https://github.com/lllloo/skills)（`npx skills` 安裝，見下） | 同左 | 同左 |
-| 規則拆分 | `rules/` | — | — |
 
 自寫全域 skill **不在本 repo**，住在獨立的 [lllloo/skills](https://github.com/lllloo/skills)（`skills/<name>/SKILL.md`，`npx skills` 的慣例掃描位置）。本 repo 只保留 `skills-lock.json`——那是「這台裝置裝了哪些 skill」的清單，屬設定同步的一部分，自寫與外部來源一視同仁，由 `npm run skills:diff` 比對。
 
@@ -59,7 +58,7 @@ npm run to-local    # repo → 本機（套用，會先預覽再確認）
 - **Command 定義**不在同步範圍：本 repo 已改用 skill、不再新增 command，`SYNC_MANIFEST` 未列 `commands` 同步項（有回歸鎖把關）。
 - **Skill 目前只有全域一層**（自寫的在 [lllloo/skills](https://github.com/lllloo/skills)，外部來源各自的 repo）— 經 `npx skills add -g` 安裝到各裝置。**不參與** to-repo／to-local：`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/` 或 `~/.gemini/config/skills/`（`apply-integration.test.js` 有內容 + mtime 雙重斷言）。本地層 `.agents/skills/` 因無住戶已移除（見 [Skills 與 Agents](#skills-與-agents)）。
 - **全域 Skill 一律走 `npx skills`**：不論是自寫（source 為 `lllloo/skills`）或外部來源，都記在 `skills-lock.json`、由 `npm run skills:diff` 比對後手動套用建議指令；`sync.js` 不安裝、不更新、不移除任何 skill。安裝指令固定帶 `--skill <name>`，逐支安裝。
-- **規則拆分** `claude/rules/` 是 `CLAUDE.md` 的模組化拆分，支援 frontmatter `paths:` scoping。
+- **規則拆分**（`~/.claude/rules/`）不在同步範圍：全域規則一律寫進 `CLAUDE.md`，不再拆檔。
 
 ### 目錄命名
 
@@ -174,7 +173,7 @@ AI_CONFIG_SYNC_WIN_HOME=/mnt/c/Users/Joe npm run to-win-local
 
 ### Fork 後初次設定
 
-Fork 或複製本 repo 時，內容是作者的個人設定。在你的主力機執行 `npm run to-repo` 即以本機設定覆蓋（`claude/rules/` 下不屬於你的規則檔請手動刪除），改好 `package.json` 的 name／description 後 commit、push 即可。
+Fork 或複製本 repo 時，內容是作者的個人設定。在你的主力機執行 `npm run to-repo` 即以本機設定覆蓋，改好 `package.json` 的 name／description 後 commit、push 即可。
 
 ### 新裝置部署
 
@@ -226,7 +225,7 @@ npm run skills:diff
 
 `npm run safety:check` 是手動、唯讀、離線的檢查，掃描 `claude/`、`codex/`、`gemini/` 與 `skills-lock.json`（不掃 `test/`、`docs/`、README 等非同步來源）。自寫全域 skill 已拆出 [lllloo/skills](https://github.com/lllloo/skills)，其內容不在本 repo 的掃描射程內。輸出只列**分類、檔案與欄位／key／行號**，不列 env 值、secret 原值或完整 HOME 路徑。
 
-**它不是同步流程的一部分，也不保證能阻止機密寫入 repo**。`to-repo` 只做明確不同步欄位的剝除與資料搬移，`CLAUDE.md`／`AGENTS.md`／`GEMINI.md`、rules、`statusline.sh` 等皆原樣鏡射。建議流程：`npm run to-repo` 後、commit 前，跑 `npm run safety:check` 與 `git diff` 人工複核。
+**它不是同步流程的一部分，也不保證能阻止機密寫入 repo**。`to-repo` 只做明確不同步欄位的剝除與資料搬移，`CLAUDE.md`／`AGENTS.md`／`GEMINI.md`、`statusline.sh` 等皆原樣鏡射。建議流程：`npm run to-repo` 後、commit 前，跑 `npm run safety:check` 與 `git diff` 人工複核。
 
 **Hard block（exit 2）** — 明顯高風險，應擋下：
 
