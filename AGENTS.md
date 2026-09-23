@@ -2,163 +2,95 @@
 
 This file provides guidance to AI coding agents (Claude Code, Codex) when working with code in this repository.
 
+## 同步核心
+
+**repo 是最終要的版本。** AI 只提「repo 要怎麼改」，使用者確認後改 repo、commit，再由 repo 套回本機。寫入方向只有「確認後改 repo → repo 套回本機」一條；本機未被採納的改動會在套回時被 repo 版覆蓋。
+
 ## 專案概述
 
-此 repo 是 Claude Code 跨裝置設定同步工具，透過公開 Git repo 讓多台裝置的 Claude Code 設定保持一致。
+此 repo 是 AI 工具（Claude Code、Codex、Gemini/Antigravity）的跨裝置設定同步工具，透過公開 Git repo 讓多台裝置的全域設定保持一致。使用者向說明與行為細節見 `README.md`，本檔只記 AI 需要的流程與守則。
+
+- **執行環境**：Windows 11（主力）／macOS（次要），跨平台設計；Node.js >= 18，**零外部相依、禁止新增 npm 套件**；無 Python 環境。
+- **四個原始檔**：`sync.js`（CLI 入口）、`safety-check.js`（安全掃描）、`toml-reader.js`（TOML 讀取）、`skills.js`（skills 指令族）。
 
 ## 目錄命名（重要）
 
-- **`claude/`**（無點）— 要同步到 `~/.claude/` 的全域設定內容（CLAUDE.md、settings.json、statusline.sh、rules），由 `sync.js` 管理。**全域 skill 不放這裡**（唯一落點為獨立的 skills repo、經 `npx skills` 安裝，見下）。
-- **`codex/`**（無點）— 要同步到 `~/.codex/` 的全域設定（目前只有 `AGENTS.md`），由 `sync.js` 管理。`config.toml` **不做整檔同步、也永不被寫入或讀取**。MCP 同步已整批移除待重新設計。
-- **`gemini/`**（無點）— 要同步到 `~/.gemini/` 的全域設定（目前只有 `GEMINI.md`），由 `sync.js` 管理。
-- **`skills/`（勿建立）** — 自寫**全域** skill 住在獨立 repo [lllloo/skills](https://github.com/lllloo/skills)（`skills/<name>/SKILL.md`），各裝置以 `npx skills add lllloo/skills -g --skill <name>` 安裝，實體進 `~/.agents/skills/<name>/`、探索點 symlink 由 `npx skills` 自建，並與外部 skill 一樣記在本 repo 的 `skills-lock.json`。**本 repo 不得出現頂層 `skills/`**：安裝清單（lock）屬設定同步、skill 內容屬 skills repo，兩者刻意分居。`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/`、`~/.gemini/config/skills/`（`apply-integration.test.js` 有內容 + mtime 雙重斷言）；`agents/` 同步區與 `xtool-dir` 型有 `sync.test.js` 回歸鎖擋其復活。
-- **`.claude/`**（有點）— 本 repo 專用的 Claude Code 本地設定落點，**不參與同步、不映射到 `~/.claude/`**。目前只有本機執行期產物（皆已 gitignore）；日後若需 repo 專用的 `settings.json` 亦放這裡。
-- **`.agents/skills/`（已移除，需要時再建）** — 本地 skill 層因長期無住戶已整個移除，連同 `.claude/skills` symlink。日後要恢復：建 `.agents/skills/<name>/SKILL.md` 實體目錄，並補回 `.claude/skills` → `../.agents/skills` 的 symlink 供 Claude Code 讀取（Windows clone 需「開發者模式」才會還原成真 symlink）。**Codex 端不需 symlink、也不需建 `.codex/skills`**：CLI 會自動探索 `.agents/skills`，專案層由 `repo_agents_skill_roots` 從 project root 逐層掃 `<dir>/.agents/skills`，全域層掃 `~/.agents/skills`（原始碼 `codex-rs/core-skills/src/loader.rs` 的 `skill_roots()`）。
-
-新增同步項目：Claude 設定放 `claude/`、Codex 放 `codex/`、Gemini/Antigravity 放 `gemini/`。**全域 skill 一律放 skills repo（[lllloo/skills](https://github.com/lllloo/skills)）的 `skills/<name>/`**，不放本 repo。本 repo 目前**沒有本地 skill 層**，要新增請先照上一段把 `.agents/skills/` 建回來，勿誤放到 `.claude/` 或 `.codex/`。
-
-## 執行環境
-
-- **OS**：Windows 11（主力）/ macOS（次要）— 跨平台設計
-- **Node.js**：>= 18（LTS），零外部相依，禁止新增 npm 套件
-- **工具**：`node`、`npm`、`git` — 無 Python/pip 環境，不依賴
+- **`claude/`／`codex/`／`gemini/`**（無點）— 同步到 `~/.claude/`／`~/.codex/`／`~/.gemini/` 的全域設定，由 `sync.js` 管理。新增同步項目依工具放對應目錄。
+- **`skills/`（勿建立）** — 全域 skill 住在獨立 repo [lllloo/skills](https://github.com/lllloo/skills)，經 `npx skills add lllloo/skills -g --skill <name>` 安裝；本 repo 只在 `skills-lock.json` 記安裝清單。`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/`、`~/.gemini/config/skills/`（測試有回歸鎖）。
+- **`.claude/`**（有點）— 本 repo 專用的本地設定落點，**不參與同步**；目前只有已 gitignore 的執行期產物。
+- **`.agents/skills/`（目前無）** — 本地 skill 層。要新增時建 `.agents/skills/<name>/SKILL.md`，並補 `.claude/skills` → `../.agents/skills` symlink 供 Claude Code 讀取；Codex 會自動探索，不需 symlink。勿放到 `.claude/` 或 `.codex/`。
 
 ## 常用指令
 
-**同步：**
-- `npm run diff` — 純比較本機 vs repo，顯示差異（不寫任何東西）
-- `npm run status` — 同時比較設定與 skills 差異（等同依序執行 `diff` + `skills:diff`）
-- `npm run to-repo` — 本機 → repo（完成後顯示 git diff）
-- `npm run to-local` — repo → 本機（先預覽，確認後才套用）
-- `npm run to-win-local` — repo → Windows 家目錄（**僅限 WSL 內**）。不另實作同步邏輯：以覆寫的 `HOME` 在**子行程重跑 `to-local`**（POSIX 下 `os.homedir()` 優先讀 `$HOME`），故語意與 `to-local` 完全一致，旗標原樣轉交。目標由 `cmd.exe` 的 `%USERPROFILE%` 自動探測，可用位置引數或 `AI_CONFIG_SYNC_WIN_HOME` 覆寫；非 WSL、路徑不存在、目標等同目前 `HOME` 皆拒絕執行。**反向刻意不支援**（無 `to-win-repo`）：Windows 端只當套用目的地，`to-repo` 固定在 WSL 側做
-- `npm run safety:check` — 唯讀、離線檢查 repo 同步來源是否含 hard block 或需人工審核 warning
+AI 一律以 `node sync.js <指令>` 執行，免去 npm 的 `--` 分隔陷阱（`npm run` 傳旗標不加 `--` 會被 npm 吞掉，`assertNoSwallowedNpmFlags` 會 fail fast）。
 
-**Skills（獨立管理，不自動同步）：**
-- `npm run skills:diff` — 比較本機已安裝 vs `skills-lock.json`，列出差異並提供安裝／移除指令
-- `npm run skills:add -- <url>` 或 `npm run skills:add -- <name> <source>` — 新增 skill 記錄
-- `npm run skills:remove -- <name>` — 從 `skills-lock.json` 移除 skill 記錄
+- 同步：`diff`、`status`（`diff` + `skills:diff`）、`to-repo`、`to-local`、`to-win-local`（僅 WSL，repo → Windows 家目錄）、`safety:check`
+- Skills：`skills:diff`、`skills:add`、`skills:remove`
+- 旗標：`--dry-run`、`--yes`（非互動 to-local 必加）、`--verbose`；**未知旗標拋 `INVALID_ARGS`**，不靜默忽略
+- 測試：`npm test`；單一測試 `node --test --test-name-pattern="<name>" test/<file>.test.js`
 
-**測試：**
-- `npm test` — 執行 `test/*.test.js`（`node --test`，零相依，共用 helper 在 `test/helpers.js`）
-- 單一測試：`node --test --test-name-pattern="<name>" test/<file>.test.js`
+## 同步流程（repo 為最終版本）
 
-**全域旗標**（`node sync.js` 直接呼叫時可用）：`--dry-run`、`--yes`（別名 `--force`，略過互動確認；非互動環境執行 to-local 必加）、`--verbose`、`--version`、`--help`。**不在白名單內的旗標（含 typo 如 `--dryrun`）會拋 `INVALID_ARGS` 而非被靜默忽略**——避免打錯字略過 dry-run 真寫入。**npm run 傳旗標必須以 `--` 分隔**（`npm run to-repo -- --dry-run`）：不加 `--` 時旗標被 npm 攔截、傳不進 `sync.js`；`main()` 開頭的 `assertNoSwallowedNpmFlags` 會偵測 `npm_config_dry_run`／`npm_config_yes` 並拋 `INVALID_ARGS` fail fast，杜絕「以為在預覽、實際真寫入」。指令別名：`d`/`s`/`tr`/`tl`/`twl`/`sd`/`sa`/`sr`（`safety:check` 無別名）。
-
-## 同步流程（AI 建議方向、使用者逐項裁示）
-
-使用者說「同步」「sync」時照下列步驟做——使用者不自己跑 npm 指令，一律由 AI 以 `node sync.js <指令>` 執行（免去 npm `--` 分隔的陷阱）。
+核心見檔頭「同步核心」。使用者說「同步」「sync」時照下列步驟做——使用者不自己跑指令，一律由 AI 執行。
 
 1. **收**：`git pull --ff-only`；失敗（分岔）即停下回報，不自行 merge／rebase。
-2. **找差異**：`node sync.js diff`（exit 0 無差異 → 跳到步驟 6）。
-3. **判方向（產生建議）**：`sync.js` 沒有「上次同步」基準，以 **git 歷史當基準**，逐項比對本機內容：
-   - file 與 `rules/` 下各檔：`git hash-object --path=<repo 路徑> <本機檔>`（`--path` 讓 `.gitattributes` 的 eol 正規化生效），與 `git log --format=%H -- <repo 路徑>` 各版的 `git rev-parse <sha>:<repo 路徑>` 比對。
-   - `settings.json`：**逐 top-level key** 比對。本機可攜形取自 `require('./sync.js').loadStrippedSettings(<本機路徑>).clean`，歷史版本取自 `git show <sha>:claude/settings.json`；`DEVICE_SETTINGS_KEYS` 不比。
+2. **找差異**：`node sync.js diff`（exit 0 無差異 → 跳到步驟 8）。
+3. **提 repo 變更**：每個差異項以「repo 將如何改」呈現（新增／修改／刪除哪些段落、檔案、settings key）並附建議，以 git 歷史標出來源：
+   - 本機整份等於 repo 歷史舊版（`git hash-object --path=<repo 路徑> <本機檔>` 對照 `git log --follow --format=%H -- <repo 路徑>` 各版）→ 本機落後，repo 不改
+   - 本機才有、repo 歷史從未出現 → 本機新增，建議加進 repo
+   - 本機才有、repo 歷史曾出現 → repo 曾刪除，建議不加回
+   - repo 才有 → 分不出是本機刪除或本機落後，不給建議、列給使用者裁定
 
-   | 本機內容 | 判定 | 建議 |
-   |---|---|---|
-   | 等於 repo HEAD | 已同步 | 無 |
-   | 等於 repo 歷史舊版 | 本機落後 | 採 repo 版 |
-   | 不在歷史中，repo HEAD 相對本機只少不多 | 本機新改動 | 採本機版 |
-   | 不在歷史中，repo HEAD 另有本機沒有的內容（段落、子鍵、檔案） | 可能雙方都改 | 讀兩邊內容提合併版 |
+   `settings.json` 逐 top-level key 呈現，本機可攜形取自 `require('./sync.js').loadStrippedSettings(<本機路徑>).clean`；`DEVICE_SETTINGS_KEYS` 不比。
+4. **確認**：使用者可逐項改選，說「照建議」即全數採用。**確認前不得寫入任何檔案**。
+5. **改 repo**：照確認結果編輯 repo 內檔案；全數採本機內容時可直接 `node sync.js to-repo`。`settings.json` 維持 repo 既有格式，`DEVICE_SETTINGS_KEYS` 不得寫入。
+6. **把關與提交**：`node sync.js safety:check`（exit 2 即停下回報；exit 1 把 warning 給使用者看過）→ 給使用者看 `git diff --stat` → commit（沿用專案格式，如 `chore(sync): …`）。**repo 公開，push `main` 須使用者明確同意。**
+7. **套回本機**：`node sync.js to-local --yes`，再跑 `node sync.js diff` 確認 exit 0。
+8. **skills**：`node sync.js skills:diff` 只列差異與建議指令，裝／移除由使用者決定。`orca-cli`／`orchestration` 由 Orca 自裝、固定列為本機多裝，忽略即可。
+9. **Windows 端**（僅 WSL 內、使用者要求時）：`node sync.js to-win-local --dry-run` 預覽，確認後 `--yes`。
 
-   `rules/` 單邊存在的檔：路徑從未進過 repo 歷史 → 本機新增；repo 曾有、後來刪除且本機內容等於刪前版本 → repo 已刪，本機跟著刪；其餘不給建議、直接列給使用者裁定。
-4. **逐項裁示**：判定只是建議，方向由使用者決定。每個差異項列出「項目／判定／建議／可選方向」，可選方向**一律同時列出**「採 repo 版」「採本機版」（有合併版時加列並附差異），標出建議項；使用者可逐項改選，說「照建議」即全數採用。**使用者裁示前不得寫入任何檔案**。
-5. **執行**：全部採 repo 版 → `node sync.js to-local --yes`；全部採本機版 → `node sync.js to-repo`。混合時先把本機收斂成最終版本（採 repo 版的檔案從 repo 複製到本機；採 repo 版的 settings key 只改本機該 key、黑名單 key 保留；合併版寫到本機），再跑一次 `node sync.js to-repo`。
-6. **把關與提交**：`node sync.js safety:check`（exit 2 即停下回報）→ 給使用者看 `git diff --stat` → commit（沿用專案格式，如 `chore(sync): …`）。**repo 公開，push `main` 須使用者明確同意。**
-7. **skills**：`node sync.js skills:diff` 只列差異與建議指令，裝／移除由使用者決定。`orca-cli`／`orchestration` 由 Orca 自裝、固定列為本機多裝，忽略即可。
-8. **Windows 端**（僅 WSL 內、使用者要求時）：`node sync.js to-win-local --dry-run` 預覽，確認後 `--yes`。
-
-## 同步項目與對應
+## 同步項目
 
 | repo 路徑 | 本機路徑 | 備註 |
 |-----------|----------|------|
 | `claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | 全文比對 |
-| `claude/settings.json` | `~/.claude/settings.json` | **top-level 採黑名單制**：預設同步，僅排除 `DEVICE_SETTINGS_KEYS` 黑名單（裝置偏好、平台綁定 `hooks`；只列本機實際存在的 key、不做預防性列名，憑證 helper 由 `safety:check` hard block 兜底；清單見 `sync.js` 常數與 README，有 drift-guard 測試把關）。敏感命名 key 與 `env` 全部依一般同步語意同步，安全審核改由 `safety:check`；`diff`／`status` 只輸出狀態行、不印設定內容。**首次出現的 top-level key** 由 `diff`／`to-repo` 印 key 名提示（`findNewSettingsTopKeys`，只比 key 集合差集），供人工查驗是否補列黑名單。**`enabledPlugins` 等 `KEYED_NOTICE_SETTINGS_KEYS` 欄位**另由 `diff`／`to-local` 預覽印鍵級提示（`findLocalOnlyKeyedEntries`），列出本機獨有子鍵——top-level 為整鍵覆蓋、不與 repo 合併，本機剛啟用的 plugin 會被 repo 舊值蓋掉；**只提示、不改寫入語意** |
+| `claude/settings.json` | `~/.claude/settings.json` | top-level 黑名單制：排除 `DEVICE_SETTINGS_KEYS`（裝置偏好、`hooks`），其餘整鍵同步、不合併；細節見 README「settings.json 同步行為」 |
 | `claude/statusline.sh` | `~/.claude/statusline.sh` | 全文比對 |
-| `claude/rules/` | `~/.claude/rules/` | 模組化全域規則（CLAUDE.md 的拆分檔），支援 frontmatter `paths:` 做 path-specific scoping |
-| `codex/AGENTS.md` | `~/.codex/AGENTS.md` | Codex 全域指示（跨專案規則），全文比對 |
-| `gemini/GEMINI.md` | `~/.gemini/GEMINI.md` | Antigravity 全域指示（跨專案規則），全文比對 |
+| `claude/rules/` | `~/.claude/rules/` | 目錄鏡射（含刪除） |
+| `codex/AGENTS.md` | `~/.codex/AGENTS.md` | 全文比對 |
+| `gemini/GEMINI.md` | `~/.gemini/GEMINI.md` | 全文比對 |
 
-### 刻意不同步（勿加入 `buildSyncItems`）
+### 刻意不同步（勿加入 `SYNC_MANIFEST`）
 
-- **`~/.codex/config.toml`** — 不進 repo、不做整檔同步，且**永不被本工具寫入或讀取**。**不要新增 `codex/config.toml` 或整檔 manifest 列**，也**不要讓 `type: 'mcp'`／`type: 'advisory'` 復活**（`sync.test.js` 的回歸鎖）。
-- **MCP Server 定義（兩端）** — 不同步，待重新設計；以官方 CLI 於各裝置手動維護。`~/.codex/.ai-config-sync-mcp-state.json` 為舊版留下的孤兒檔，README 註明可手動 `rm`（不代刪：為清理而寫本機檔會與「不寫入本機」自相矛盾）。本機 MCP 的 API Key 一律留在 `config.toml` 的 Authorization header；OAuth／ChatGPT 登入狀態亦不同步。
-- **`~/.claude.json`** — 含 OAuth token、專案級歷史與 MCP 設定，屬高風險敏感活檔，**永不被寫入或讀取**（`apply-integration.test.js` 有內容 + mtime 雙重斷言回歸鎖）。
+- **`~/.codex/config.toml`**、**`~/.claude.json`** — 永不被本工具寫入或讀取（測試以內容 + mtime 雙重斷言把關）。不要新增 `codex/config.toml` 或整檔 manifest 列。
+- **MCP Server 定義（兩端）** — 不同步，待重新設計，各裝置以官方 CLI 手動維護。重新設計時憑證判準必須 fail closed，OAuth／headers／env 值／token 不得進 repo；不要順手刪除舊版孤兒 state 檔。
+- **`advisory`／`mcp`／`xtool-dir` 型別不得復活**（`sync.test.js` 回歸鎖）。
 
-## 架構重點
+## 架構不變式
 
-**主入口 + safety／toml-reader／skills 模組**：`sync.js` 為主 CLI 入口；`safety-check.js`、`toml-reader.js`、`skills.js` 各自承載安全掃描、TOML 語句與 skills 指令族。四檔零外部相依、只用 Node.js 內建模組，功能模組不反向 require `sync.js`：
-
-- `safety-check.js`：safety 專屬常數與掃描邏輯由本檔持有，測試直接 require 該模組（`sync.js` 不 re-export）。共用工具由 `sync.js` 經 `createSafetyChecker(deps)` 注入；TOML 解析**直接 require `toml-reader.js`**（純函式、零 IO，非 `sync.js` 故不違反反向 require 禁令）。text pattern 掃描的排除清單 `SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES` **目前為空**：排除粒度必須是「具體的上游鏡射子目錄」，不得是來源根（列來源根等於整棵樹不受掃描）。**注入邊界、掃描分層與取捨的完整說明見該檔檔頭註解**。
-- `toml-reader.js`：TOML 邏輯語句讀取器，純函式、零 IO、不被 `sync.js` 使用。對外 exports 為 `readTomlStatements`／`matchTomlHeader`／`splitTomlKey`（`scanTomlValueState` 為內部實作細節、刻意不導出）。其中 **`splitTomlKey` 是機密 section 正規化的關鍵**（`safety-check.js` 的 `isCodexSecretSection`／`isCodexDeviceWarnSection`／`checkTomlRootKey` 依賴它去引號 + 解碼跳脫），勿誤判為無消費者而刪除。唯一消費者是 `safety-check.js` 的 `.toml` 掃描——**section 歸屬正確性直接決定 hard block 判斷**，故 `test/toml-reader.test.js` 是安全防線的回歸網，不可刪。**本檔與 MCP 同步無因果關係，不要當成遺留物清掉**：它擋的是「人工把 `~/.codex/config.toml` 複製進 repo 備份」。
-  - **header 解析為引號感知**（`findTomlHeaderEnd`）：TOML section 名可含帶 `]` 的引號 key（`[mcp_servers."a]b"]`）。用 `[^\]]+` 之類的 regex 會提前截斷、整行判為非 header，其下 key 誤掛前一 section，**機密 section 的 hard block 會靜默降級成 warning**。改動 header 解析須保住 `test/toml-reader.test.js` 與 `boundary.test.js` 的 F2 回歸測試。
-  - **malformed header 為 fail-closed**：`[` 開頭但無法解析的行回傳 `{type:'section', name:null, reason:'header'}`（不是 `other`），`safety-check.js` 據此 hard block 並清空 section。理由：section 名不可信時機密判斷失去依據，寧可擋下讓人工檢視，也不沿用前一 section 名而漏判。
-  - **未閉合 value 同為 fail-closed**（`reason:'unterminated-value'`）：續行併吞若跨越一行「看起來是 section header」的行、或到 EOF 仍未閉合，即標為不可信 section 邊界且**不消耗**那行 header。無條件併吞是 fail-open：`notify = [` 之下的 `[mcp_servers.*]` 會被吞進 value、永不 emit 成 section，hard block 靜默消失。header 中斷判斷**只在陣列未閉合時生效**：三引號字串內容對 TOML 不透明，`[x]` 樣式合法，在那中斷會誤報合法檔。
-  - **basic string 跳脫須解碼**（`dequoteTomlKey`）：`["mcp_servers"]` 在 TOML 語意上等同 `[mcp_servers]`、Codex 照讀，不解碼則字面比對不命中 hard block 清單。無法解碼的跳脫序列使 `splitTomlKey` 回 `null`，`safety-check.js` 據此 hard block（fail closed）。
-  - **root 層 kv 的 key 首段視同 section**（`safety-check.js` 的 `checkTomlRootKey`）：`mcp_servers.a.b = ..` 與 `mcp_servers = { .. }` 語意等同 `[mcp_servers.a]`，只查 header 會被整條繞過。套同一份 hard block／warn 清單，key 名無法解碼同樣 fail closed；section 內的 kv 不查（這些名稱只在 top-level 才是機密載體）。
-- `skills.js`：skills 指令族（`skills:diff`／`skills:add`／`skills:remove`）的 lock 檔讀取、三向集合差、name/source/agents 驗證、terminal 清洗與輸出格式化。**不反向 require `sync.js`**：共用常數與工具以 `createSkillsHandler(deps)` DI 注入（清單見該檔檔頭），`fs`／`path` 由本檔自 require。`sync.js` 以 lazy singleton（照 `_safetyChecker` 樣式）建立 handler、經 `runCommand` 三個 case 分派，`runStatus` 亦經同一 handler。**對外契約**為回傳的 `{ runSkillsDiff, runSkillsAdd, runSkillsRemove }`；其餘 deps-bound helper（`loadSkillsFromLock`／`validateSkill*`／`parseSkillSource`／`extractAgentOption`）附在回傳物件上，僅作單元測試 seam（`sync.js` 不 re-export，測試直接 require `skills.js`）。純函式 `computeSkillsDiff`／`sanitizeForTerminal`／`buildInstallCommand` 於模組層直接匯出。`--agent` 是唯一帶值旗標：`parseArgs` 只對 `skills:add` 原樣放行進 `extraArgs`（npm run 會吃掉 `--`，不能仰賴分隔符），解析與白名單驗證在 `extractAgentOption`。
-
-檔案結構採 section banner 分段，關鍵不變式：
-
-- **所有函式 ≤ 60 行** — 新增函式若超過需拆分。**唯一例外**：DI factory（`createSafetyChecker`／`createSkillsHandler`）為「注入依賴後包住一組短小巢狀閉包」的命名空間包裝，本體行數為閉包集合的總和、非單一邏輯流程，不受此限；其內部各閉包仍須 ≤ 60 行
-- **指令分派（switch）**：`COMMANDS` 物件為 `{ alias, desc }`（名稱／別名／說明的單一來源）；`main()` 先檢查 `COMMANDS[cmd]` 是否存在，再由 `runCommand(cmd, opts)` 以明確 `switch` 分派到各 `runXxx`。**新增指令需同步改 `COMMANDS`（登錄名稱／別名／說明）與 `runCommand` 的 `switch`（接上 handler）**——刻意不走 handler 注入表，換取分派可讀性
-- **宣告式同步項目 `SYNC_MANIFEST`**：一列 = 一路徑；本機端路徑一律為 area `homeBase` + `label`——**沒有改名或指向 `$HOME` 根目錄的欄位**（`homeLabel`／`homeRootFile` 因無使用者已移除，不做預防性保留），另有「manifest 任一列 materialize 後不得指向 `~/.claude.json`」的回歸鎖（比對實際路徑、不綁欄位名）。`fixedFlow` 項目 src/dest 固定不交換，目前只有 `settings.json`，由 `settings` handler 依 direction 決定行為。
-- **型別行為分派（switch）**：`SyncItem.type`（`file`／`settings`／`dir`）由 `diffSyncItem`／`applySyncItem` 明確分派。`advisory`／`mcp`／`xtool-dir` 三種型別不得復活（`sync.test.js` 回歸鎖）。
-- **Atomic write**：底層 `writeFileSafe` 先寫同目錄暫存檔（隨機尾碼 + `flag:'wx'` O_EXCL）再 rename（同檔系統避免 EXDEV），所有寫入路徑（`writeJsonSafe`、`copyFile`、`mirrorDir`）皆走此函式。提供**原子性**（避免半截損壞），但**不付 fsync 成本、不保證持久性**（設定檔對持久性需求低）。對稱的 `readFileSafe` 統一將讀取例外包成 `SyncError`（帶 path context），不讓裸 fs 例外穿透 `formatError`。diff 全程唯讀、只輸出狀態行，不產生任何暫存檔
-- **統一錯誤處理**：`SyncError` class（`code` + `context`）+ 檔尾 `.catch(formatError)`，所有路徑經 `formatError`，**禁止**裸 `console.error + process.exit`
-- **Exit code 語義**：`EXIT_OK=0`（成功或 diff 無差異）、`EXIT_DIFF=1`（diff 有差異，可用於 CI）、`EXIT_ERROR=2`
-- **Relative path 遮罩**：`toRelativePath` 處理 REPO_ROOT 與 `$HOME` → `~/`，`logVerbosePaths` 與 `SyncError` context 的 path 顯示亦走此函式避免洩漏使用者名稱
-- **Skills lock 為純資料 manifest**：`skills-lock.json` 不參與同步流程；`runSkillsDiff` 直接讀 `~/.agents/.skill-lock.json`（`npx skills` CLI 的原生 lock 檔）與 repo `skills-lock.json` 做集合比對，**只輸出建議指令、不執行安裝/移除**。刻意不用 `npx skills list -g`：lock 檔是「哪些 skill 由 `npx skills` 安裝」的唯一權威，`list -g` 會掃目錄把非 lock 登記的住戶（手動放入的 skill、其他工具的探索 symlink）一併列入，造成誤報。本機多裝的 skills 會同時列出（A）`npm run skills:add` 加入 repo 與（B）`npx skills remove` 從本機移除兩種選項
-
-**測試策略**：`~/.claude.json` 與 `~/.codex/config.toml` 的「零觸碰」由 `apply-integration.test.js` 以**內容 + mtime 雙重斷言**把關（只驗內容會漏掉「寫入相同內容」的情況）——重新設計 MCP 同步時這是第一道要面對的閘門；`~/.agents/skills/`、`~/.claude/skills/`、`~/.gemini/config/skills/` 同樣以雙重斷言把關。`diff-integration.test.js`／`apply-integration.test.js` 的 `SYNC_RUNTIME_FILES` 與 `boundary.test.js` 的 `SAFETY_RUNTIME_FILES` 必須同時包含 `sync.js`、`safety-check.js`、`toml-reader.js`、`skills.js`，不得依賴真實 HOME。既有 drift guards（commands、旗標、README、`config.toml` 整檔禁入）與「`mcp`／`advisory` 型別不得復活」「`SYNC_MANIFEST` 不含 MCP 來源列」等 guard 均須保持通過。**反向 require 禁令的回歸鎖**亦在 `boundary.test.js`：逐一剝除註解後掃 `safety-check.js`／`toml-reader.js`／`skills.js`，任一檔出現 `require('./sync.js')` 即 fail；同段另有一條測試把關偵測器自身（確認剝註解不會遮蔽真實 require）。
+- **反向 require 禁令**：`safety-check.js`／`toml-reader.js`／`skills.js` 不得 `require('./sync.js')`，共用工具經 `createSafetyChecker(deps)`／`createSkillsHandler(deps)` 注入（注入清單見各檔檔頭；`boundary.test.js` 有回歸鎖）。
+- **`toml-reader.js` 不可刪**：它是 `safety:check` 掃 `.toml` 機密 section 的唯一依賴，擋「人工把 `~/.codex/config.toml` 複製進 repo」，與 MCP 同步無關。header 解析與各種 fail-closed 設計見檔內註解，由 `toml-reader.test.js`／`boundary.test.js` 把關。
+- **函式 ≤ 60 行**，超過須拆分；唯一例外是 DI factory 本體（其內各閉包仍須 ≤ 60 行）。
+- **指令分派**：新增指令須同步改 `COMMANDS`（名稱／別名／說明）、`runCommand` 的 `switch` 與 README 別名表（drift-guard 把關）。刻意不走 handler 注入表。
+- **`SYNC_MANIFEST`**：一列 = 一路徑，本機路徑一律為 area `homeBase` + `label`；任一列不得指向 `~/.claude.json`（回歸鎖）。`SyncItem.type` 只有 `file`／`settings`／`dir`，由 `diffSyncItem`／`applySyncItem` 以 `switch` 分派。
+- **寫入一律走 `writeFileSafe`**（同目錄暫存檔 + rename 的 atomic write，不做 fsync）；讀取走 `readFileSafe`。`diff` 全程唯讀。
+- **錯誤一律拋 `SyncError`**，經檔尾 `formatError` 統一輸出；禁止裸 `console.error + process.exit`。Exit code：`0` 成功／無差異、`1` 有差異、`2` 錯誤。
+- **路徑顯示走 `toRelativePath`**（REPO_ROOT 與 `$HOME` → `~/`），避免洩漏使用者名稱。
+- **部分失敗可見度**：apply 中途失敗時已寫入的變更經 `partialChanges`／`warnPartialApply` 列出。**不要在 `handleSignal` 加「寫入中」旗標或中斷警告**：寫入是無 await 的同步碼，訊號排不進去（理由見該函式註解）。
+- **測試不得依賴真實 HOME**；`SYNC_RUNTIME_FILES`／`SAFETY_RUNTIME_FILES` 須含四個原始檔。
 
 ## 修改守則
 
-- **設計流程用 Superpowers**：功能與變更以 Superpowers 的 brainstorming 收斂，spec 放 `docs/superpowers/specs/`、plan 放 `docs/superpowers/plans/`。
-
-- **README.md 須同步更新**：新增/移除指令、改變同步項目、調整行為、新增旗標時必跟。指令別名表、旗標表（含 `--help` 輸出）與黑名單常數清單已有 drift-guard 測試把關（漏改會 fail），其餘敘述仍靠人工。
-- **新增/調整 npm script 時須同步更新 README 的指令別名表、`COMMANDS` 物件與 `runCommand` 的 `switch`**（三者為指令名稱／別名／分派的來源；三條鏈皆有 drift-guard 測試把關）。
-- **函式行數守則**：新增或重構後若某函式 > 60 行，需拆分（例外僅 DI factory，見架構重點）。
-- **禁止新增外部相依**：所有功能必須使用 Node.js 內建模組，不得 `npm install` 任何套件。
-- **settings.json top-level 採黑名單制**（`DEVICE_SETTINGS_KEYS`）：預設同步官方 top-level 欄位，僅排除黑名單列舉。敏感命名 key 與 `env` 區塊依一般同步語意同步，由 `safety:check` warning 供人工審核；diff／status 不印任何設定內容。strip／preserve 由 `partitionSettingsTopLevel` 同源保證互補；增減黑名單欄位須改 `DEVICE_SETTINGS_KEYS` 常數與 README（drift-guard 測試把關）；`KEYED_NOTICE_SETTINGS_KEYS`（鍵級提示欄位）同樣須改常數與 README。
-- **本工具不同步 MCP**（禁項見上方「刻意不同步」）：也不要為了「順便清理」而刪除孤兒 state 檔。**重新設計 MCP 同步時**：憑證判準必須 fail closed（無法判定為安全即拒絕，不得加繞過旗標或例外清單），OAuth／headers／env 值／token 不得加入 repo。
-- **安全審核由 `npm run safety:check` 承擔**：唯讀、離線掃描 `claude/`、`codex/`、`gemini/`、`skills-lock.json`，不掃 `test/`、`docs/`、README 等非同步來源文件。hard block（exit 2）：secret value pattern、私鑰片段、絕對 HOME 路徑、repo settings.json 出現 `hooks`／credential helper、repo 內任何 `.toml` 出現機密載體 section（`CODEX_CONFIG_HARD_BLOCK_SECTIONS`，含 root 層 dotted key／inline table 等價寫法）；warning（exit 1）：settings.json env key 清單、敏感命名 key path、`.toml` 出現裝置狀態 section（`CODEX_CONFIG_DEVICE_WARN_SECTIONS`）；clean exit 0。輸出只列分類與位置，不輸出值。增減 text 掃描排除目錄與兩份 section 常數須改常數與 README（drift-guard 測試把關）。
-- **嚴禁洩漏敏感資訊到輸出**：`diff`／`status` 不得顯示 env 值，`safety:check` 不得顯示 secret 原值或完整 HOME 路徑。同步流程本身不保證能阻止機密寫入 repo；`file`／`dir` 型項目原樣同步，commit 前須執行 `npm run safety:check` 與人工審核。
-- **部分失敗可見度**：apply 中途拋例外時，`mirrorDir` 把已完成變更附掛到 `SyncError.context.partialChanges`，`applySyncItems` 補印、`warnPartialApply` 警告「已寫入 N 筆變更」，已寫入的檔案不得零可見度。操作歷史由 git 承載，不另寫 log 檔。
-  - **訊號中斷不在此機制內、也不需要在**：`handleSignal` 只做暫存檔清理與 re-raise。apply 的寫入是一整段無 await 的同步碼，訊號在寫入期間送達時 handler 排不進去——訊號不會造成寫到一半的狀態，handler 裡的「寫入中」旗標也必為 false。**不要加這類旗標或中斷警告**，除非先把寫入改成會讓出 event loop 的形式（完整理由見 `handleSignal` 註解）。
+- **設計流程用 Superpowers**：spec 放 `docs/superpowers/specs/`、plan 放 `docs/superpowers/plans/`。
+- **README 須同步更新**：新增／移除指令、改變同步項目或行為、新增旗標時必跟。別名表、旗標表、`--help`、`DEVICE_SETTINGS_KEYS`／`KEYED_NOTICE_SETTINGS_KEYS`、safety 的排除清單與 section 常數皆有 drift-guard 測試把關，其餘敘述靠人工。
+- **settings.json 黑名單制**：增減排除欄位只改 `DEVICE_SETTINGS_KEYS` 常數與 README；敏感命名 key 與 `env` 照常同步，由 `safety:check` 審核。
+- **安全審核由 `safety:check` 承擔**（分類與 exit code 見 README「安全檢查」）：commit 前必跑。輸出**不得**顯示 secret 原值、env 值或完整 HOME 路徑；`diff`／`status` 不印設定內容。
 
 ## Skills 管理
 
-Skills 目前**只有全域一層**（分層**以目錄位置分類**，不加 per-skill flag）；本地層 `.agents/skills/` 目前不存在，建立方式見上方「目錄命名」。
-
-| 位置 | 路徑 | 說明 |
-|---|---|---|
-| 全域（npx 安裝，不同步） | skills repo 的 `skills/<name>/SKILL.md` | 住在 [lllloo/skills](https://github.com/lllloo/skills)，經 `npx skills add lllloo/skills -g --skill <name>` 安裝到 `~/.agents/skills/`（Codex 原生掃）＋ 各工具探索點 symlink（由 `npx skills` 自建）。與外部 skill 同記於本 repo 的 `skills-lock.json`、同由 `skills:diff` 比對；更新走 `npx skills update -g`（依 `skillFolderHash` 比對）。`sync.js` 不碰 |
-
-全域 skill 一律放 skills repo——**無 Claude-only 全域層**（`claude/skills/`，見 `SYNC_MANIFEST` 回歸鎖），也**無 `sync.js` 同步的全域 skill 層**（與 `npx skills` 共管同一目錄的守門成本過高）。安裝指令固定帶 `--skill`，避免把來源 repo 的其他 skill 一併裝成全域。
-
-**`skills-lock.json` 的 `agents` 欄位（optional）**：記的是「這台裝置要把該 skill 裝給哪個工具」的安裝意圖，不是「這支 skill 支援誰」——Agent Skills 為開放標準、預設跨工具通用，只有刻意排除時才需要這欄位。值為逗號分隔、白名單見 `skills.js` 的 `VALID_SKILL_AGENTS`（`claude-code`／`codex`），`skills:add --agent <值>`／`--agent=<值>` 寫入，`skills:diff` 的安裝建議據此接上 `--agent`：
-
-| `agents` 值 | 安裝落點 | 誰看得到 |
-|---|---|---|
-| 省略（預設） | `~/.agents/skills/<name>` 實體 + `~/.claude/skills/<name>` symlink | Claude Code + Codex |
-| `claude-code` | `~/.claude/skills/<name>` 實體 | 只有 Claude Code |
-| `codex` | `~/.agents/skills/<name>` 實體，不建 symlink | 只有 Codex |
-
-目前 `skills-lock.json` 無任何項目使用此欄位（原使用者 `skill-creator` 已移除）；欄位保留，Codex 自帶同名 skill 的相撞情境日後仍可能再現。與上方「以目錄位置分類、不加 per-skill flag」不衝突——那句指的是全域／本地兩層的**分類方式**；`agents` 欄位是全域層內部的**安裝目標**選擇，不影響分類。
-
-**日後若要恢復 Claude-only 全域 skill 層**（`claude/skills/`）：在 `SYNC_MANIFEST` 加回 `{ area: 'claude', label: 'skills', type: 'dir' }` 一列，並同步更新 `test/sync.test.js` 的 claude label 清單 drift-guard 與**「不得含 claude 區 skills／commands dir 列」回歸鎖**、README 同步項目表與本段兩層表。**加回前須先重新評估**：`dir` 型的 prune-extras 語意會刪掉 `npx skills` 在 `~/.claude/skills/` 建的探索 symlink。不得只塞回一列 manifest。`commands` 層同理，且另違反「一律使用 skill、不再新增 command」政策。
-
-Skills 遵循 [Agent Skills](https://agentskills.io) 開放標準，可跨工具移植（Cursor、Gemini CLI、Codex 等）。新增 skill 一律使用此格式，不再新增 command。
-
-## Agents 管理
-
-**目前無任何同步的 agent，`SYNC_MANIFEST` 未列任何 agents 項**（`claude/agents/` 與 `codex/agents/` 皆不存在，不做預防性保留；`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES` 亦無對應豁免）。
-
-日後若要恢復 Claude agent 同步：在 `SYNC_MANIFEST` 加回 `{ area: 'claude', label: 'agents', type: 'dir' }` 一列（以 package 子目錄組織），並同步更新 `test/sync.test.js` 的 claude label 清單 drift-guard、README 同步項目表與目錄命名表。若要恢復 Codex agent：加回 `{ area: 'codex', label: 'agents', type: 'dir' }`，原則為只抓 Claude 端已有同名 agent 的對應 `.toml`。Codex CLI 透過 `collect_agent_role_files` 遞迴掃描 `~/.codex/agents/` 下所有層級的 `.toml`（[原始碼參考](https://github.com/openai/codex/blob/main/codex-rs/core/src/config/agent_roles.rs)），agent 識別以 TOML 內 `name` 欄位為準，與檔名/路徑無關。
-
-## 注意事項
-
-- `.DS_Store` 由 `sync.js` 的 `GLOBAL_EXCLUDE` 常數在**同步時**排除（不進 repo、也不寫到本機），與 `.gitignore` 無關——`.gitignore` 列的是 `node_modules/`、`*.log` 與 `.claude/` 下的執行期產物
-- Skills 不在自動同步範圍，`skills-lock.json` 為各裝置參考清單（source of truth）
-- 上游 `npx skills` 功能追蹤**不在本 repo**：改由 obsidian-memory vault 的 `vault-watch` skill 追蹤（看板 `feeds/watch/01.index.md`，用 `gh` 自動比對狀態轉換與官方回應）。目前追 `vercel-labs/skills` 的 #743／#683／#549（跨裝置全域還原）。#743 若 merge，新裝置的全域 skill 還原可改走上游指令，屆時 `skills:diff` 印建議指令的角色可再評估
+- 全域 skill 一律放 skills repo，安裝指令固定帶 `--skill`，避免把來源 repo 的其他 skill 一併裝成全域。**無 `sync.js` 同步的 skill 層**（與 `npx skills` 共管同一目錄的守門成本過高）。
+- `skills:diff` 讀 `~/.agents/.skill-lock.json` 與 repo `skills-lock.json` 比對，只印建議指令、不執行。刻意不用 `npx skills list -g`：它會把非 lock 登記的住戶（手動放入的 skill、探索 symlink）一併列入而誤報。
+- `skills-lock.json` 的 `agents` 欄位（optional，目前無項目使用）：記要裝給哪個工具，白名單見 `skills.js` 的 `VALID_SKILL_AGENTS`；省略即 Claude Code + Codex 皆裝。`skills:add --agent <值>` 寫入。
+- **勿恢復 `claude/skills/` 或 `commands` 同步層**：`dir` 型 prune 會刪掉 `npx skills` 在 `~/.claude/skills/` 建的探索 symlink（`sync.test.js` 回歸鎖）；真要恢復須先重新設計。
+- **Agents**：目前無同步項目。要恢復時在 `SYNC_MANIFEST` 加 `{ area, label: 'agents', type: 'dir' }` 一列，並更新 `sync.test.js` 的 label 清單 drift-guard 與 README。
+- 上游 `npx skills` 功能追蹤不在本 repo，由 obsidian-memory vault 的 `vault-watch` 追 `vercel-labs/skills` #743／#683／#549（跨裝置全域還原）；#743 merge 後可再評估 `skills:diff` 的角色。

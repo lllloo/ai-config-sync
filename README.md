@@ -6,7 +6,7 @@
 
 ## 運作方式
 
-本機設定與公開 Git repo 之間雙向同步，repo 再帶到其他裝置：
+以公開 Git repo 為最終版本，指令可在本機與 repo 之間雙向搬移，repo 再帶到其他裝置：
 
 ```
 本機 ~/.claude ~/.codex ~/.gemini
@@ -30,7 +30,7 @@ npm run to-repo     # 本機 → repo（上傳你的設定）
 npm run to-local    # repo → 本機（套用，會先預覽再確認）
 ```
 
-或在本 repo 開 Claude Code／Codex 說「同步」：AI 依 `AGENTS.md` 的「同步流程」以 git 歷史為每個差異項給出建議方向，並同時列出「採 repo 版／採本機版」（必要時加合併版）供你逐項裁示，裁示後才寫入。
+或在本 repo 開 Claude Code／Codex 說「同步」：repo 是最終版本，AI 依 `AGENTS.md` 的「同步流程」列出「repo 要怎麼改」（以 git 歷史標出每項來源）供你逐項確認，確認後改 repo、commit，再套回本機。
 
 ## 同步項目
 
@@ -66,7 +66,7 @@ npm run to-local    # repo → 本機（套用，會先預覽再確認）
 | 目錄 | 用途 |
 |------|------|
 | `claude/`、`codex/`、`gemini/`（無點） | **要同步**到各工具全域設定的內容（`gemini/` ↔ `~/.gemini/`） |
-| `.claude/`、`.codex/`（有點） | 本 repo 專用的**本地**設定，**不參與同步** |
+| `.claude/`（有點） | 本 repo 專用的**本地**設定，**不參與同步** |
 
 ## 指令
 
@@ -195,7 +195,7 @@ npm run skills:diff   # 依建議的 npx skills add 指令安裝全域 skill（�
 rm -rf ~/.agents/skills/{bmad-goal,map,map-fast,project-map}
 rm -f ~/.claude/skills/{bmad-goal,map,map-fast,project-map}
 rm -f ~/.gemini/config/skills/{map,map-fast}
-npx skills add lllloo/skills -g -y --skill bmad-goal --skill map --skill map-fast --skill project-map
+npx skills add lllloo/skills -g -y --skill bmad-goal
 npm run skills:diff
 ```
 
@@ -203,7 +203,7 @@ npm run skills:diff
 
 **探索點由 `npx skills` 決定**（2026-09-11 於 WSL 實測，`npx skills` 1.5.25）：實體在 `~/.agents/skills/<name>`；Claude Code 得到 `~/.claude/skills/<name>` 相對路徑 symlink；Codex 與 Antigravity CLI 被歸為直接讀 `~/.agents/skills` 的「universal」工具，**不會**再寫 `~/.gemini/config/skills/`（舊機制曾在那裡建橋）。若你的 Antigravity 版本實際只讀 `~/.gemini/config/skills/`，手動補 symlink 即可：`ln -s ~/.agents/skills/<name> ~/.gemini/config/skills/<name>`。
 
-裝完檢查 `~/.agents/.skill-lock.json` 內四筆的 `skillFolderHash` 不是空字串——空值代表安裝時抓不到 GitHub tree（私有 repo 認證失敗），`npx skills update -g` 會以「Private or deleted repo」跳過它們；先 `gh auth login` 再重裝即可。
+裝完檢查 `~/.agents/.skill-lock.json` 內該筆的 `skillFolderHash` 不是空字串——空值代表安裝時抓不到 GitHub tree，`npx skills update -g` 會以「Private or deleted repo」跳過它；重裝即可。
 
 ## Codex 建議設定（手動套用）
 
@@ -226,7 +226,7 @@ npm run skills:diff
 
 `npm run safety:check` 是手動、唯讀、離線的檢查，掃描 `claude/`、`codex/`、`gemini/` 與 `skills-lock.json`（不掃 `test/`、`docs/`、README 等非同步來源）。自寫全域 skill 已拆出 [lllloo/skills](https://github.com/lllloo/skills)，其內容不在本 repo 的掃描射程內。輸出只列**分類、檔案與欄位／key／行號**，不列 env 值、secret 原值或完整 HOME 路徑。
 
-**它不是同步流程的一部分，也不保證能阻止機密寫入 repo**。`to-repo` 只做明確不同步欄位的剝除與資料搬移，`CLAUDE.md`、rules、skills、`statusline.sh` 等皆原樣鏡射。建議流程：`npm run to-repo` 後、commit 前，跑 `npm run safety:check` 與 `git diff` 人工複核。
+**它不是同步流程的一部分，也不保證能阻止機密寫入 repo**。`to-repo` 只做明確不同步欄位的剝除與資料搬移，`CLAUDE.md`／`AGENTS.md`／`GEMINI.md`、rules、`statusline.sh` 等皆原樣鏡射。建議流程：`npm run to-repo` 後、commit 前，跑 `npm run safety:check` 與 `git diff` 人工複核。
 
 **Hard block（exit 2）** — 明顯高風險，應擋下：
 

@@ -2,7 +2,7 @@
 'use strict';
 
 // =============================================================================
-// ai-config-sync -- 跨裝置 Claude Code 設定同步工具
+// ai-config-sync -- 跨裝置 Claude Code / Codex / Antigravity 設定同步工具
 // sync.js 為主 CLI 入口；safety:check 掃描邏輯獨立於 safety-check.js。零外部相依
 // =============================================================================
 

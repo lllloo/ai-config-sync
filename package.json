@@ -1,7 +1,7 @@
 {
   "name": "ai-config-sync",
   "version": "1.0.0",
-  "description": "跨裝置同步 Claude Code 設定",
+  "description": "跨裝置同步 Claude Code / Codex / Antigravity 設定",
   "scripts": {
     "diff": "node sync.js diff",
     "status": "node sync.js status",
