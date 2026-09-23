@@ -4,7 +4,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 
 ## 專案概述
 
-此 repo 是 Claude Code 跨裝置設定同步工具，透過私有 Git repo 讓多台裝置的 Claude Code 設定保持一致。
+此 repo 是 Claude Code 跨裝置設定同步工具，透過公開 Git repo 讓多台裝置的 Claude Code 設定保持一致。
 
 ## 目錄命名（重要）
 

@@ -1,12 +1,12 @@
 # ai-config-sync
 
-跨裝置同步 Claude Code / Codex / Antigravity 設定的私有 Git repo 工具。一台機器設定好，其他機器一鍵套用。
+跨裝置同步 Claude Code / Codex / Antigravity 設定的公開 Git repo 工具。一台機器設定好，其他機器一鍵套用。
 
 零外部相依，只用 Node.js 內建模組（需 Node ≥ 18）。
 
 ## 運作方式
 
-本機設定與私有 Git repo 之間雙向同步，repo 再帶到其他裝置：
+本機設定與公開 Git repo 之間雙向同步，repo 再帶到其他裝置：
 
 ```
 本機 ~/.claude ~/.codex ~/.gemini
@@ -14,11 +14,12 @@
    │  │ to-local（套用，會先預覽）
    │  │
    ▼  │ to-repo（上傳本機設定）
- 私有 Git repo（claude/ codex/ gemini/）──push/clone──▶ 其他裝置
+ 公開 Git repo（claude/ codex/ gemini/）──push/clone──▶ 其他裝置
    （自寫全域 skill 在 lllloo/skills，另由各裝置 npx skills add 安裝，不經 to-local）
 ```
 
 - **不碰本機敏感活檔**：`~/.claude.json` 與 `~/.codex/config.toml` 皆**永不被本工具寫入或讀取**。見 [刻意不同步](#刻意不同步)。
+- **repo 內容公開可見**：同步進 repo 的一切（含 `settings.json` 的 `env` 值）push 後即公開，別把只該留在本機的值寫進同步來源。
 - **commit 前把關**：`npm run safety:check` 唯讀掃描 repo 是否誤帶機密，見 [安全檢查](#安全檢查-safetycheck)。
 
 ## 快速開始
