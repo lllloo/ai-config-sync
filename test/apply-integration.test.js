@@ -215,6 +215,25 @@ test('to-repo：把本機內容寫進 repo，且 env 金鑰照常同步', () => 
   }
 });
 
+// repo 為最終版本：to-repo 後的下一步是「把關 → 複核 → commit」，push 公開 repo 另由使用者決定，
+// 不得再串成一行 `git add -A && git commit && git push`；指令一律走 node sync.js。
+test('to-repo：下一步提示先 safety:check 再 commit，不串 git push、不用 npm run', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(home, '.claude', 'CLAUDE.md'), 'LOCAL');
+
+    const r = run(repo, home, ['to-repo']);
+    assert.equal(r.status, 0, `to-repo 應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /下一步/);
+    assert.match(r.stdout, /node sync\.js safety:check/);
+    assert.match(r.stdout, /git commit -m "chore\(sync\): /, 'commit 訊息沿用專案格式');
+    assert.doesNotMatch(r.stdout, /&& git push/, 'push 不得串在 commit 之後');
+    assert.doesNotMatch(r.stdout, /npm run/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('to-repo --dry-run：不寫入 repo', () => {
   const { repo, home, root } = setupSandbox();
   try {
@@ -371,7 +390,8 @@ test('skills:diff：本機有、repo 未記錄 → exit 1 並列出加入/移除
     const r = run(repo, home, ['skills:diff']);
     assert.equal(r.status, 1);
     assert.match(r.stdout, /本機有、repo 未記錄/);
-    assert.match(r.stdout, /npm run skills:add -- bar org\/bar/);
+    assert.match(r.stdout, /node sync\.js skills:add bar org\/bar/);
+    assert.doesNotMatch(r.stdout, /npm run/, "建議指令一律走 node sync.js，免 npm 的 -- 分隔陷阱");
     assert.match(r.stdout, /npx skills remove bar/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

@@ -97,6 +97,36 @@ test('runDiff (to-repo)：本機 HOME 為空 → gemini/GEMINI.md 也應被回�
   }
 });
 
+// repo 為最終版本：有差異時不再只推 to-repo（本機為準的舊流程），
+// 而是並列「交 AI 逐項裁示／全數採本機／以 repo 覆蓋本機」三條路，且指令走 node sync.js。
+test('runDiff：有差異時下一步並列 AI 同步、to-repo、to-local，不用 npm run', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    const result = runDiff(repo, home);
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /repo 為最終版本/);
+    assert.match(result.stdout, /「同步」/, '應提示可交給 AI 逐項裁示');
+    assert.match(result.stdout, /node sync\.js to-repo/);
+    assert.match(result.stdout, /node sync\.js to-local/);
+    assert.doesNotMatch(result.stdout, /npm run/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('runDiff：enabledPlugins 本機獨有項目提示「要保留須先納入 repo」，不再直指 to-repo', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    seedHomeSettings(home, { enabledPlugins: { 'local-only@mkt': true } });
+    const result = runDiff(repo, home);
+    assert.match(result.stdout, /enabledPlugins 有本機獨有項目：local-only@mkt/);
+    assert.match(result.stdout, /要保留須先納入 repo/);
+    assert.doesNotMatch(result.stdout, /請先 to-repo/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // -----------------------------------------------------------------------------
 // settings.json 黑名單混合制：裝置鍵不列一般差異、敏感命名走一般 diff、env 值不外洩
 // -----------------------------------------------------------------------------

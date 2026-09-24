@@ -875,7 +875,7 @@ function findLocalOnlyKeyedEntries(localPath, repoPath) {
 function printLocalOnlyKeyedNotice(entries) {
   for (const [key, names] of Object.entries(entries)) {
     console.log(col.yellow(`\n  [!] settings.json 的 ${key} 有本機獨有項目：${names.join('、')}`));
-    console.log(col.dim('      top-level 為整鍵覆蓋、不與 repo 合併：直接 to-local 會蓋掉這些項目，請先 to-repo'));
+    console.log(col.dim('      top-level 為整鍵覆蓋、不與 repo 合併：to-local 會以 repo 版蓋掉這些項目；要保留須先納入 repo'));
   }
 }
 
@@ -1270,8 +1270,9 @@ function showGitStatus() {
   }
   console.log('');
   console.log(col.bold('  下一步：'));
-  console.log(col.dim('   npm run safety:check   # commit 前先掃 hard block／需人工審核的機密'));
-  console.log(col.dim(`   git add -A && git commit -m "sync: from ${os.hostname()}" && git push`));
+  console.log(col.dim('   node sync.js safety:check   # commit 前先掃 hard block／需人工審核的機密'));
+  console.log(col.dim(`   git add -A && git commit -m "chore(sync): from ${os.hostname()}"`));
+  console.log(col.dim('   git push                    # repo 公開，複核 git diff 後再推'));
 }
 
 // =============================================================================
@@ -1376,8 +1377,10 @@ function runDiff(opts) {
     return EXIT_OK;
   }
 
-  console.log(col.bold('\n  下一步：'));
-  console.log(`   npm run to-repo   ${col.dim('# 將本機內容寫入 repo，再用 git diff 確認')}`);
+  console.log(col.bold('\n  下一步（repo 為最終版本）：'));
+  console.log(`   在本 repo 對 AI 說「同步」   ${col.dim('# 逐項提出 repo 要怎麼改，確認後改 repo、commit 再套回本機')}`);
+  console.log(`   node sync.js to-repo         ${col.dim('# 本機內容全數納入 repo，再用 git diff 確認')}`);
+  console.log(`   node sync.js to-local        ${col.dim('# 捨棄本機改動，以 repo 版覆蓋本機')}`);
   console.log('');
 
   return EXIT_DIFF;
@@ -1812,7 +1815,7 @@ function runHelp() {
   const version = pkg ? pkg.version : 'unknown';
 
   console.log(col.bold(`\n  ai-config-sync v${version}`));
-  console.log(col.dim('  跨裝置 Claude Code 設定同步工具\n'));
+  console.log(col.dim('  跨裝置 Claude Code／Codex／Antigravity 設定同步工具\n'));
 
   console.log(col.bold('  指令：'));
   for (const [cmd, def] of Object.entries(COMMANDS)) {

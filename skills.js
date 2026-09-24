@@ -179,9 +179,9 @@ function createSkillsHandler(deps) {
       for (const name of onlyInLocal) {
         const skill = localSkills[name];
         if (skill && skill.source) {
-          console.log(`      npm run skills:add -- ${sanitizeForTerminal(name)} ${sanitizeForTerminal(skill.source)}`);
+          console.log(`      node sync.js skills:add ${sanitizeForTerminal(name)} ${sanitizeForTerminal(skill.source)}`);
         } else {
-          console.log(`      npm run skills:add -- ${sanitizeForTerminal(name)} <source>`);
+          console.log(`      node sync.js skills:add ${sanitizeForTerminal(name)} <source>`);
         }
       }
       console.log(col.dim('    （B）從本機移除：'));
