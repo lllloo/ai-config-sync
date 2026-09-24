@@ -633,7 +633,7 @@ test('to-local diff：repo 殘留 device key 時不再恆判 changed（與 apply
     writeJson(localPath, { permissions: ['a'], model: 'sonnet' });
 
     const item = { type: 'settings', label: 'settings.json', prefix: 'claude/', src: localPath, dest: repoPath };
-    const [entry] = diffSyncItem(item, 'to-local');
+    const entry = diffSyncItem(item, 'to-local');
     assert.equal(entry.status, null, 'repo 僅多 device key → diff 應判無差異');
     assert.equal(mergeSettingsBetween(localPath, repoPath, 'to-local', true), false,
       'apply 亦應判無變更（diff 與 apply 同基準，不得一邊 changed 一邊 no-op）');
@@ -648,7 +648,7 @@ test('to-local diff：repo 可攜內容確實不同時仍判 changed（同基準
     writeJson(localPath, { permissions: ['a'] });
 
     const item = { type: 'settings', label: 'settings.json', prefix: 'claude/', src: localPath, dest: repoPath };
-    const [entry] = diffSyncItem(item, 'to-local');
+    const entry = diffSyncItem(item, 'to-local');
     assert.equal(entry.status, 'changed', '可攜內容不同應判 changed');
     assert.equal(mergeSettingsBetween(localPath, repoPath, 'to-local', true), true, 'apply 亦應判有變更');
   });

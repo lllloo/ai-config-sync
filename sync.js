@@ -709,14 +709,13 @@ function printStatusLine(type, label, desc = '') {
 
 /**
  * 輸出操作摘要統計行
- * @param {{added: number, updated: number, deleted: number}} stats
+ * @param {{added: number, updated: number}} stats
  * @returns {void}
  */
 function printSummary(stats) {
   const parts = [];
   if (stats.added > 0)   parts.push(col.green(`${stats.added} 個新增`));
   if (stats.updated > 0) parts.push(col.yellow(`${stats.updated} 個更新`));
-  if (stats.deleted > 0) parts.push(col.red(`${stats.deleted} 個刪除`));
   if (parts.length === 0) {
     console.log(col.dim('  無任何變更'));
   } else {
@@ -1010,14 +1009,14 @@ function buildSyncItems(direction) {
 }
 
 /**
- * 將 diff status 對應到 stats 欄位 key
+ * 將 diff status 對應到 stats 欄位 key。'deleted'（本機有、來源無）回 null：
+ * file 型 apply 走 copyFile，來源缺檔時不動 dest，故不計入任何統計。
  * @param {string|null} status
- * @returns {'added'|'updated'|'deleted'|null}
+ * @returns {'added'|'updated'|null}
  */
 function statusToStatsKey(status) {
   if (status === 'new') return 'added';
   if (status === 'changed' || status === 'eol') return 'updated';
-  if (status === 'deleted') return 'deleted';
   return null;
 }
 
@@ -1092,65 +1091,40 @@ function diffSettingsItem(item, direction) {
  * @returns {object}
  */
 function diffFileItem(item) {
-  const status = diffFile(item.src, item.dest);
-  const entry = {
+  return {
     label: itemLabel(item),
-    status,
+    status: diffFile(item.src, item.dest),
     src: item.src,
     dest: item.dest,
     verboseSrc: item.src,
     verboseDest: item.dest,
     itemType: 'file',
   };
-  // file 型 apply 走 copyFile，來源缺檔時直接 return false、永不刪除 dest；
-  // 故 to-local 對 'deleted'（repo 缺此來源、本機有）標 preserved，
-  // 避免預覽誤報「將刪除」卻實際不動作。
-  if (status === 'deleted') entry.preserved = true;
-  return entry;
 }
 
 /**
- * apply：merge 型（settings）——回傳變更記錄陣列（0 或 1 筆）
- * @param {() => boolean} mergeFn - 已綁定 direction/dryRun 的 merge 呼叫
- * @param {string} label
- * @returns {Array<{action: string, label: string}>}
- */
-function applyMergeItem(mergeFn, label) {
-  return mergeFn() ? [{ action: 'updated', label }] : [];
-}
-
-/**
- * apply：file 型——回傳變更記錄陣列（0 或 1 筆）
+ * apply：file 型——有寫入回傳變更記錄，否則 null
  * @param {SyncItem} item
  * @param {boolean} dryRun
- * @returns {Array<{action: string, label: string}>}
+ * @returns {{action: 'added'|'updated', label: string}|null}
  */
 function applyFileItem(item, dryRun) {
   const existed = fs.existsSync(item.dest);
-  if (!copyFile(item.src, item.dest, dryRun)) return [];
-  return [{ action: existed ? 'updated' : 'added', label: itemLabel(item) }];
-}
-
-/**
- * 將變更 action 對應到狀態圖示 key
- * @param {string} action - 'added' | 'updated' | 'deleted'
- * @returns {string}
- */
-function actionToIcon(action) {
-  return action === 'added' ? 'added' : action === 'deleted' ? 'deleted' : 'changed';
+  if (!copyFile(item.src, item.dest, dryRun)) return null;
+  return { action: existed ? 'updated' : 'added', label: itemLabel(item) };
 }
 
 /**
  * 直接依 SyncItem.type 分派 diff，避免額外的 handler 表。
  * @param {SyncItem} item
  * @param {'to-repo'|'to-local'} direction
- * @returns {Array<{label: string, status: string|null, src: string|null, dest: string, verboseSrc: string, verboseDest: string, itemType: string}>}
+ * @returns {{label: string, status: string|null, src: string|null, dest: string, verboseSrc: string, verboseDest: string, itemType: string}}
  */
 function diffSyncItem(item, direction) {
   switch (item.type) {
-    case 'settings': return [diffSettingsItem(item, direction)];
-    case 'file': return [diffFileItem(item)];
-    default: return [];
+    case 'settings': return diffSettingsItem(item, direction);
+    case 'file': return diffFileItem(item);
+    default: throw new SyncError(`未知的同步項目型別：${item.type}`, ERR.INVALID_ARGS);
   }
 }
 
@@ -1159,28 +1133,27 @@ function diffSyncItem(item, direction) {
  * @param {SyncItem} item
  * @param {'to-repo'|'to-local'} direction
  * @param {boolean} dryRun
- * @returns {Array<{action: string, label: string}>}
+ * @returns {{action: 'added'|'updated', label: string}|null} 無變更回 null
  */
 function applySyncItem(item, direction, dryRun) {
   switch (item.type) {
-    case 'settings': return applyMergeItem(() => mergeSettingsBetween(item.src, item.dest, direction, dryRun), 'settings.json');
+    case 'settings':
+      return mergeSettingsBetween(item.src, item.dest, direction, dryRun)
+        ? { action: 'updated', label: 'settings.json' }
+        : null;
     case 'file': return applyFileItem(item, dryRun);
-    default: return [];
+    default: throw new SyncError(`未知的同步項目型別：${item.type}`, ERR.INVALID_ARGS);
   }
 }
 
 /**
- * 對同步項目執行 diff，回傳差異清單
+ * 對同步項目執行 diff，回傳差異清單（一項一筆，順序同 SYNC_MANIFEST）
  * @param {SyncItem[]} items - 同步項目清單
  * @param {'to-repo'|'to-local'} direction - 同步方向
- * @returns {Array<{label: string, status: string|null, src: string|null, dest: string, verboseSrc: string, verboseDest: string, itemType: string}>}
+ * @returns {ReturnType<typeof diffSyncItem>[]}
  */
 function diffSyncItems(items, direction) {
-  const result = [];
-  for (const item of items) {
-    result.push(...diffSyncItem(item, direction));
-  }
-  return result;
+  return items.map(item => diffSyncItem(item, direction));
 }
 
 /**
@@ -1188,29 +1161,27 @@ function diffSyncItems(items, direction) {
  * @param {SyncItem[]} items - 同步項目清單
  * @param {'to-repo'|'to-local'} direction - 同步方向
  * @param {{dryRun: boolean}} opts
- * @returns {{stats: {added: number, updated: number, deleted: number}, changeLog: string[]}}
+ * @returns {{stats: {added: number, updated: number}, changeLog: string[]}}
  */
 function applySyncItems(items, direction, opts) {
   const { dryRun } = opts;
-  const stats = { added: 0, updated: 0, deleted: 0 };
+  const stats = { added: 0, updated: 0 };
   const changeLog = [];
-  const record = (c) => {
-    stats[c.action]++;
-    changeLog.push(`${c.label} (${c.action})`);
-    printStatusLine(actionToIcon(c.action), c.label);
-  };
 
   for (const item of items) {
-    let changes;
+    let change;
     try {
-      changes = applySyncItem(item, direction, dryRun);
+      change = applySyncItem(item, direction, dryRun);
     } catch (e) {
       // 單項失敗：把先前項目已套用的清單附掛給呼叫端（warnPartialApply 印中斷警告），
       // 讓「例外中斷」路徑的部分寫入可見（訊號中斷不會造成部分寫入，見 handleSignal）
       if (e instanceof SyncError) e.context.applied = { stats, changeLog };
       throw e;
     }
-    for (const c of changes) record(c);
+    if (!change) continue;
+    stats[change.action]++;
+    changeLog.push(`${change.label} (${change.action})`);
+    printStatusLine(change.action === 'added' ? 'added' : 'changed', change.label);
   }
 
   return { stats, changeLog };
@@ -1315,35 +1286,6 @@ function logVerbosePaths(src, dest) {
 }
 
 /**
- * 補全無差異項目（ok 狀態），證明每個同步項目都已被檢查
- * 純函式：不修改傳入的 diffItems 陣列
- * @param {SyncItem[]} items - 原始同步項目清單
- * @param {Array<{label: string, status: string|null, itemType: string}>} diffItems - diff 結果
- * @returns {typeof diffItems} 補全後的新清單
- */
-function buildFullDiffList(items, diffItems) {
-  // 複製陣列，避免 mutating 呼叫端傳入的物件
-  const result = [...diffItems];
-
-  for (const item of items) {
-    const label = itemLabel(item);
-    if (!result.some(d => d.label === label)) {
-      result.push({
-        label,
-        status: null,
-        src: item.src,
-        dest: item.dest,
-        verboseSrc: item.src,
-        verboseDest: item.dest,
-        itemType: item.type,
-      });
-    }
-  }
-
-  return result;
-}
-
-/**
  * 輸出 section 分隔線（40 字元寬，dim 灰色）
  * @returns {void}
  */
@@ -1364,10 +1306,9 @@ function runDiff(opts) {
   console.log('');
 
   const items = buildSyncItems('to-repo');
-  const allDiffItems = buildFullDiffList(items, diffSyncItems(items, 'to-repo'));
 
   let hasDiff = false;
-  for (const item of allDiffItems) {
+  for (const item of diffSyncItems(items, 'to-repo')) {
     if (printDiffItem(item, opts)) hasDiff = true;
   }
   noticeNewSettingsKeys(items);
@@ -1468,22 +1409,18 @@ function runToRepo(opts) {
 }
 
 /**
- * 顯示 to-local 的預覽列表並計算 stats
+ * 顯示 to-local 的預覽列表並計算 stats。'deleted'（repo 缺來源、本機有）
+ * 只提示本機保留：copyFile 來源缺檔時不動 dest，不會刪除。
  * @param {Array<{label: string, status: string|null}>} diffResults
- * @returns {{added: number, updated: number, deleted: number}} previewStats
+ * @returns {{added: number, updated: number}} previewStats
  */
 function printToLocalPreview(diffResults) {
+  const previewStats = { added: 0, updated: 0 };
   for (const d of diffResults) {
     if (d.status === 'new') printStatusLine('added', d.label, '將新增');
     else if (d.status === 'changed') printStatusLine('changed', d.label, '將更新');
     else if (d.status === 'eol') printStatusLine('eol', d.label, '將更新（僅換行符差異）');
-    else if (d.status === 'deleted' && d.preserved) printStatusLine('up', d.label, '本機保留（repo 無對應來源，不會刪除）');
-    else if (d.status === 'deleted') printStatusLine('deleted', d.label, '將刪除');
-  }
-
-  const previewStats = { added: 0, updated: 0, deleted: 0 };
-  for (const d of diffResults) {
-    if (d.status === 'deleted' && d.preserved) continue; // copyFile 不會刪，不計入
+    else if (d.status === 'deleted') printStatusLine('up', d.label, '本機保留（repo 無對應來源，不會刪除）');
     const key = statusToStatsKey(d.status);
     if (key) previewStats[key]++;
   }
@@ -1955,7 +1892,6 @@ if (require.main === module) {
 } else {
   module.exports = {
     // 純函式 / 輔助：供單元測試使用
-    buildFullDiffList,
     diffFile,
     isEolOnlyDiff,
     isPathInside,
@@ -1976,7 +1912,6 @@ if (require.main === module) {
     materializeSyncItem,
     SYNC_MANIFEST,
     SYNC_AREAS,
-    actionToIcon,
     mergeSettingsBetween,
     readFileSafe,
     readJson,

@@ -618,7 +618,7 @@ test('applySyncItems：file 型別 added／updated 統計與 changeLog（非 dry
 
     assert.equal(fs.readFileSync(newDest, 'utf8'), 'hello', '新檔應被寫入');
     assert.equal(fs.readFileSync(updDest, 'utf8'), 'new', '既有檔應被覆寫');
-    assert.deepEqual(stats, { added: 1, updated: 1, deleted: 0 });
+    assert.deepEqual(stats, { added: 1, updated: 1 });
     assert.ok(changeLog.some(l => l.includes('CLAUDE.md')), 'changeLog 應含新增項');
     assert.ok(changeLog.some(l => l.includes('statusline.sh')), 'changeLog 應含更新項');
   });

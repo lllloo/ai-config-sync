@@ -12,7 +12,6 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
-  buildFullDiffList,
   diffFile,
   diffFileItem,
   diffSyncItems,
@@ -26,7 +25,6 @@ const {
   getFiles,
   SYNC_MANIFEST,
   SYNC_AREAS,
-  actionToIcon,
   SyncError,
   ERR,
   COMMANDS,
@@ -49,10 +47,10 @@ const { withArgv, withTmpDir, withTmpFile, itPosixPerms } = require('./helpers')
 // -----------------------------------------------------------------------------
 // statusToStatsKey
 // -----------------------------------------------------------------------------
-test('statusToStatsKey：三種狀態對應正確', () => {
+test('statusToStatsKey：new→added、changed→updated；deleted 不計入（copyFile 不刪 dest）', () => {
   assert.equal(statusToStatsKey('new'), 'added');
   assert.equal(statusToStatsKey('changed'), 'updated');
-  assert.equal(statusToStatsKey('deleted'), 'deleted');
+  assert.equal(statusToStatsKey('deleted'), null);
 });
 
 test('statusToStatsKey：eol 併入 updated（同步時仍需寫入）', () => {
@@ -155,12 +153,6 @@ test('parseArgs：--no-color 設定 noColor 旗標', () => {
 
 test('parseArgs：-v 為 --version 別名', () => {
   assert.equal(withArgv(['-v'], () => parseArgs()).showVersion, true);
-});
-
-test('actionToIcon：added/deleted 直映，其餘（updated）→ changed', () => {
-  assert.equal(actionToIcon('added'), 'added');
-  assert.equal(actionToIcon('deleted'), 'deleted');
-  assert.equal(actionToIcon('updated'), 'changed');
 });
 
 test('materializeSyncItem：非 fixedFlow 依方向交換 src/dest', () => {
@@ -559,56 +551,33 @@ test('diffFile：src 存在但 dest 不存在 → new', () => {
   });
 });
 
-test('diffFileItem：repo 缺來源檔 → deleted 標 preserved（copyFile 永不刪 dest）', () => {
+test('diffFileItem：repo 缺來源檔 → deleted', () => {
   withTmpDir((dir) => {
     const src = path.join(dir, 'repo-missing.md');
     const dest = path.join(dir, 'local.md');
     fs.writeFileSync(dest, 'local content');
     const entry = diffFileItem({ src, dest, label: 'CLAUDE.md', prefix: 'claude/' });
     assert.equal(entry.status, 'deleted');
-    assert.equal(entry.preserved, true, 'file 型 apply 不刪 dest，deleted 應標 preserved');
   });
 });
 
-test('printToLocalPreview：preserved 的 deleted 不計入 previewStats.deleted', () => {
+test('printToLocalPreview：deleted 只提示本機保留、不計入統計', () => {
   const stats = printToLocalPreview([
-    { status: 'deleted', label: 'codex/AGENTS.md', preserved: true },
-    { status: 'deleted', label: 'claude/CLAUDE.md' },
+    { status: 'deleted', label: 'codex/AGENTS.md' },
     { status: 'new', label: 'gemini/GEMINI.md' },
   ]);
-  assert.deepEqual(stats, { added: 1, updated: 0, deleted: 1 });
+  assert.deepEqual(stats, { added: 1, updated: 0 });
 });
 
-// --- buildFullDiffList ------------------------------------------------------
+// --- diffFileItem：deleted 以外的分支 ---------------------------------------
 
-test('buildFullDiffList：補上無差異的 file 項目（status: null）且不 mutate 輸入', () => {
-  const items = [{ label: 'CLAUDE.md', type: 'file', src: '/s', dest: '/d', verboseSrc: '/s', verboseDest: '/d' }];
-  const diffItems = [];
-  const result = buildFullDiffList(items, diffItems);
-  assert.equal(diffItems.length, 0, '不得 mutate 傳入的 diffItems');
-  assert.deepEqual(result.map(d => ({ label: d.label, status: d.status })), [
-    { label: 'claude/CLAUDE.md', status: null },
-  ]);
-});
-
-test('buildFullDiffList：已有差異的 file 不重複補列', () => {
-  const items = [{ label: 'CLAUDE.md', type: 'file', src: '/s', dest: '/d' }];
-  const diffItems = [{ label: 'claude/CLAUDE.md', status: 'changed', itemType: 'file' }];
-  const result = buildFullDiffList(items, diffItems);
-  assert.equal(result.filter(d => d.label === 'claude/CLAUDE.md').length, 1);
-  assert.equal(result[0].status, 'changed');
-});
-
-// --- diffFileItem：deleted 以外的分支（deleted+preserved 已於上方涵蓋） -------
-
-test('diffFileItem：dest 缺檔 → new，不標 preserved', () => {
+test('diffFileItem：dest 缺檔 → new', () => {
   withTmpDir((dir) => {
     const src = path.join(dir, 'repo.md');
     const dest = path.join(dir, 'local-missing.md');
     fs.writeFileSync(src, 'repo content');
     const entry = diffFileItem({ src, dest, label: 'CLAUDE.md', prefix: 'claude/' });
     assert.equal(entry.status, 'new');
-    assert.notEqual(entry.preserved, true, 'new 不得標 preserved');
     assert.equal(entry.itemType, 'file');
     assert.equal(entry.label, 'claude/CLAUDE.md');
   });
@@ -625,7 +594,7 @@ test('diffFileItem：兩端內容相同 → status 為 null（無差異）', () 
   });
 });
 
-// --- diffSyncItems：依 type 分派並攤平（file→1 筆、未知→略過） -------------------
+// --- diffSyncItems：依 type 分派（一項一筆、未知型別拋錯） ---------------------
 
 test('diffSyncItems：file 型各產出 1 筆，順序為 manifest 順序', () => {
   withTmpDir((dir) => {
@@ -651,12 +620,11 @@ test('diffSyncItems：file 型各產出 1 筆，順序為 manifest 順序', () =
   });
 });
 
-test('diffSyncItems：未知 type 走 default 分支 → 不產出任何 entry', () => {
-  const result = diffSyncItems(
-    [{ type: 'unknown', src: '/s', dest: '/d', label: 'x', prefix: 'claude/' }],
-    'to-repo',
+test('diffSyncItems：未知 type 拋 SyncError，不靜默略過', () => {
+  assert.throws(
+    () => diffSyncItems([{ type: 'unknown', src: '/s', dest: '/d', label: 'x', prefix: 'claude/' }], 'to-repo'),
+    /未知的同步項目型別：unknown/,
   );
-  assert.deepEqual(result, []);
 });
 
 // --- printToLocalPreview：changed / eol 皆映射為 updated -----------------------
@@ -667,7 +635,7 @@ test('printToLocalPreview：changed 與 eol 皆計入 updated', () => {
     { status: 'eol', label: 'claude/statusline.sh' },
     { status: 'new', label: 'gemini/GEMINI.md' },
   ]);
-  assert.deepEqual(stats, { added: 1, updated: 2, deleted: 0 });
+  assert.deepEqual(stats, { added: 1, updated: 2 });
 });
 
 // --- readJson：檔案不存在 vs 正常解析（解析失敗不洩漏密鑰見 boundary.test.js） ---
