@@ -55,12 +55,8 @@ node sync.js to-local   # repo → 本機（套用，會先預覽再確認）
 
 - **全域指示**各自獨立（`CLAUDE.md`、`AGENTS.md` 與 `GEMINI.md` 內容可分歧）。
 - **主設定檔**：Claude 為黑名單過濾版（排除裝置欄位，見 [settings.json 同步行為](#settingsjson-同步行為)）。
-- **MCP Server 目前不在同步範圍**：舊有的諮詢式同步已整批移除，待重新設計。請以 `claude mcp add`／`codex mcp add` 於各裝置手動維護。見 [刻意不同步](#刻意不同步)。
-- **Agent 定義**目前不在同步範圍：Claude／Codex 皆未列 agents 同步項目（原 `everything-claude-code` agent 庫已整批移除）。日後要恢復再於 `SYNC_MANIFEST` 加回。
-- **Command 定義**不在同步範圍：本 repo 已改用 skill、不再新增 command，`SYNC_MANIFEST` 未列 `commands` 同步項（有回歸鎖把關）。
-- **Skill 目前只有全域一層**（自寫的在 [lllloo/skills](https://github.com/lllloo/skills)，外部來源各自的 repo）— 經 `npx skills add -g` 安裝到各裝置。**不參與** to-repo／to-local：`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/` 或 `~/.gemini/config/skills/`（`apply-integration.test.js` 有內容 + mtime 雙重斷言）。本地層 `.agents/skills/` 因無住戶已移除（見 [Skills 與 Agents](#skills-與-agents)）。
-- **全域 Skill 一律走 `npx skills`**：不論是自寫（source 為 `lllloo/skills`）或外部來源，都記在 `skills-lock.json`、由 `node sync.js skills:diff` 比對後手動套用建議指令；`sync.js` 不安裝、不更新、不移除任何 skill。安裝指令固定帶 `--skill <name>`，逐支安裝。
-- **規則拆分**（`~/.claude/rules/`）不在同步範圍：全域規則一律寫進 `CLAUDE.md`，不再拆檔。
+- **全域 Skill 一律走 `npx skills`**：自寫與外部來源都記在 `skills-lock.json`、由 `node sync.js skills:diff` 比對後手動套用建議指令（安裝固定帶 `--skill <name>`，逐支安裝）。`sync.js` 不安裝、不更新、不移除 skill，也永不寫入 `~/.agents/skills/`、`~/.claude/skills/`、`~/.gemini/config/skills/`。
+- MCP、Agents、Commands、`~/.claude/rules/` 等不在同步範圍，見 [刻意不同步](#刻意不同步)。
 
 ### 目錄命名
 
@@ -247,11 +243,9 @@ node sync.js skills:diff
 - 結構化設定中命中敏感命名 pattern 的 key path
 - `.toml` 出現裝置狀態 section（`profiles.*`／`history`／`shell_environment_policy`）
 
-**text pattern 掃描的排除**：secret／私鑰／HOME 路徑的字串掃描支援排除清單（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`），**目前為空——四個同步來源目錄全部受掃描**。
+**text pattern 掃描的排除**：secret／私鑰／HOME 路徑的字串掃描支援排除清單（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`），**目前為空**。要排除時粒度必須是具體子目錄（如 `<area>/<pkg>/references/`），不得是來源根；排除只作用於 text 掃描，`.json`／`.toml` 的 hard block 不受影響。
 
-排除的用途是原樣鏡射的上游套件文件：那類文件為說明偵測規則本就含 token／路徑樣式，掃它們會製造整類誤判。但**排除粒度必須是該 package 的具體子目錄**（如 `<area>/<pkg>/references/`），不得是來源根——清單曾誤列整棵全域 skill 樹的根目錄，而那是來源根之一的全部內容，等於整棵樹不受掃描。排除只作用於 text 掃描，結構化 `.json`／`.toml` 的 hard block 不受影響。
-
-**輸出遮罩**：issue 的 detail（section 名、key path）除本機 HOME 遮罩外，另套通用家目錄遮罩——設定檔可能來自別台裝置，其 section 名內嵌的是**那台**裝置的家目錄（如 `[mcp_servers."C:\Users\<他人>\srv"]`），單靠本機 HOME 字串比對抓不到。detail 亦套 secret 遮罩：token 反常地作為 section／key **名**（而非 value）時，位置資訊本身就是機密值，命中 token 樣式的片段一律以 `***` 輸出。
+**輸出遮罩**：issue detail（section 名、key path）另套通用家目錄遮罩（涵蓋來自別台裝置的家目錄）與 secret 遮罩（token 誤當 key 名時以 `***` 輸出）。
 
 ## 同步行為細節
 
@@ -281,13 +275,10 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 
 - **`~/.codex/config.toml`** — 不進 repo，且**永不被本工具寫入或讀取**。偏好、projects、providers 與所有 MCP section 皆保持本機。`safety:check` 仍對 repo 內任何 `.toml` 的機密 section hard block——該防線與 MCP 是否同步無關，擋的是「人工把 config.toml 複製進 repo 備份」。
 - **MCP Server 定義（兩端）** — 目前**完全不在同步範圍**，待重新設計。請用 `claude mcp add --scope user ...`／`codex mcp add ...` 於各裝置手動維護。舊版曾留下的 `~/.codex/.ai-config-sync-mcp-state.json` 為孤兒檔，可自行 `rm`（本工具不代刪——為了清理而破例寫本機檔會與「不寫入本機」的承諾自相矛盾）。OAuth／ChatGPT 登入狀態同樣不在同步範圍。
-- **`~/.claude.json`** — 含 OAuth token、專案級歷史與 MCP 設定，屬高風險敏感活檔，**永不被本工具寫入或讀取**（MCP 同步移除後，連唯讀比對的程式路徑也不存在）。
-
-### Skills 與 Agents
-
-- Skills 不在自動同步範圍（含自寫的 [lllloo/skills](https://github.com/lllloo/skills)），一律經 `npx skills` 安裝，用 `node sync.js skills:diff` 查看差異。
-- **本地 skill 層已移除**：`.agents/skills/` 與 `.claude/skills` symlink 因長期無住戶已刪除。要恢復就建 `.agents/skills/<name>/SKILL.md`，Claude Code 端再補回 `.claude/skills` → `../.agents/skills` symlink（Windows clone 需開啟「開發者模式」才會還原成真 symlink，否則會 fallback 成純文字檔）；Codex 原生把 `.agents/skills`（專案層）與 `~/.agents/skills`（全域層）納入探索路徑、不需 symlink。
-- Agents 目前不在同步範圍：Claude／Codex 皆未列 agents 同步項目（原 `everything-claude-code` agent 庫已整批移除），目錄型同步（整目錄鏡射 + 刪除多餘檔）已整個移除，日後要同步 agents 須先重新設計。
+- **`~/.claude.json`** — 含 OAuth token、專案級歷史與 MCP 設定，屬高風險敏感活檔，**永不被本工具寫入或讀取**。
+- **Skills** — 一律經 `npx skills` 安裝，用 `node sync.js skills:diff` 查看差異（見 [同步項目](#同步項目)）。本 repo 目前無本地 skill 層；要新增時建 `.agents/skills/<name>/SKILL.md`，並補 `.claude/skills` → `../.agents/skills` symlink（Windows clone 需開啟「開發者模式」才會還原成真 symlink）。
+- **Agents、Commands** — 皆未列同步項目；目錄型同步已整個移除，日後要同步須先重新設計。Command 已改用 skill，不再新增。
+- **`~/.claude/rules/`** — 全域規則一律寫進 `CLAUDE.md`，不再拆檔。
 
 ## 專案檔案
 
@@ -299,15 +290,7 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 | `safety-check.js` | `safety:check` 唯讀掃描模組，由 `sync.js` 注入共用工具（不獨立執行、不反向 require） |
 | `toml-reader.js` | TOML 邏輯語句讀取器（純函式、零 IO），由 `safety-check.js` 直接 require，供 `.toml` 掃描正確歸屬 section |
 | `skills.js` | skills 指令族（`skills:diff`／`skills:add`／`skills:remove`）模組，由 `sync.js` 經 `createSkillsHandler(deps)` 注入共用工具（不獨立執行、不反向 require） |
-| `test/sync.test.js` | 同步邏輯純函式單元測試（`node:test`） |
-| `test/settings.test.js` | settings.json 純函式與 `mergeSettingsBetween` 同步心臟測試 |
-| `test/toml-reader.test.js` | TOML 讀取器測試（`safety:check` section 歸屬的回歸網） |
-| `test/skills.test.js` | skills 模組純函式與 deps-bound helper 測試（經 `createSkillsHandler` 注入） |
-| `test/partial-apply.test.js` | 部分失敗可見度測試（`warnPartialApply`，spawn 真實 to-local／to-repo） |
-| `test/diff-integration.test.js` | diff 整合測試 |
-| `test/apply-integration.test.js` | 沙箱化 to-local／to-repo 端到端 apply 測試 |
-| `test/boundary.test.js` | 邊界情境與安全防線測試（含 `safety:check` sandbox、功能模組不得反向 require `sync.js` 的回歸鎖） |
-| `test/helpers.js` | 各測試檔共用 helper |
+| `test/` | `node:test` 測試（單元、沙箱整合、邊界與 drift-guard 回歸鎖） |
 | `package.json` | npm script 別名（與 `COMMANDS` 一致，drift-guard 把關） |
 | `skills-lock.json` | 全域 skills 清單（跨裝置 source of truth） |
 
