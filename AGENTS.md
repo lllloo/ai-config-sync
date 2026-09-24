@@ -64,7 +64,7 @@ AI 一律以 `node sync.js <指令>` 執行，免去 npm 的 `--` 分隔陷阱�
 - **`~/.codex/config.toml`**、**`~/.claude.json`** — 永不被本工具寫入或讀取（測試以內容 + mtime 雙重斷言把關）。不要新增 `codex/config.toml` 或整檔 manifest 列。
 - **MCP Server 定義（兩端）** — 不同步，待重新設計，各裝置以官方 CLI 手動維護。重新設計時憑證判準必須 fail closed，OAuth／headers／env 值／token 不得進 repo；不要順手刪除舊版孤兒 state 檔。
 - **`~/.claude/rules/`** — 全域規則一律寫進 `claude/CLAUDE.md`，不再拆檔，也不同步此目錄。
-- **`advisory`／`mcp`／`xtool-dir` 型別不得復活**（`sync.test.js` 回歸鎖）。
+- **`advisory`／`mcp`／`xtool-dir`／`dir` 型別不得復活**（`sync.test.js` 回歸鎖）。
 
 ## 架構不變式
 
@@ -72,11 +72,11 @@ AI 一律以 `node sync.js <指令>` 執行，免去 npm 的 `--` 分隔陷阱�
 - **`toml-reader.js` 不可刪**：它是 `safety:check` 掃 `.toml` 機密 section 的唯一依賴，擋「人工把 `~/.codex/config.toml` 複製進 repo」，與 MCP 同步無關。header 解析與各種 fail-closed 設計見檔內註解，由 `toml-reader.test.js`／`boundary.test.js` 把關。
 - **函式 ≤ 60 行**，超過須拆分；唯一例外是 DI factory 本體（其內各閉包仍須 ≤ 60 行）。
 - **指令分派**：新增指令須同步改 `COMMANDS`（名稱／別名／說明）、`runCommand` 的 `switch` 與 README 別名表（drift-guard 把關）。刻意不走 handler 注入表。
-- **`SYNC_MANIFEST`**：一列 = 一路徑，本機路徑一律為 area `homeBase` + `label`；任一列不得指向 `~/.claude.json`（回歸鎖）。`SyncItem.type` 只有 `file`／`settings`／`dir`，由 `diffSyncItem`／`applySyncItem` 以 `switch` 分派。
+- **`SYNC_MANIFEST`**：一列 = 一路徑，本機路徑一律為 area `homeBase` + `label`；任一列不得指向 `~/.claude.json`（回歸鎖）。`SyncItem.type` 只有 `file`／`settings`（回歸鎖），由 `diffSyncItem`／`applySyncItem` 以 `switch` 分派。
 - **寫入一律走 `writeFileSafe`**（同目錄暫存檔 + rename 的 atomic write，不做 fsync）；讀取走 `readFileSafe`。`diff` 全程唯讀。
 - **錯誤一律拋 `SyncError`**，經檔尾 `formatError` 統一輸出；禁止裸 `console.error + process.exit`。Exit code：`0` 成功／無差異、`1` 有差異、`2` 錯誤。
 - **路徑顯示走 `toRelativePath`**（REPO_ROOT 與 `$HOME` → `~/`），避免洩漏使用者名稱。
-- **部分失敗可見度**：apply 中途失敗時已寫入的變更經 `partialChanges`／`warnPartialApply` 列出。**不要在 `handleSignal` 加「寫入中」旗標或中斷警告**：寫入是無 await 的同步碼，訊號排不進去（理由見該函式註解）。
+- **部分失敗可見度**：apply 中途失敗時，先前項目已寫入的變更經 `applySyncItems` 附掛 `applied`、由 `warnPartialApply` 警告。**不要在 `handleSignal` 加「寫入中」旗標或中斷警告**：寫入是無 await 的同步碼，訊號排不進去（理由見該函式註解）。
 - **測試不得依賴真實 HOME**；`SYNC_RUNTIME_FILES`／`SAFETY_RUNTIME_FILES` 須含四個原始檔。
 
 ## 修改守則
@@ -91,6 +91,5 @@ AI 一律以 `node sync.js <指令>` 執行，免去 npm 的 `--` 分隔陷阱�
 - 全域 skill 一律放 skills repo，安裝指令固定帶 `--skill`，避免把來源 repo 的其他 skill 一併裝成全域。**無 `sync.js` 同步的 skill 層**（與 `npx skills` 共管同一目錄的守門成本過高）。
 - `skills:diff` 讀 `~/.agents/.skill-lock.json` 與 repo `skills-lock.json` 比對，只印建議指令、不執行。刻意不用 `npx skills list -g`：它會把非 lock 登記的住戶（手動放入的 skill、探索 symlink）一併列入而誤報。
 - `skills-lock.json` 的 `agents` 欄位（optional，目前無項目使用）：記要裝給哪個工具，白名單見 `skills.js` 的 `VALID_SKILL_AGENTS`；省略即 Claude Code + Codex 皆裝。`skills:add --agent <值>` 寫入。
-- **勿恢復 `claude/skills/` 或 `commands` 同步層**：`dir` 型 prune 會刪掉 `npx skills` 在 `~/.claude/skills/` 建的探索 symlink（`sync.test.js` 回歸鎖）；真要恢復須先重新設計。
-- **Agents**：目前無同步項目。要恢復時在 `SYNC_MANIFEST` 加 `{ area, label: 'agents', type: 'dir' }` 一列，並更新 `sync.test.js` 的 label 清單 drift-guard 與 README。
+- **勿恢復 `claude/skills/`、`commands` 或任何目錄同步層**：目錄型（`dir`）已整個移除；它的 prune 曾會刪掉 `npx skills` 在 `~/.claude/skills/` 建的探索 symlink（`sync.test.js` 回歸鎖）。Agents 目前亦無同步項目，真要恢復任何目錄層須先重新設計。
 - 上游 `npx skills` 功能追蹤不在本 repo，由 obsidian-memory vault 的 `vault-watch` 追 `vercel-labs/skills` #743／#683／#549（跨裝置全域還原）；#743 merge 後可再評估 `skills:diff` 的角色。

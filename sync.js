@@ -106,8 +106,7 @@ const COMMAND_ALIASES = Object.fromEntries(
  * @property {string} label - 顯示名稱
  * @property {string} src - 來源路徑
  * @property {string} dest - 目的路徑
- * @property {'file'|'settings'|'dir'} type - 項目類型
- * @property {string[]} [excludePatterns] - dir 型項目的排除模式
+ * @property {'file'|'settings'} type - 項目類型
  * @property {string} [prefix] - 顯示路徑前綴（預設 'claude/'，codex 同步項用 'codex/'）
  */
 
@@ -314,8 +313,8 @@ process.on('exit', cleanupTempFiles);
  * dead code（誤導成「訊號中斷已有可見度保證」）。
  *
  * 反過來說，這也表示**訊號不會造成寫到一半的狀態**：就 signal 而言，一批寫入
- * 要嘛整批完成、要嘛尚未開始。真正可能產生部分寫入的只有例外路徑，其可見度由
- * mirrorDir 的 partialChanges + warnPartialApply 承擔。
+ * 要嘛整批完成、要嘛尚未開始。真正可能產生部分寫入的只有例外路徑（前面項目已寫、
+ * 後面項目拋錯），其可見度由 applySyncItems 附掛的 applied + warnPartialApply 承擔。
  * @param {string} signal
  * @returns {void}
  */
@@ -531,7 +530,7 @@ function isPathInside(targetReal, rootReal) {
 /**
  * 遞迴列出目錄下所有檔案的相對路徑
  * - 目錄不存在（ENOENT）視為空集，其他 IO 錯誤必須拋出避免誤判
- *   （空集被下游當作「無檔案」，若靜默吞錯會讓 to-local 誤刪本機檔案）
+ *   （空集被下游當作「無檔案」，若靜默吞錯會讓 safety:check 漏掃整個目錄卻回報通過）
  * - symlink 指向的檔案若 realpath 逃出 dir 外，直接跳過（防止洩漏 ~/.ssh 等敏感檔）
  * @param {string} dir - 目錄路徑
  * @param {string} [base=''] - 基底路徑（遞迴用）
@@ -591,105 +590,6 @@ function getFiles(dir, base = '', rootReal) {
     }
   }
   return result;
-}
-
-/**
- * 檢查相對路徑是否符合排除模式
- * @param {string} rel - 相對路徑
- * @param {string} pattern - 排除模式（支援尾部 * 萬用字元）
- * @returns {boolean} 是否符合排除模式
- */
-function matchExclude(rel, pattern) {
-  if (pattern.endsWith('*')) return rel.startsWith(pattern.slice(0, -1));
-  return rel === pattern;
-}
-
-/**
- * 整目錄鏡像：以 src 為準同步到 dest，dest 多餘的刪掉
- * 逐檔寫入判斷委派 copyFile（單一 needsWrite 判斷來源）
- * @param {string} src - 來源目錄
- * @param {string} dest - 目的目錄
- * @param {string[]} [excludePatterns=[]] - 排除模式列表
- * @param {boolean} [dryRun=false] - 若為 true 則只判斷不寫入
- * @returns {Array<{rel: string, action: string}>} 變更清單
- */
-function mirrorDir(src, dest, excludePatterns = [], dryRun = false) {
-  const changed = [];
-  if (!fs.existsSync(src)) return changed;
-  if (!dryRun) ensureDir(dest);
-
-  const srcFiles = new Set(
-    getFiles(src).filter(rel => !excludePatterns.some(p => matchExclude(rel, p)))
-  );
-
-  try {
-    for (const rel of srcFiles) {
-      const srcFile = path.join(src, rel);
-      const destFile = path.join(dest, rel);
-      const destExists = fs.existsSync(destFile);
-      if (copyFile(srcFile, destFile, dryRun)) {
-        changed.push({ rel, action: destExists ? 'updated' : 'added' });
-      }
-    }
-
-    if (fs.existsSync(dest)) {
-      for (const rel of getFiles(dest)) {
-        if (!srcFiles.has(rel) && !excludePatterns.some(p => matchExclude(rel, p))) {
-          const delPath = path.join(dest, rel);
-          if (!dryRun) {
-            try {
-              fs.rmSync(delPath);
-            } catch (e) {
-              throw toSyncFsError(e, delPath, '刪除檔案');
-            }
-          }
-          changed.push({ rel, action: 'deleted' });
-        }
-      }
-      if (!dryRun) cleanEmptyDirs(dest);
-    }
-  } catch (e) {
-    // 中途失敗：已完成的變更附掛給呼叫端（applySyncItems 補印），
-    // 避免「部分檔案已寫入磁碟但零可見度」
-    if (e instanceof SyncError && changed.length) e.context.partialChanges = changed;
-    throw e;
-  }
-
-  return changed;
-}
-
-/**
- * 遞迴清除空目錄
- * @param {string} dir - 起始目錄
- * @returns {void}
- */
-function cleanEmptyDirs(dir) {
-  if (!fs.existsSync(dir)) return;
-  let entries;
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch (e) {
-    // race（ENOENT）靜默跳過；其他錯誤 warn 後跳過，不中斷主流程
-    if (e.code !== 'ENOENT') {
-      console.warn(col.yellow(`  [warn] 讀取目錄失敗（${e.code}）：${toRelativePath(dir)}`));
-    }
-    return;
-  }
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      const sub = path.join(dir, entry.name);
-      cleanEmptyDirs(sub);
-      try {
-        if (fs.readdirSync(sub).length === 0) fs.rmdirSync(sub);
-      } catch (e) {
-        // ENOENT（已被其他流程刪除）、ENOTEMPTY（race condition）為預期狀況；
-        // 其他錯誤（如 EACCES/EPERM）顯示 warn 便於排查
-        if (e.code !== 'ENOENT' && e.code !== 'ENOTEMPTY') {
-          console.warn(col.yellow(`  [warn] 清理空目錄失敗（${e.code}）：${toRelativePath(sub)}`));
-        }
-      }
-    }
-  }
 }
 
 // =============================================================================
@@ -784,45 +684,6 @@ function isEolOnlyDiff(a, b) {
   const normalize = (/** @type {Buffer} */ buf) =>
     buf.toString('utf8').replace(/\r\n/g, '\n').replace(/\n+$/g, '');
   return normalize(a) === normalize(b);
-}
-
-/**
- * 比較兩個目錄的差異
- * @param {string} src - 來源目錄
- * @param {string} dest - 目的目錄
- * @param {string[]} [excludePatterns=[]] - 排除模式列表
- * @returns {Array<{rel: string, status: 'new'|'changed'|'deleted'}>}
- */
-function diffDir(src, dest, excludePatterns = []) {
-  const result = [];
-  const srcExists = fs.existsSync(src);
-  const destExists = fs.existsSync(dest);
-  if (!srcExists && !destExists) return result;
-
-  const srcFiles = new Set(
-    (srcExists ? getFiles(src) : [])
-      .filter(rel => !excludePatterns.some(p => matchExclude(rel, p)))
-  );
-  const destFiles = new Set(
-    (destExists ? getFiles(dest) : [])
-      .filter(rel => !excludePatterns.some(p => matchExclude(rel, p)))
-  );
-
-  for (const rel of srcFiles) {
-    if (!destFiles.has(rel)) {
-      result.push({ rel, status: 'new' });
-    } else {
-      const a = readFileSafe(path.join(src, rel), '讀取');
-      const b = readFileSafe(path.join(dest, rel), '讀取');
-      if (!a.equals(b)) {
-        result.push({ rel, status: isEolOnlyDiff(a, b) ? 'eol' : 'changed' });
-      }
-    }
-  }
-  for (const rel of destFiles) {
-    if (!srcFiles.has(rel)) result.push({ rel, status: 'deleted' });
-  }
-  return result;
 }
 
 // =============================================================================
@@ -1097,11 +958,10 @@ const SYNC_AREAS = {
  * 同步項目宣告式清單：一列 = 一個同步路徑，為所有同步項目的單一事實來源。
  * 新增同步內容只需在此加一列（不需改任何 builder 或 dispatch switch）。
  *   - area：對應 SYNC_AREAS 的 key（'claude' → ~/.claude ↔ repo claude/；'codex' → ~/.codex ↔ repo codex/）
- *   - type：'file'|'settings'|'dir'（型別行為由 diffSyncItem／applySyncItem 分派）
+ *   - type：'file'|'settings'（型別行為由 diffSyncItem／applySyncItem 分派）
  *   - fixedFlow：true 代表 src 恆為本機端、dest 恆為 repo 端，不隨 direction 交換
  *     （settings.json 由 mergeSettingsBetween 依 direction 決定流向）
- *   - exclude（選填，僅 dir 型）：glob 片段陣列，diffDir／mirrorDir 以 matchExclude 略過對應相對路徑
- * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[]}>}
+ * @type {Array<{area: keyof typeof SYNC_AREAS, label: string, type: SyncItem['type'], fixedFlow?: boolean}>}
  */
 const SYNC_MANIFEST = [
   { area: 'claude', label: 'CLAUDE.md',     type: 'file' },
@@ -1124,8 +984,7 @@ function resolveSyncArea(area) {
 /**
  * 將一列 manifest 依同步方向 materialize 成 SyncItem。
  * fixedFlow 項目 src/dest 固定（home→repo），其餘依 direction 交換。
- * dir 型可選 `exclude`：propagate 為 `excludePatterns`，供 diffDir／mirrorDir 略過（matchExclude）。
- * @param {{area: keyof typeof SYNC_AREAS, label: string, type: SyncItem['type'], fixedFlow?: boolean, exclude?: string[]}} entry
+ * @param {{area: keyof typeof SYNC_AREAS, label: string, type: SyncItem['type'], fixedFlow?: boolean}} entry
  * @param {'to-repo'|'to-local'} direction
  * @returns {SyncItem}
  */
@@ -1138,9 +997,7 @@ function materializeSyncItem(entry, direction) {
   // fixedFlow：src 恆為本機端、dest 恆為 repo 端（由 merge 函式內部依 direction 決定流向）
   const src = entry.fixedFlow || isToRepo ? homePath : repoPath;
   const dest = entry.fixedFlow || isToRepo ? repoPath : homePath;
-  const item = { label, src, dest, type: entry.type, prefix, area: entry.area };
-  if (entry.exclude) item.excludePatterns = entry.exclude;
-  return item;
+  return { label, src, dest, type: entry.type, prefix, area: entry.area };
 }
 
 /**
@@ -1180,14 +1037,13 @@ function compareStrippedToRepo(strippedContent, repoPath, op) {
 }
 
 /**
- * 統一構造同步項目的顯示標籤：`<prefix><label>[/rel]`。
+ * 統一構造同步項目的顯示標籤：`<prefix><label>`。
  * prefix 由 materialize 保證存在；`|| 'claude/'` 為手工建構 item 的防呆 fallback。
  * @param {SyncItem} item
- * @param {string} [rel] - dir 型項目的相對子路徑
  * @returns {string}
  */
-function itemLabel(item, rel) {
-  return `${item.prefix || 'claude/'}${item.label}${rel ? `/${rel}` : ''}`;
+function itemLabel(item) {
+  return `${item.prefix || 'claude/'}${item.label}`;
 }
 
 /**
@@ -1247,31 +1103,10 @@ function diffFileItem(item) {
     itemType: 'file',
   };
   // file 型 apply 走 copyFile，來源缺檔時直接 return false、永不刪除 dest；
-  // 故 to-local 對 'deleted'（repo 缺此來源、本機有）標 preserved，與 dir 對稱，
+  // 故 to-local 對 'deleted'（repo 缺此來源、本機有）標 preserved，
   // 避免預覽誤報「將刪除」卻實際不動作。
   if (status === 'deleted') entry.preserved = true;
   return entry;
-}
-
-/**
- * 產生 dir 型項目的 diff 結果 entries（每個有差異的檔案一筆；無差異則空陣列）
- * @param {SyncItem} item
- * @returns {object[]}
- */
-function diffDirItems(item) {
-  // repo 源目錄整個不存在時 mirrorDir 起頭守衛提早返回、不刪本機檔（保守安全設計）；
-  // 標記 preserved 讓 to-local 預覽不把這類 deleted 誤報為「將刪除」。
-  const srcMissing = !fs.existsSync(item.src);
-  return diffDir(item.src, item.dest, item.excludePatterns || []).map(d => {
-    const src = path.join(item.src, d.rel);
-    const dest = path.join(item.dest, d.rel);
-    const entry = {
-      label: itemLabel(item, d.rel),
-      status: d.status, src, dest, verboseSrc: src, verboseDest: dest, itemType: 'dir',
-    };
-    if (d.status === 'deleted' && srcMissing) entry.preserved = true;
-    return entry;
-  });
 }
 
 /**
@@ -1297,17 +1132,6 @@ function applyFileItem(item, dryRun) {
 }
 
 /**
- * apply：dir 型——回傳各檔變更記錄陣列
- * @param {SyncItem} item
- * @param {boolean} dryRun
- * @returns {Array<{action: string, label: string}>}
- */
-function applyDirItem(item, dryRun) {
-  return mirrorDir(item.src, item.dest, item.excludePatterns || [], dryRun)
-    .map(c => ({ action: c.action, label: itemLabel(item, c.rel) }));
-}
-
-/**
  * 將變更 action 對應到狀態圖示 key
  * @param {string} action - 'added' | 'updated' | 'deleted'
  * @returns {string}
@@ -1326,7 +1150,6 @@ function diffSyncItem(item, direction) {
   switch (item.type) {
     case 'settings': return [diffSettingsItem(item, direction)];
     case 'file': return [diffFileItem(item)];
-    case 'dir': return diffDirItems(item);
     default: return [];
   }
 }
@@ -1342,7 +1165,6 @@ function applySyncItem(item, direction, dryRun) {
   switch (item.type) {
     case 'settings': return applyMergeItem(() => mergeSettingsBetween(item.src, item.dest, direction, dryRun), 'settings.json');
     case 'file': return applyFileItem(item, dryRun);
-    case 'dir': return applyDirItem(item, dryRun);
     default: return [];
   }
 }
@@ -1383,14 +1205,9 @@ function applySyncItems(items, direction, opts) {
     try {
       changes = applySyncItem(item, direction, dryRun);
     } catch (e) {
-      // 單項中途失敗：先把該項已完成的變更（mirrorDir 附掛的 partialChanges）補進
-      // 統計與輸出，再把整體已套用清單附掛給呼叫端（warnPartialApply 印中斷警告），
+      // 單項失敗：把先前項目已套用的清單附掛給呼叫端（warnPartialApply 印中斷警告），
       // 讓「例外中斷」路徑的部分寫入可見（訊號中斷不會造成部分寫入，見 handleSignal）
-      if (e instanceof SyncError) {
-        for (const c of e.context.partialChanges || []) record({ action: c.action, label: itemLabel(item, c.rel) });
-        delete e.context.partialChanges;
-        e.context.applied = { stats, changeLog };
-      }
+      if (e instanceof SyncError) e.context.applied = { stats, changeLog };
       throw e;
     }
     for (const c of changes) record(c);
@@ -1497,19 +1314,17 @@ function logVerbosePaths(src, dest) {
 }
 
 /**
- * 補全無差異項目並排序：file/settings 在前，dir 在後
+ * 補全無差異項目（ok 狀態），證明每個同步項目都已被檢查
  * 純函式：不修改傳入的 diffItems 陣列
  * @param {SyncItem[]} items - 原始同步項目清單
  * @param {Array<{label: string, status: string|null, itemType: string}>} diffItems - diff 結果
- * @returns {typeof diffItems} 補全並排序後的新清單
+ * @returns {typeof diffItems} 補全後的新清單
  */
 function buildFullDiffList(items, diffItems) {
   // 複製陣列，避免 mutating 呼叫端傳入的物件
   const result = [...diffItems];
 
-  // 補上無差異的 file 與 settings 項目（ok 狀態）；dir 走摘要行
   for (const item of items) {
-    if (item.type === 'dir') continue;
     const label = itemLabel(item);
     if (!result.some(d => d.label === label)) {
       result.push({
@@ -1523,33 +1338,6 @@ function buildFullDiffList(items, diffItems) {
       });
     }
   }
-
-  // 補上無差異的 dir 項目（以摘要行呈現，證明已被檢查）
-  for (const item of items) {
-    if (item.type !== 'dir') continue;
-    const prefix = `${itemLabel(item)}/`;
-    const hasAny = result.some(d => d.label.startsWith(prefix));
-    if (!hasAny) {
-      result.push({
-        label: prefix,
-        status: null,
-        src: item.src,
-        dest: item.dest,
-        verboseSrc: item.src,
-        verboseDest: item.dest,
-        itemType: item.type,
-      });
-    }
-  }
-
-  // 排序：dir（目錄類）排在後面
-  const isDirLike = t => t === 'dir';
-  result.sort((a, b) => {
-    const aIsDir = isDirLike(a.itemType);
-    const bIsDir = isDirLike(b.itemType);
-    if (aIsDir !== bIsDir) return aIsDir ? 1 : -1;
-    return 0;
-  });
 
   return result;
 }
@@ -1692,7 +1480,7 @@ function printToLocalPreview(diffResults) {
 
   const previewStats = { added: 0, updated: 0, deleted: 0 };
   for (const d of diffResults) {
-    if (d.status === 'deleted' && d.preserved) continue; // mirrorDir 不會刪，不計入
+    if (d.status === 'deleted' && d.preserved) continue; // copyFile 不會刪，不計入
     const key = statusToStatsKey(d.status);
     if (key) previewStats[key]++;
   }
@@ -2166,12 +1954,9 @@ if (require.main === module) {
     // 純函式 / 輔助：供單元測試使用
     buildFullDiffList,
     diffFile,
-    diffDir,
     isEolOnlyDiff,
-    matchExclude,
     isPathInside,
     getFiles,
-    mirrorDir,
     copyFile,
     // WSL 橋接（to-win-local）
     isWsl,
@@ -2180,7 +1965,6 @@ if (require.main === module) {
     resolveWinHome,
     applySyncItems,
     diffSyncItems,
-    diffDirItems,
     diffFileItem,
     diffSyncItem,
     applySyncItem,

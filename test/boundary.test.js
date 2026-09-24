@@ -9,7 +9,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
-  matchExclude,
   parseArgs,
   assertNoSwallowedNpmFlags,
   toRelativePath,
@@ -17,7 +16,6 @@ const {
   isEolOnlyDiff,
   isPathInside,
   getFiles,
-  mirrorDir,
   copyFile,
   applySyncItems,
   readFileSafe,
@@ -161,20 +159,6 @@ test('formatError：SyncError 不拋錯，輸出到 stderr', () => {
 test('formatError：非 SyncError 走 fallback 不拋錯', () => {
   const err = new TypeError('unexpected');
   assert.doesNotThrow(() => formatError(err));
-});
-
-// =============================================================================
-// 中優先：matchExclude 邊界
-// =============================================================================
-
-test('matchExclude：空字串 pattern 不匹配任何內容', () => {
-  assert.equal(matchExclude('foo.json', ''), false);
-  assert.equal(matchExclude('', ''), true);  // 空字串精確匹配空字串
-});
-
-test('matchExclude：空字串 rel 只匹配空 pattern', () => {
-  assert.equal(matchExclude('', 'foo'), false);
-  assert.equal(matchExclude('', '*'), true);  // '*' 尾部萬用匹配空 prefix
 });
 
 // =============================================================================
@@ -386,78 +370,6 @@ test('isPathInside：前綴陷阱 foo vs foobar → false（防 startsWith 誤�
 test('isPathInside：root 帶尾部分隔符仍正確判定子路徑 → true', () => {
   const root = path.join('base', 'repo');
   assert.equal(isPathInside(path.join(root, 'x.txt'), root + path.sep), true);
-});
-
-// =============================================================================
-// 高優先：mirrorDir 的刪除路徑（破壞性操作，先前零覆蓋）
-// =============================================================================
-
-function seedFile(dir, rel, content) {
-  const fp = path.join(dir, rel);
-  fs.mkdirSync(path.dirname(fp), { recursive: true });
-  fs.writeFileSync(fp, content);
-}
-
-test('mirrorDir：dest 多餘檔被刪除，changed 標記 deleted', () => {
-  withTmpDir((base) => {
-    const src = path.join(base, 'src');
-    const dest = path.join(base, 'dest');
-    seedFile(src, 'a.txt', 'A');
-    seedFile(dest, 'a.txt', 'A');
-    seedFile(dest, 'b.txt', 'STALE'); // src 沒有 → 應被刪
-
-    const changed = mirrorDir(src, dest);
-
-    assert.equal(fs.existsSync(path.join(dest, 'b.txt')), false, 'b.txt 應被刪除');
-    assert.equal(fs.existsSync(path.join(dest, 'a.txt')), true, 'a.txt 應保留');
-    assert.ok(
-      changed.some(c => c.rel === 'b.txt' && c.action === 'deleted'),
-      'changed 應含 {rel:b.txt, action:deleted}'
-    );
-  });
-});
-
-test('mirrorDir：dry-run 報告 deleted 但不實際刪檔', () => {
-  withTmpDir((base) => {
-    const src = path.join(base, 'src');
-    const dest = path.join(base, 'dest');
-    seedFile(src, 'a.txt', 'A');
-    seedFile(dest, 'a.txt', 'A');
-    seedFile(dest, 'b.txt', 'STALE');
-
-    const changed = mirrorDir(src, dest, [], true); // dryRun=true
-
-    assert.equal(fs.existsSync(path.join(dest, 'b.txt')), true, 'dry-run 不得實刪');
-    assert.ok(changed.some(c => c.rel === 'b.txt' && c.action === 'deleted'));
-  });
-});
-
-test('mirrorDir：excludePatterns 命中的 dest 檔不被刪除', () => {
-  withTmpDir((base) => {
-    const src = path.join(base, 'src');
-    const dest = path.join(base, 'dest');
-    seedFile(src, 'a.txt', 'A');
-    seedFile(dest, 'a.txt', 'A');
-    seedFile(dest, 'keep.log', 'KEEP'); // src 無，但被 exclude → 不刪
-
-    const changed = mirrorDir(src, dest, ['keep.log']);
-
-    assert.equal(fs.existsSync(path.join(dest, 'keep.log')), true, 'exclude 檔不應被刪');
-    assert.ok(!changed.some(c => c.rel === 'keep.log'), 'exclude 檔不應出現在 changed');
-  });
-});
-
-test('mirrorDir：src 新檔寫入 dest，changed 標記 added', () => {
-  withTmpDir((base) => {
-    const src = path.join(base, 'src');
-    const dest = path.join(base, 'dest');
-    seedFile(src, 'nested/new.txt', 'NEW');
-
-    const changed = mirrorDir(src, dest);
-
-    assert.equal(fs.readFileSync(path.join(dest, 'nested', 'new.txt'), 'utf8'), 'NEW');
-    assert.ok(changed.some(c => c.rel === 'nested/new.txt' && c.action === 'added'));
-  });
 });
 
 // =============================================================================
@@ -685,32 +597,30 @@ test('copyFile：非 dry-run 內容相同不重寫，內容不同才寫入', () 
   });
 });
 
-test('applySyncItems：file + dir 型別套用統計與破壞性刪除（非 dry-run）', () => {
+test('applySyncItems：file 型別 added／updated 統計與 changeLog（非 dry-run）', () => {
   withTmpDir((dir) => {
-    // file 項：src 存在、dest 不存在 → added
-    const fileSrc = path.join(dir, 'CLAUDE.md');
-    const fileDest = path.join(dir, 'out', 'CLAUDE.md');
-    fs.writeFileSync(fileSrc, 'hello');
+    // 項 1：src 存在、dest 不存在 → added
+    const newSrc = path.join(dir, 'CLAUDE.md');
+    const newDest = path.join(dir, 'out', 'CLAUDE.md');
+    fs.writeFileSync(newSrc, 'hello');
 
-    // dir 項：src 有 a.txt（新增），dest 有殘留 stale.txt（應刪除）
-    const dSrc = path.join(dir, 'src-dir');
-    const dDest = path.join(dir, 'dest-dir');
-    fs.mkdirSync(dSrc); fs.mkdirSync(dDest);
-    fs.writeFileSync(path.join(dSrc, 'a.txt'), '1');
-    fs.writeFileSync(path.join(dDest, 'stale.txt'), 'old');
+    // 項 2：兩端皆有但內容不同 → updated
+    const updSrc = path.join(dir, 'statusline.sh');
+    const updDest = path.join(dir, 'local-statusline.sh');
+    fs.writeFileSync(updSrc, 'new');
+    fs.writeFileSync(updDest, 'old');
 
     const items = [
-      { label: 'CLAUDE.md', src: fileSrc, dest: fileDest, type: 'file' },
-      { label: 'rules', src: dSrc, dest: dDest, type: 'dir' },
+      { label: 'CLAUDE.md', src: newSrc, dest: newDest, type: 'file' },
+      { label: 'statusline.sh', src: updSrc, dest: updDest, type: 'file' },
     ];
     const { stats, changeLog } = applySyncItems(items, 'to-local', { dryRun: false });
 
-    assert.equal(fs.readFileSync(fileDest, 'utf8'), 'hello', 'file 項應被寫入');
-    assert.equal(fs.existsSync(path.join(dDest, 'a.txt')), true, 'dir 新檔應被鏡射');
-    assert.equal(fs.existsSync(path.join(dDest, 'stale.txt')), false, 'dest 殘留檔應被刪除');
-    assert.equal(stats.added, 2, 'CLAUDE.md + a.txt 共 2 個 added');
-    assert.equal(stats.deleted, 1, 'stale.txt 為 1 個 deleted');
-    assert.ok(changeLog.some(l => l.includes('CLAUDE.md')), 'changeLog 應含 file 項');
+    assert.equal(fs.readFileSync(newDest, 'utf8'), 'hello', '新檔應被寫入');
+    assert.equal(fs.readFileSync(updDest, 'utf8'), 'new', '既有檔應被覆寫');
+    assert.deepEqual(stats, { added: 1, updated: 1, deleted: 0 });
+    assert.ok(changeLog.some(l => l.includes('CLAUDE.md')), 'changeLog 應含新增項');
+    assert.ok(changeLog.some(l => l.includes('statusline.sh')), 'changeLog 應含更新項');
   });
 });
 

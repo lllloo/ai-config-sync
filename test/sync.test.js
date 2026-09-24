@@ -14,20 +14,16 @@ const path = require('node:path');
 const {
   buildFullDiffList,
   diffFile,
-  diffDir,
-  diffDirItems,
   diffFileItem,
   diffSyncItems,
   printToLocalPreview,
   readJson,
-  matchExclude,
   statusToStatsKey,
   parseArgs,
   toRelativePath,
   buildSyncItems,
   materializeSyncItem,
   getFiles,
-  mirrorDir,
   SYNC_MANIFEST,
   SYNC_AREAS,
   actionToIcon,
@@ -49,25 +45,6 @@ const {
   SAFETY_SCAN_DIRS,
 } = require('../safety-check.js');
 const { withArgv, withTmpDir, withTmpFile, itPosixPerms } = require('./helpers');
-
-// -----------------------------------------------------------------------------
-// matchExclude
-// -----------------------------------------------------------------------------
-test('matchExclude：精確字串比對', () => {
-  assert.equal(matchExclude('foo.json', 'foo.json'), true);
-  assert.equal(matchExclude('foo.json', 'bar.json'), false);
-});
-
-test('matchExclude：尾部萬用字元比對', () => {
-  assert.equal(matchExclude('logs/a.log', 'logs/*'), true);
-  assert.equal(matchExclude('logs/nested/a.log', 'logs/*'), true);
-  assert.equal(matchExclude('src/foo.ts', 'logs/*'), false);
-});
-
-test('matchExclude：* 只支援尾部萬用', () => {
-  // 中間的 * 不被特別處理，會當作字面字元
-  assert.equal(matchExclude('foo', 'f*o'), false);
-});
 
 // -----------------------------------------------------------------------------
 // statusToStatsKey
@@ -210,15 +187,6 @@ test('materializeSyncItem：fixedFlow 項目 src/dest 不隨方向交換', () =>
   assert.equal(toLocal.dest, toRepo.dest);
   assert.match(toRepo.src, /[\\/]\.claude[\\/]settings\.json$/);
   assert.match(toRepo.dest, /[\\/]claude[\\/]settings\.json$/);
-});
-
-test('materializeSyncItem：dir 型 exclude 欄位 propagate 為 excludePatterns', () => {
-  const withExclude = materializeSyncItem(
-    { area: 'claude', label: 'rules', type: 'dir', exclude: ['*.tmp', 'draft/**'] }, 'to-repo');
-  assert.deepEqual(withExclude.excludePatterns, ['*.tmp', 'draft/**']);
-  // 無 exclude 的項目不帶該欄位（保持 item 精簡、下游 `|| []` fallback）
-  const noExclude = materializeSyncItem({ area: 'claude', label: 'rules', type: 'dir' }, 'to-repo');
-  assert.equal(Object.prototype.hasOwnProperty.call(noExclude, 'excludePatterns'), false);
 });
 
 test('buildSyncItems：manifest 順序保留、fixedFlow 項目雙向 src/dest 一致', () => {
@@ -488,16 +456,20 @@ test('SYNC_MANIFEST：gemini/GEMINI.md 為 file 型', () => {
   assert.equal(SYNC_MANIFEST[idx].type, 'file');
 });
 
-// 回歸鎖（對稱於「不得含 config.toml」）：claude/skills 與 claude/commands 兩層已因
-// 無住戶移除（remove-tenantless-sync-layers）。claude/skills 若被加回，會與 npx skills
-// 在 ~/.claude/skills 建的探索 symlink 競爭（dir 型 prune-extras 會刪它）；claude/commands 則違反「一律使用
-// skill、不再新增 command」政策，且會讓他機殘留的舊 command 經 to-repo 復活。
-// 要恢復任一層須先重新評估上述後果，不得只塞回一列 manifest。
-test('SYNC_MANIFEST 回歸鎖：不得含 claude 區的 skills／commands dir 列', () => {
+// 回歸鎖：目錄型同步（整目錄鏡射 + prune 多餘檔）已整個移除。它曾與 npx skills 在
+// ~/.claude/skills 建的探索 symlink 競爭（prune 會刪它），commands 層則違反「一律使用
+// skill、不再新增 command」政策。要恢復任何目錄層須先重新設計，不得只塞回一列 manifest。
+test('SYNC_MANIFEST 回歸鎖：type 只能是 file／settings（目錄型已移除）', () => {
+  for (const e of SYNC_MANIFEST) {
+    assert.ok(['file', 'settings'].includes(e.type),
+      `SYNC_MANIFEST 列 ${e.area}/${e.label} 的 type「${e.type}」不在 file／settings 之內`);
+  }
+});
+
+test('SYNC_MANIFEST 回歸鎖：不得含 claude 區的 skills／commands 列', () => {
   for (const label of ['skills', 'commands']) {
-    const found = SYNC_MANIFEST.find(e => e.area === 'claude' && e.label === label && e.type === 'dir');
-    assert.equal(found, undefined,
-      `SYNC_MANIFEST 不應含 { area: 'claude', label: '${label}', type: 'dir' } 列`);
+    const found = SYNC_MANIFEST.find(e => e.area === 'claude' && e.label === label);
+    assert.equal(found, undefined, `SYNC_MANIFEST 不應含 claude/${label} 列`);
   }
 });
 
@@ -558,7 +530,7 @@ test('drift-guard：SYNC_MANIFEST 不含 MCP 來源列', () => {
 });
 
 // -----------------------------------------------------------------------------
-// diffFile / diffDir：src 缺失 vs dest 缺失的對稱性
+// diffFile：src 缺失 vs dest 缺失的對稱性
 // 鎖住 runDiff（to-repo 方向）能正確報出「repo 有、本機沒有」的差異
 // -----------------------------------------------------------------------------
 test('diffFile：src 不存在但 dest 存在 → deleted（不能漏報）', () => {
@@ -587,65 +559,6 @@ test('diffFile：src 存在但 dest 不存在 → new', () => {
   });
 });
 
-test('diffDir：src 不存在但 dest 有檔 → 全部標 deleted', () => {
-  withTmpDir((dir) => {
-    const src = path.join(dir, 'missing');
-    const dest = path.join(dir, 'present');
-    fs.mkdirSync(dest);
-    fs.writeFileSync(path.join(dest, 'a.txt'), 'a');
-    fs.writeFileSync(path.join(dest, 'b.txt'), 'b');
-    const diffs = diffDir(src, dest);
-    assert.deepEqual(
-      diffs.map(d => ({ rel: d.rel, status: d.status })).sort((x, y) => x.rel.localeCompare(y.rel)),
-      [{ rel: 'a.txt', status: 'deleted' }, { rel: 'b.txt', status: 'deleted' }]
-    );
-  });
-});
-
-test('diffDir：src 與 dest 都不存在 → 空陣列', () => {
-  withTmpDir((dir) => {
-    assert.deepEqual(
-      diffDir(path.join(dir, 'a'), path.join(dir, 'b')),
-      []
-    );
-  });
-});
-
-// -----------------------------------------------------------------------------
-// diffDirItems / printToLocalPreview：dry-run 預覽須與 mirrorDir 實際刪除行為對齊
-// mirrorDir 在「src 目錄整個不存在」時提早返回、不刪本機檔（保守安全設計），
-// 故此情境的 deleted 應標記 preserved，讓 to-local 預覽不誤報「將刪除」。
-// 對稱地，「src 目錄存在但缺該檔」時 mirrorDir 會刪，deleted 不得標 preserved。
-// -----------------------------------------------------------------------------
-test('diffDirItems：repo 源目錄不存在 → deleted 標 preserved（mirrorDir 不會刪）', () => {
-  withTmpDir((dir) => {
-    const src = path.join(dir, 'repo-missing');
-    const dest = path.join(dir, 'local');
-    fs.mkdirSync(dest);
-    fs.writeFileSync(path.join(dest, 'a.toml'), 'a');
-    const entries = diffDirItems({ src, dest, label: 'agents', prefix: 'codex/' });
-    assert.equal(entries.length, 1);
-    assert.equal(entries[0].status, 'deleted');
-    assert.equal(entries[0].preserved, true, 'repo 無此目錄時 mirrorDir 不刪，應標 preserved');
-  });
-});
-
-test('diffDirItems：源目錄存在但缺該檔 → deleted 不標 preserved（mirrorDir 會刪）', () => {
-  withTmpDir((dir) => {
-    const src = path.join(dir, 'repo');
-    const dest = path.join(dir, 'local');
-    fs.mkdirSync(src);
-    fs.writeFileSync(path.join(src, 'keep.toml'), 'k');
-    fs.mkdirSync(dest);
-    fs.writeFileSync(path.join(dest, 'keep.toml'), 'k');
-    fs.writeFileSync(path.join(dest, 'extra.toml'), 'x');
-    const entries = diffDirItems({ src, dest, label: 'agents', prefix: 'codex/' });
-    const del = entries.find(e => e.status === 'deleted');
-    assert.ok(del, '應有一筆 deleted');
-    assert.notEqual(del.preserved, true, '源目錄存在時該檔會被刪，不得標 preserved');
-  });
-});
-
 test('diffFileItem：repo 缺來源檔 → deleted 標 preserved（copyFile 永不刪 dest）', () => {
   withTmpDir((dir) => {
     const src = path.join(dir, 'repo-missing.md');
@@ -659,9 +572,9 @@ test('diffFileItem：repo 缺來源檔 → deleted 標 preserved（copyFile 永�
 
 test('printToLocalPreview：preserved 的 deleted 不計入 previewStats.deleted', () => {
   const stats = printToLocalPreview([
-    { status: 'deleted', label: 'codex/agents/a.toml', preserved: true },
-    { status: 'deleted', label: 'claude/rules/b.md' },
-    { status: 'new', label: 'claude/rules/c.md' },
+    { status: 'deleted', label: 'codex/AGENTS.md', preserved: true },
+    { status: 'deleted', label: 'claude/CLAUDE.md' },
+    { status: 'new', label: 'gemini/GEMINI.md' },
   ]);
   assert.deepEqual(stats, { added: 1, updated: 0, deleted: 1 });
 });
@@ -684,24 +597,6 @@ test('buildFullDiffList：已有差異的 file 不重複補列', () => {
   const result = buildFullDiffList(items, diffItems);
   assert.equal(result.filter(d => d.label === 'claude/CLAUDE.md').length, 1);
   assert.equal(result[0].status, 'changed');
-});
-
-test('buildFullDiffList：dir 排在 file/settings 之後', () => {
-  const items = [
-    { label: 'skills', type: 'dir', src: '/s', dest: '/d' },
-    { label: 'CLAUDE.md', type: 'file', src: '/s2', dest: '/d2' },
-  ];
-  const result = buildFullDiffList(items, []);
-  const dirIdx = result.findIndex(d => d.label === 'claude/skills/');
-  const fileIdx = result.findIndex(d => d.label === 'claude/CLAUDE.md');
-  assert.ok(fileIdx < dirIdx, 'file 應排在 dir 之前');
-});
-
-test('buildFullDiffList：dir 已有細項差異時不補摘要行', () => {
-  const items = [{ label: 'skills', type: 'dir', src: '/s', dest: '/d' }];
-  const diffItems = [{ label: 'claude/skills/ob/a.md', status: 'changed', itemType: 'dir' }];
-  const result = buildFullDiffList(items, diffItems);
-  assert.equal(result.some(d => d.label === 'claude/skills/'), false);
 });
 
 // --- diffFileItem：deleted 以外的分支（deleted+preserved 已於上方涵蓋） -------
@@ -730,30 +625,27 @@ test('diffFileItem：兩端內容相同 → status 為 null（無差異）', () 
   });
 });
 
-// --- diffSyncItems：依 type 分派並攤平（file→1 筆、dir→N 筆、未知→略過） -------
+// --- diffSyncItems：依 type 分派並攤平（file→1 筆、未知→略過） -------------------
 
-test('diffSyncItems：file 型產出 1 筆、dir 型產出各檔差異，順序為 manifest 順序', () => {
+test('diffSyncItems：file 型各產出 1 筆，順序為 manifest 順序', () => {
   withTmpDir((dir) => {
-    const fileSrc = path.join(dir, 'repo.md');
-    const fileDest = path.join(dir, 'local.md');
-    fs.writeFileSync(fileSrc, 'A');
-    fs.writeFileSync(fileDest, 'B'); // changed
-    const dirSrc = path.join(dir, 'repo-dir');
-    const dirDest = path.join(dir, 'local-dir');
-    fs.mkdirSync(dirSrc);
-    fs.mkdirSync(dirDest);
-    fs.writeFileSync(path.join(dirSrc, 'x.md'), 'new file'); // new（dest 無）
+    const aSrc = path.join(dir, 'repo.md');
+    const aDest = path.join(dir, 'local.md');
+    fs.writeFileSync(aSrc, 'A');
+    fs.writeFileSync(aDest, 'B'); // changed
+    const bSrc = path.join(dir, 'repo-agents.md');
+    fs.writeFileSync(bSrc, 'new file'); // new（dest 無）
 
     const items = [
-      { type: 'file', src: fileSrc, dest: fileDest, label: 'CLAUDE.md', prefix: 'claude/' },
-      { type: 'dir', src: dirSrc, dest: dirDest, label: 'skills', prefix: 'claude/', excludePatterns: [] },
+      { type: 'file', src: aSrc, dest: aDest, label: 'CLAUDE.md', prefix: 'claude/' },
+      { type: 'file', src: bSrc, dest: path.join(dir, 'local-agents.md'), label: 'AGENTS.md', prefix: 'codex/' },
     ];
     const result = diffSyncItems(items, 'to-repo');
     assert.deepEqual(
       result.map(d => ({ label: d.label, status: d.status })),
       [
         { label: 'claude/CLAUDE.md', status: 'changed' },
-        { label: 'claude/skills/x.md', status: 'new' },
+        { label: 'codex/AGENTS.md', status: 'new' },
       ],
     );
   });
@@ -773,7 +665,7 @@ test('printToLocalPreview：changed 與 eol 皆計入 updated', () => {
   const stats = printToLocalPreview([
     { status: 'changed', label: 'claude/CLAUDE.md' },
     { status: 'eol', label: 'claude/statusline.sh' },
-    { status: 'new', label: 'claude/rules/a.md' },
+    { status: 'new', label: 'gemini/GEMINI.md' },
   ]);
   assert.deepEqual(stats, { added: 1, updated: 2, deleted: 0 });
 });
@@ -800,8 +692,8 @@ test('readJson：正常 JSON 解析為物件', () => {
 // -----------------------------------------------------------------------------
 // getFiles：非 ENOENT IO 錯誤必須拋出（不得靜默降級為空集）
 //
-// 空集在下游被當作「來源沒有任何檔案」，mirrorDir 據此把 dest 全體視為多餘檔刪除。
-// 若讀取失敗被吞成 []，一個暫時不可讀的 repo 目錄就會讓 to-local 清空本機對應目錄。
+// 空集在下游被當作「來源沒有任何檔案」：safety:check 據此把整個目錄當成無可掃描。
+// 若讀取失敗被吞成 []，一個暫時不可讀的 repo 目錄就會漏掃卻回報通過。
 // root 會繞過檔案權限（chmod 000 仍可讀）、Windows 的 chmod 只切 read-only
 // attribute 而非 POSIX 權限，兩者皆擋不住存取，故權限相關測試在該環境跳過
 // （itPosixPerms，見 test/helpers.js）。
@@ -836,27 +728,6 @@ itPosixPerms('getFiles：遞迴進入不可讀子目錄時同樣拋出（錯誤�
       assert.throws(() => getFiles(root), (e) => e instanceof SyncError);
     } finally {
       fs.chmodSync(sub, 0o700);
-    }
-  });
-});
-
-// 後果層回歸鎖：來源不可讀時 mirrorDir 必須中止，而非把 dest 當多餘檔清空
-itPosixPerms('mirrorDir：src 不可讀時拋錯中止，dest 既有檔案不得被當多餘檔刪除', () => {
-  withTmpDir((dir) => {
-    const src = path.join(dir, 'src');
-    const dest = path.join(dir, 'dest');
-    fs.mkdirSync(src);
-    fs.mkdirSync(dest);
-    fs.writeFileSync(path.join(src, 'a.md'), 'A');
-    fs.writeFileSync(path.join(dest, 'a.md'), 'A');
-    fs.writeFileSync(path.join(dest, 'b.md'), 'B');
-    fs.chmodSync(src, 0o000);
-    try {
-      assert.throws(() => mirrorDir(src, dest, [], false), (e) => e instanceof SyncError);
-      assert.equal(fs.existsSync(path.join(dest, 'a.md')), true, 'dest 檔案不得被刪');
-      assert.equal(fs.existsSync(path.join(dest, 'b.md')), true, 'dest 檔案不得被刪');
-    } finally {
-      fs.chmodSync(src, 0o700);
     }
   });
 });

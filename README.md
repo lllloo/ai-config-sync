@@ -270,7 +270,7 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 
 ### 原子寫入與中斷可見度
 
-- 所有檔案寫入（JSON、文字、目錄鏡射）皆透過底層 `writeFileSafe` 使用 atomic write（先寫同目錄暫存檔再 rename），避免中途斷電／中斷導致檔案損壞。
+- 所有檔案寫入（JSON、文字）皆透過底層 `writeFileSafe` 使用 atomic write（先寫同目錄暫存檔再 rename），避免中途斷電／中斷導致檔案損壞。
 - 同步中途因錯誤中斷時，已寫入的變更會逐項列出並警告「已寫入 N 筆變更」，不會無聲消失。操作歷史由 git 承載（to-repo 完成後即顯示 git status）。
 
 ## 刻意不同步
@@ -283,7 +283,7 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 
 - Skills 不在自動同步範圍（含自寫的 [lllloo/skills](https://github.com/lllloo/skills)），一律經 `npx skills` 安裝，用 `npm run skills:diff` 查看差異。
 - **本地 skill 層已移除**：`.agents/skills/` 與 `.claude/skills` symlink 因長期無住戶已刪除。要恢復就建 `.agents/skills/<name>/SKILL.md`，Claude Code 端再補回 `.claude/skills` → `../.agents/skills` symlink（Windows clone 需開啟「開發者模式」才會還原成真 symlink，否則會 fallback 成純文字檔）；Codex 原生把 `.agents/skills`（專案層）與 `~/.agents/skills`（全域層）納入探索路徑、不需 symlink。
-- Agents 目前不在同步範圍：Claude／Codex 皆未列 agents 同步項目（原 `everything-claude-code` agent 庫已整批移除），日後有需要再於 `SYNC_MANIFEST` 加回。
+- Agents 目前不在同步範圍：Claude／Codex 皆未列 agents 同步項目（原 `everything-claude-code` agent 庫已整批移除），目錄型同步（整目錄鏡射 + 刪除多餘檔）已整個移除，日後要同步 agents 須先重新設計。
 
 ## 專案檔案
 
@@ -299,7 +299,7 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 | `test/settings.test.js` | settings.json 純函式與 `mergeSettingsBetween` 同步心臟測試 |
 | `test/toml-reader.test.js` | TOML 讀取器測試（`safety:check` section 歸屬的回歸網） |
 | `test/skills.test.js` | skills 模組純函式與 deps-bound helper 測試（經 `createSkillsHandler` 注入） |
-| `test/fs-mirror.test.js` | 目錄鏡射與部分失敗可見度測試（`cleanEmptyDirs`、`mirrorDir`、`warnPartialApply`） |
+| `test/partial-apply.test.js` | 部分失敗可見度測試（`warnPartialApply`，spawn 真實 to-local／to-repo） |
 | `test/diff-integration.test.js` | diff 整合測試 |
 | `test/apply-integration.test.js` | 沙箱化 to-local／to-repo 端到端 apply 測試 |
 | `test/boundary.test.js` | 邊界情境與安全防線測試（含 `safety:check` sandbox、功能模組不得反向 require `sync.js` 的回歸鎖） |
