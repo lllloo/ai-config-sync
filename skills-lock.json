@@ -12,10 +12,6 @@
     "bmad-goal": {
       "source": "lllloo/skills",
       "sourceType": "github"
-    },
-    "herdr-agent": {
-      "source": "lllloo/skills",
-      "sourceType": "github"
     }
   }
 }
