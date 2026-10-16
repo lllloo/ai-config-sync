@@ -22,7 +22,6 @@ const {
   toRelativePath,
   buildSyncItems,
   materializeSyncItem,
-  getFiles,
   SYNC_MANIFEST,
   SYNC_AREAS,
   SyncError,
@@ -31,11 +30,10 @@ const {
   DEVICE_SETTINGS_KEYS,
   KEYED_NOTICE_SETTINGS_KEYS,
 } = require('../sync.js');
-const {
-  SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES,
-  SAFETY_SCAN_DIRS,
-} = require('../safety-check.js');
-const { withArgv, withTmpDir, withTmpFile, itPosixPerms } = require('./helpers');
+const { SAFETY_SCAN_DIRS } = require('../safety-check.js');
+const { withArgv, withTmpDir, withTmpFile, itPosixPerms, loadGetFiles } = require('./helpers');
+
+const getFiles = loadGetFiles();
 
 // -----------------------------------------------------------------------------
 // statusToStatsKey
@@ -260,14 +258,6 @@ test('README drift-guard：KEYED_NOTICE_SETTINGS_KEYS 欄位皆載於 README', (
     assert.ok(README.includes(`\`${key}\``), `README 未載明鍵級提示欄位：${key}`);
   }
   assert.ok(README.includes('KEYED_NOTICE_SETTINGS_KEYS'), 'README 未載明 KEYED_NOTICE_SETTINGS_KEYS 常數名');
-});
-
-// CLAUDE.md 修改守則宣稱「增減排除目錄須改常數與 README（drift-guard 測試把關）」，
-// 此測試讓該宣稱成真：SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES 增減未跟 README 即 fail。
-test('README drift-guard：safety text 掃描排除目錄皆載於 README', () => {
-  for (const prefix of SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES) {
-    assert.ok(README.includes(`\`${prefix}\``), `README 未載明 text 掃描排除目錄：${prefix}`);
-  }
 });
 
 test('README drift-guard：已審核 env key（SAFETY_REVIEWED_ENV_KEYS）皆載於 README', () => {

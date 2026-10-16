@@ -83,4 +83,20 @@ function noColorEnv(overrides = {}) {
   return env;
 }
 
-module.exports = { withArgv, withTmpDir, withTmpFile, noColorEnv, POSIX_PERM_SKIP, itPosixPerms };
+/**
+ * 取得 safety checker 的 getFiles：目錄走訪住在 createSafetyChecker 閉包內，
+ * 以 sync.js 的真實共用工具注入建立（拋出的錯誤才會是 sync.js 的 SyncError）。
+ * col 換成無色恆等函式，讓 warn 輸出不帶色碼。
+ * @returns {(dir: string) => string[]}
+ */
+function loadGetFiles() {
+  const { toSyncFsError, readFileSafe, readJson, toRelativePath, maskHome, EXIT_OK, EXIT_DIFF, EXIT_ERROR } = require('../sync.js');
+  const { createSafetyChecker } = require('../safety-check.js');
+  const col = new Proxy({}, { get: () => (s) => s });
+  return createSafetyChecker({
+    REPO_ROOT: path.join(__dirname, '..'), toSyncFsError, readFileSafe, readJson, toRelativePath, maskHome, col,
+    EXIT_OK, EXIT_DIFF, EXIT_ERROR,
+  }).getFiles;
+}
+
+module.exports = { withArgv, withTmpDir, withTmpFile, noColorEnv, POSIX_PERM_SKIP, itPosixPerms, loadGetFiles };

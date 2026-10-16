@@ -78,7 +78,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 ## 修改守則
 
 - **設計流程用 Superpowers**：spec 放 `docs/superpowers/specs/`、plan 放 `docs/superpowers/plans/`。
-- **README 須同步更新**：新增／移除指令、改變同步項目或行為、新增旗標時必跟。指令清單、旗標表、`--help`、`DEVICE_SETTINGS_KEYS`／`KEYED_NOTICE_SETTINGS_KEYS`、safety 的排除清單與掃描目錄皆有 drift-guard 測試把關，其餘敘述靠人工。
+- **README 須同步更新**：新增／移除指令、改變同步項目或行為、新增旗標時必跟。指令清單、旗標表、`--help`、`DEVICE_SETTINGS_KEYS`／`KEYED_NOTICE_SETTINGS_KEYS`、safety 的掃描目錄皆有 drift-guard 測試把關，其餘敘述靠人工。
 - **settings.json 黑名單制**：增減排除欄位只改 `DEVICE_SETTINGS_KEYS` 常數與 README；敏感命名 key 與 `env` 照常同步，由 `safety:check` 審核。
 - **安全審核由 `safety:check` 承擔**（分類與 exit code 見 README「安全檢查」）：commit 前必跑。同步流程遇到新的 env key warning，使用者審核後可提議加進 `SAFETY_REVIEWED_ENV_KEYS`（敏感命名 key 不得列入）。輸出**不得**顯示 secret 原值、env 值或完整 HOME 路徑；`diff` 不印設定內容。
 

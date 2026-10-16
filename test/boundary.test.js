@@ -13,8 +13,6 @@ const {
   toRelativePath,
   maskHome,
   isEolOnlyDiff,
-  isPathInside,
-  getFiles,
   copyFile,
   applySyncItems,
   readFileSafe,
@@ -34,7 +32,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
-const { withArgv, withTmpDir, noColorEnv } = require('./helpers');
+const { isPathInside } = require('../safety-check.js');
+const { withArgv, withTmpDir, noColorEnv, loadGetFiles } = require('./helpers');
+
+const getFiles = loadGetFiles();
 
 // =============================================================================
 // 安全：askConfirm 在非互動環境的行為（避免 to-local 卡死或靜默 no-op）
@@ -875,20 +876,17 @@ test('safety:check：claude/agents 已自豁免清單移除（agent 庫已不同
   }
 });
 
-// 回歸（#8）：SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES 曾整棵排除全域 skill 樹根，而那是
-// 掃描來源根目錄之一的**全部內容**——等於整棵樹不受 secret／私鑰／HOME 路徑掃描。
-// 清單現為空，此測試鎖住「來源根不得被整棵豁免」。全域 skill 已拆出 lllloo/skills，
-// `skills/` 不再是本 repo 的掃描來源。
-test('safety:check：來源根不得整棵排除，且 skills/、agents/ 已不在掃描射程', () => {
-  const { SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES, SAFETY_SCAN_DIRS } = require('../safety-check.js');
+// 回歸（#8）：text 掃描曾有排除清單，並誤把全域 skill 樹根整棵排除——等於整棵樹不受
+// secret／私鑰／HOME 路徑掃描。排除清單已整個移除，此測試鎖住「來源根下的子目錄一律受掃」。
+// 全域 skill 已拆出 lllloo/skills，`skills/` 不再是本 repo 的掃描來源。
+test('safety:check：來源根下子目錄一律受掃，且 skills/、agents/ 已不在掃描射程', () => {
+  const { SAFETY_SCAN_DIRS } = require('../safety-check.js');
   assert.ok(!SAFETY_SCAN_DIRS.includes('skills'), 'skills/ 已拆出獨立 repo，不得留在 SAFETY_SCAN_DIRS');
   assert.ok(!SAFETY_SCAN_DIRS.includes('agents'), 'agents/ 已不存在，不得留在 SAFETY_SCAN_DIRS');
-  assert.ok(!SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES.some(p => ['claude/', 'codex/', 'gemini/'].includes(p)),
-    '排除清單不得含來源根目錄本身');
 
   const { repo, root } = setupSafetySandbox();
   try {
-    // claude/skills/ 已隨同步層移除自豁免清單撤除（repo 已無此目錄，排除屬預防性列名）：
+    // claude/skills/ 曾在豁免清單上（repo 已無此目錄）：
     // 若日後重新引入且含機密樣式，text pattern 應照常攔截
     writeSafetyText(repo, 'claude/skills/demo/SKILL.md', '範例：ghp_' + 'z'.repeat(24) + '\n');
     const r2 = runSafety(repo);

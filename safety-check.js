@@ -8,17 +8,14 @@
 // 本檔不作為獨立 CLI 執行。
 //
 // 邊界原則：
-// - 不反向 require sync.js；共用工具（REPO_ROOT、getFiles、readFileSafe、
+// - 不反向 require sync.js；共用工具（REPO_ROOT、toSyncFsError、readFileSafe、
 //   readJson、toRelativePath、maskHome、col、EXIT_*）由 sync.js 經
 //   createSafetyChecker(deps) 注入，sync.js 以 lazy singleton 建立 checker
 //   （避開 const 相依的 TDZ），runSafetyCheck／runSafetyChecks 僅為轉接。
 // - safety 專屬常數（SENSITIVE_KEY_PATTERN 等 pattern、SETTINGS_HARD_BLOCK_KEYS、
 //   掃描範圍）由本檔持有並匯出，測試直接 require 本模組（sync.js 不 re-export）。
-//
-// text pattern 掃描（scanSafetyTextFile：secret／私鑰／HOME 路徑）於
-// runSafetyChecks 逐檔迴圈中對命中 SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES 的檔略過。
-// **該清單目前為空**——排除的粒度必須是「具體的上游鏡射子目錄」，不得是整個
-// 來源根（曾誤列跨工具全域 skill 樹的根目錄，等於整棵樹不受掃描），詳見常數註解。
+// - 掃描範圍的目錄走訪（getFiles，含 symlink 逃逸防護）由本檔持有：sync.js 的
+//   同步項目皆為單檔，目錄走訪只剩 safety:check 使用。
 // =============================================================================
 
 const fs = require('fs');
@@ -95,17 +92,21 @@ function isReviewedEnvKey(key) {
 /** safety:check 僅掃同步來源，不掃 test/docs/README 等文件 */
 const SAFETY_SCAN_DIRS = ['claude', 'codex', 'gemini'];
 
+/** 走訪掃描範圍時永遠略過的檔名 */
+const SCAN_EXCLUDE_NAMES = ['.DS_Store'];
+
 /**
- * text pattern 掃描（secret／私鑰／HOME 路徑）排除的外部套件文件目錄前綴
- * （相對 REPO_ROOT 的 POSIX 前綴）。**目前為空**：唯一的排除項曾是全域 skill 樹根，
- * 但那是掃描來源根目錄之一的**全部內容**，等同在最大的同步來源上開了個洞；
- * 全域 skill 已拆出 lllloo/skills、不在本 repo 射程內，該排除項亦隨之撤除。
- *
- * 日後若真的引入原樣鏡射的上游套件文件（為說明偵測規則本就含 token／路徑樣式，
- * 掃它天生整類 false positive），只列**該 package 的具體子目錄**，不得整棵樹排除。
- * 排除只作用於 text 掃描；結構化 .json 掃描（含 hard block）不受影響。
+ * 判斷 target 路徑（已解析的 realpath）是否落在 root 目錄（或其子目錄）之內
+ * 用於阻擋 symlink 逃逸出掃描目錄
+ * @param {string} targetReal - 已 realpath 的目標絕對路徑
+ * @param {string} rootReal - 已 realpath 的根目錄絕對路徑
+ * @returns {boolean}
  */
-const SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES = [];
+function isPathInside(targetReal, rootReal) {
+  if (targetReal === rootReal) return true;
+  const root = rootReal.endsWith(path.sep) ? rootReal : rootReal + path.sep;
+  return targetReal.startsWith(root);
+}
 
 /** 純函式：回傳第一個命中 pattern 的行號（1-based），無則 null */
 function findFirstMatchingLine(content, pattern) {
@@ -121,7 +122,7 @@ function findFirstMatchingLine(content, pattern) {
  * 內部掃描與輸出函式閉包捕捉 deps，避免逐一穿參或反向 require。
  * @param {{
  *   REPO_ROOT: string,
- *   getFiles: (dir: string) => string[],
+ *   toSyncFsError: (e: Error, filePath: string, op: string) => Error,
  *   readFileSafe: (filePath: string, op?: string, encoding?: string) => string|Buffer,
  *   readJson: (filePath: string) => object,
  *   toRelativePath: (filePath: string) => string,
@@ -129,10 +130,77 @@ function findFirstMatchingLine(content, pattern) {
  *   col: Record<string, (s: string) => string>,
  *   EXIT_OK: number, EXIT_DIFF: number, EXIT_ERROR: number,
  * }} deps
- * @returns {{ runSafetyCheck: () => number, runSafetyChecks: () => object[], printSafetyReport: (issues: object[]) => void }}
+ * @returns {{ runSafetyCheck: () => number, runSafetyChecks: () => object[], printSafetyReport: (issues: object[]) => void, getFiles: (dir: string) => string[] }}
  */
 function createSafetyChecker(deps) {
-  const { REPO_ROOT, getFiles, readFileSafe, readJson, toRelativePath, maskHome, col, EXIT_OK, EXIT_DIFF, EXIT_ERROR } = deps;
+  const { REPO_ROOT, toSyncFsError, readFileSafe, readJson, toRelativePath, maskHome, col, EXIT_OK, EXIT_DIFF, EXIT_ERROR } = deps;
+
+  /**
+   * 遞迴列出目錄下所有檔案的相對路徑
+   * - 目錄不存在（ENOENT）視為空集，其他 IO 錯誤必須拋出避免誤判
+   *   （空集被下游當作「無檔案」，若靜默吞錯會讓 safety:check 漏掃整個目錄卻回報通過）
+   * - symlink 指向的檔案若 realpath 逃出 dir 外，直接跳過（防止把 ~/.ssh 等敏感檔當成掃描對象）
+   * @param {string} dir - 目錄路徑
+   * @param {string} [base=''] - 基底路徑（遞迴用）
+   * @param {string} [rootReal] - 根目錄的 realpath（遞迴沿用，避免重複解析）
+   * @returns {string[]} 相對路徑陣列
+   * @throws {SyncError} 目錄讀取失敗（非 ENOENT）
+   */
+  function getFiles(dir, base = '', rootReal) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (e) {
+      if (e.code === 'ENOENT') return [];
+      throw toSyncFsError(e, dir, '讀取目錄');
+    }
+    if (!rootReal) {
+      // realpathSync 失敗會讓後續 isPathInside 防護失效（symlink 可能逃逸），
+      // 因此非 ENOENT 錯誤必須 throw，不靜默降級
+      try {
+        rootReal = fs.realpathSync(dir);
+      } catch (e) {
+        if (e.code === 'ENOENT') return [];
+        throw toSyncFsError(e, dir, '解析目錄真實路徑');
+      }
+    }
+    const result = [];
+    for (const entry of entries) {
+      if (SCAN_EXCLUDE_NAMES.includes(entry.name)) continue;
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isSymbolicLink() && !isSymlinkFileInside(entryPath, rootReal)) continue;
+      const rel = base ? `${base}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        result.push(...getFiles(entryPath, rel, rootReal));
+      } else {
+        result.push(rel);
+      }
+    }
+    return result;
+  }
+
+  // symlink 須指向根目錄內的檔案才納入；ENOENT（broken link）靜默跳過，
+  // 其他 IO 錯誤 warn 後跳過，方便排查。指向目錄的 symlink 一律不跟進。
+  function isSymlinkFileInside(entryPath, rootReal) {
+    let real;
+    try {
+      real = fs.realpathSync(entryPath);
+    } catch (e) {
+      if (e.code !== 'ENOENT') {
+        console.warn(col.yellow(`  [warn] 解析 symlink 失敗（${e.code}）：${toRelativePath(entryPath)}`));
+      }
+      return false;
+    }
+    if (!isPathInside(real, rootReal)) return false;
+    try {
+      return !fs.statSync(entryPath).isDirectory();
+    } catch (e) {
+      if (e.code !== 'ENOENT') {
+        console.warn(col.yellow(`  [warn] 讀取 symlink 屬性失敗（${e.code}）：${toRelativePath(entryPath)}`));
+      }
+      return false;
+    }
+  }
 
   // detail 除本機 HOME 遮罩外，再套通用 HOME 路徑遮罩（key path 原文可能
   // 內嵌**別台裝置**的家目錄，maskHome 抓不到，見 ANY_HOME_PATH_PATTERN）與 secret
@@ -203,17 +271,10 @@ function createSafetyChecker(deps) {
     else if (rel.endsWith('.json')) scanJsonKeyWarnings(filePath, issues);
   }
 
-  function isTextScanExcluded(filePath) {
-    const rel = toRelativePath(filePath).replace(/\\/g, '/');
-    return SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES.some(prefix => rel.startsWith(prefix));
-  }
-
   function runSafetyChecks() {
     const issues = [];
     for (const filePath of collectSafetyScanFiles()) {
-      // 排除清單內的外部套件文件只略過 text pattern 掃描；結構化掃描仍跑
-      // （對 .md no-op、對未來 .json 保留 hard block 偵測）
-      if (!isTextScanExcluded(filePath)) scanSafetyTextFile(filePath, issues);
+      scanSafetyTextFile(filePath, issues);
       scanSafetyStructuredFile(filePath, issues);
     }
     return issues;
@@ -249,7 +310,7 @@ function createSafetyChecker(deps) {
     return issues.length ? EXIT_DIFF : EXIT_OK;
   }
 
-  return { runSafetyCheck, runSafetyChecks, printSafetyReport };
+  return { runSafetyCheck, runSafetyChecks, printSafetyReport, getFiles };
 }
 
 // 只導出有外部消費者（sync.js 或 test/）的成員。findFirstMatchingLine／HOME_PATH_PATTERN／
@@ -262,5 +323,5 @@ module.exports = {
   SETTINGS_HARD_BLOCK_KEYS,
   SAFETY_REVIEWED_ENV_KEYS,
   SAFETY_SCAN_DIRS,
-  SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES,
+  isPathInside,
 };

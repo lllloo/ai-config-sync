@@ -51,9 +51,6 @@ const DEVICE_SETTINGS_KEYS = [
  */
 const KEYED_NOTICE_SETTINGS_KEYS = ['enabledPlugins'];
 
-/** 永遠排除的檔案名稱 */
-const GLOBAL_EXCLUDE = ['.DS_Store'];
-
 /** help 指令排版用欄寬 */
 const CMD_COL_WIDTH = 16;
 
@@ -410,84 +407,6 @@ function preserveExecMode(src, dest) {
   } catch (e) {
     throw toSyncFsError(e, dest, '還原執行權限');
   }
-}
-
-/**
- * 判斷 target 路徑（已解析的 realpath）是否落在 root 目錄（或其子目錄）之內
- * 用於阻擋 symlink 逃逸出同步目錄
- * @param {string} targetReal - 已 realpath 的目標絕對路徑
- * @param {string} rootReal - 已 realpath 的根目錄絕對路徑
- * @returns {boolean}
- */
-function isPathInside(targetReal, rootReal) {
-  if (targetReal === rootReal) return true;
-  const root = rootReal.endsWith(path.sep) ? rootReal : rootReal + path.sep;
-  return targetReal.startsWith(root);
-}
-
-/**
- * 遞迴列出目錄下所有檔案的相對路徑
- * - 目錄不存在（ENOENT）視為空集，其他 IO 錯誤必須拋出避免誤判
- *   （空集被下游當作「無檔案」，若靜默吞錯會讓 safety:check 漏掃整個目錄卻回報通過）
- * - symlink 指向的檔案若 realpath 逃出 dir 外，直接跳過（防止洩漏 ~/.ssh 等敏感檔）
- * @param {string} dir - 目錄路徑
- * @param {string} [base=''] - 基底路徑（遞迴用）
- * @param {string} [rootReal] - 根目錄的 realpath（遞迴沿用，避免重複解析）
- * @returns {string[]} 相對路徑陣列
- * @throws {SyncError} 目錄讀取失敗（非 ENOENT）
- */
-function getFiles(dir, base = '', rootReal) {
-  let entries;
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch (e) {
-    if (e.code === 'ENOENT') return [];
-    throw toSyncFsError(e, dir, '讀取目錄');
-  }
-  if (!rootReal) {
-    // realpathSync 失敗會讓後續 isPathInside 防護失效（symlink 可能逃逸），
-    // 因此非 ENOENT 錯誤必須 throw，不靜默降級
-    try {
-      rootReal = fs.realpathSync(dir);
-    } catch (e) {
-      if (e.code === 'ENOENT') return [];
-      throw toSyncFsError(e, dir, '解析目錄真實路徑');
-    }
-  }
-  const result = [];
-  for (const entry of entries) {
-    if (GLOBAL_EXCLUDE.includes(entry.name)) continue;
-    const entryPath = path.join(dir, entry.name);
-    if (entry.isSymbolicLink()) {
-      // 先驗證 symlink 目標仍在根目錄內，避免把 repo 外的敏感檔同步進來
-      // ENOENT（broken link）靜默跳過；其他 IO 錯誤 warn 後跳過，方便排查
-      let real;
-      try {
-        real = fs.realpathSync(entryPath);
-      } catch (e) {
-        if (e.code !== 'ENOENT') {
-          console.warn(col.yellow(`  [warn] 解析 symlink 失敗（${e.code}）：${toRelativePath(entryPath)}`));
-        }
-        continue;
-      }
-      if (!isPathInside(real, rootReal)) continue;
-      try {
-        if (fs.statSync(entryPath).isDirectory()) continue;
-      } catch (e) {
-        if (e.code !== 'ENOENT') {
-          console.warn(col.yellow(`  [warn] 讀取 symlink 屬性失敗（${e.code}）：${toRelativePath(entryPath)}`));
-        }
-        continue;
-      }
-    }
-    const rel = base ? `${base}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) {
-      result.push(...getFiles(entryPath, rel, rootReal));
-    } else {
-      result.push(rel);
-    }
-  }
-  return result;
 }
 
 // =============================================================================
@@ -1150,7 +1069,7 @@ let _safetyChecker = null;
 function safetyChecker() {
   if (!_safetyChecker) {
     _safetyChecker = safetyCheckModule.createSafetyChecker({
-      REPO_ROOT, getFiles, readFileSafe, readJson, toRelativePath, maskHome, col,
+      REPO_ROOT, toSyncFsError, readFileSafe, readJson, toRelativePath, maskHome, col,
       EXIT_OK, EXIT_DIFF, EXIT_ERROR,
     });
   }
@@ -1596,8 +1515,6 @@ if (require.main === module) {
     // 純函式 / 輔助：供單元測試使用
     diffFile,
     isEolOnlyDiff,
-    isPathInside,
-    getFiles,
     copyFile,
     applySyncItems,
     diffSyncItems,

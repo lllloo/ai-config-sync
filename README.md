@@ -138,7 +138,7 @@ node sync.js to-local
 
 **已審核 env key**（`SAFETY_REVIEWED_ENV_KEYS`）：`EDITOR`、`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`CLAUDE_CODE_DISABLE_MOUSE`、`CLAUDE_CODE_DISABLE_MOUSE_CLICKS` 已人工審核，不再每次報 warning。只關 warning——值仍受 token／私鑰／HOME 路徑掃描；新出現的 env key 照報。命中敏感命名 pattern 的 key（`*_API_KEY`、`*_TOKEN` 等）不得列入，即使列入也照報。增減須改常數與本節（drift-guard 測試把關）。
 
-**text pattern 掃描的排除**：secret／私鑰／HOME 路徑的字串掃描支援排除清單（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`），**目前為空**。要排除時粒度必須是具體子目錄（如 `<area>/<pkg>/references/`），不得是來源根；排除只作用於 text 掃描，`.json` 的 hard block 不受影響。
+**掃描範圍無排除**：掃描目錄下的所有檔案（含子目錄）都受 secret／私鑰／HOME 路徑字串掃描，沒有排除清單；僅略過 `.DS_Store` 與逃出掃描目錄的 symlink。
 
 **輸出遮罩**：issue detail（key path）另套通用家目錄遮罩（涵蓋來自別台裝置的家目錄）與 secret 遮罩（token 誤當 key 名時以 `***` 輸出）。
 
