@@ -91,14 +91,15 @@ const COMMANDS = {
  * @property {string} src - 來源路徑
  * @property {string} dest - 目的路徑
  * @property {'file'|'settings'} type - 項目類型
- * @property {string} [prefix] - 顯示路徑前綴（預設 'claude/'，codex 同步項用 'codex/'）
+ * @property {string} prefix - 顯示路徑前綴（取自 SYNC_AREAS，如 'claude/'、'codex/'）
+ * @property {string} [area] - 對應 SYNC_AREAS 的 key（materializeSyncItem 產出時必有）
  */
 
 /**
  * @typedef {Object} ParsedArgs
  * @property {string|null} command - 指令名稱
  * @property {boolean} dryRun - 是否為 dry-run 模式
- * @property {boolean} yes - 是否略過互動確認（--yes/--force）
+ * @property {boolean} yes - 是否略過互動確認（--yes）
  * @property {boolean} noColor - 是否強制關閉色彩輸出（--no-color）
  * @property {boolean} verbose - 是否為 verbose 模式
  * @property {boolean} showVersion - 是否顯示版本
@@ -250,93 +251,9 @@ function maskHome(text) {
 }
 
 // =============================================================================
-// Section: Tempfile Registry -- 暫存檔管理
-// 確保暫存檔在任何退出路徑（含 SIGINT）都被清理
-// =============================================================================
-
-/** @type {Set<string>} 追蹤所有待清理的暫存檔路徑 */
-const tempFiles = new Set();
-
-/**
- * 註冊暫存檔路徑，會在 process exit 時自動清理
- * @param {string} filePath - 暫存檔路徑
- * @returns {void}
- */
-function registerTempFile(filePath) {
-  tempFiles.add(filePath);
-}
-
-/**
- * 清理所有已註冊的暫存檔
- * @returns {void}
- */
-function cleanupTempFiles() {
-  for (const f of tempFiles) {
-    try { fs.unlinkSync(f); } catch (_) { /* 忽略清理錯誤 */ }
-  }
-  tempFiles.clear();
-}
-
-// 註冊 exit handler，確保暫存檔必定清理
-process.on('exit', cleanupTempFiles);
-
-// =============================================================================
-// Section: Signal Handling -- 中斷訊號處理
-// 攔截 SIGINT/SIGTERM，清理暫存檔並以正確 exit code 退出
-// =============================================================================
-
-/**
- * 處理中斷訊號：清理暫存檔後以 re-raise signal 方式退出，
- * 讓 OS 設定正確的 exit code。
- *
- * **不報告「部分寫入」**：signal handler 是 event loop 上的 JS callback，
- * 而 applySyncItems 的寫入是一整段無 await 的同步程式碼——訊號在寫入期間送達時
- * handler 排不進去，等它執行時該批寫入早已跑完。過去此處有個 `if (isWriting)`
- * 分支想印中斷警告，但該旗標在 handler 實際執行時必為 false，是條永遠不成立的
- * dead code（誤導成「訊號中斷已有可見度保證」）。
- *
- * 反過來說，這也表示**訊號不會造成寫到一半的狀態**：就 signal 而言，一批寫入
- * 要嘛整批完成、要嘛尚未開始。真正可能產生部分寫入的只有例外路徑（前面項目已寫、
- * 後面項目拋錯），其可見度由 applySyncItems 附掛的 applied + warnPartialApply 承擔。
- * @param {string} signal
- * @returns {void}
- */
-function handleSignal(signal) {
-  cleanupTempFiles();
-  // 移除自身 handler 後 re-raise signal，讓 OS 設定正確的 exit code
-  process.removeListener(signal, handleSignal);
-  // Windows 不支援 signal re-raise（會拋 ESRCH），改用慣例 exit code
-  if (process.platform === 'win32') {
-    process.exit(130); // 128 + SIGINT(2)
-  } else {
-    process.kill(process.pid, signal);
-  }
-}
-
-process.on('SIGINT', handleSignal);
-process.on('SIGTERM', handleSignal);
-
-// =============================================================================
 // Section: FS Utilities -- 檔案系統工具函式
 // 封裝檔案讀寫操作，加入防禦性檢查與錯誤處理
 // =============================================================================
-
-/**
- * 檢查檔案讀取權限
- * @param {string} filePath - 要檢查的檔案路徑
- * @throws {SyncError} 當檔案無法讀取時
- * @returns {void}
- */
-function checkReadAccess(filePath) {
-  try {
-    fs.accessSync(filePath, fs.constants.R_OK);
-  } catch (e) {
-    if (e.code === 'ENOENT') {
-      throw new SyncError(`檔案不存在：${toRelativePath(filePath)}`, ERR.FILE_NOT_FOUND, { path: filePath });
-    }
-    throw new SyncError(`無法讀取檔案：${toRelativePath(filePath)}`, ERR.PERMISSION, { path: filePath });
-  }
-}
 
 /**
  * 檢查檔案寫入權限（若檔案已存在）
@@ -393,6 +310,8 @@ function readJson(filePath) {
  * 設定同步檔對持久性需求低，刻意不付 fsync 成本（Windows 對目錄 fsync 亦不可靠）。
  * tmpPath 與目標同目錄，確保 rename 在同一檔案系統內、不觸發 EXDEV；
  * 失敗時清理暫存檔並包成 SyncError。content 可為 string 或 Buffer。
+ * 整段為無 await 的同步碼：SIGINT 等訊號的 handler 排不進寫入中途，
+ * 故不需暫存檔登記表或訊號清理——暫存檔只會在此函式內被建立並 rename／刪除。
  * @param {string} filePath - 目標檔案路徑
  * @param {string|Buffer} content - 要寫入的內容
  * @param {string} [op='寫入檔案'] - 操作名稱（中文），用於錯誤訊息
@@ -403,7 +322,6 @@ function writeFileSafe(filePath, content, op = '寫入檔案') {
   ensureDir(path.dirname(filePath));
   // 隨機尾碼避免 PID 命名在平行化時撞名；mode 0600 在 rename 前不以預設 umask（常 0644）暴露
   const tmpPath = `${filePath}.tmp.${crypto.randomBytes(6).toString('hex')}`;
-  registerTempFile(tmpPath);
   try {
     // flag 'wx'（O_EXCL）：暫存檔必為本次新建，拒絕跟隨既存 symlink（縱深防禦）
     fs.writeFileSync(tmpPath, content, { mode: 0o600, flag: 'wx' });
@@ -411,8 +329,6 @@ function writeFileSafe(filePath, content, op = '寫入檔案') {
   } catch (e) {
     try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
     throw toSyncFsError(e, filePath, op);
-  } finally {
-    tempFiles.delete(tmpPath);
   }
 }
 
@@ -468,7 +384,6 @@ function readFileSafe(filePath, op = '讀取檔案', encoding) {
  */
 function copyFile(src, dest, dryRun = false) {
   if (!fs.existsSync(src)) return false;
-  checkReadAccess(src);
   const srcContent = readFileSafe(src, '讀取');
   const needsWrite = !fs.existsSync(dest) || !srcContent.equals(readFileSafe(dest, '讀取'));
   if (needsWrite && !dryRun) {
@@ -701,10 +616,10 @@ function serializeSettings(obj) {
 }
 
 /**
- * env key 不再由同步流程剝除；僅移除空 env 物件，避免 repo 產生無內容區塊。
+ * env key 不由同步流程剝除；僅移除空 env 物件，避免 repo 產生無內容區塊。
  * @param {Record<string, unknown>} data
  */
-function stripDeviceEnv(data) {
+function dropEmptyEnv(data) {
   if (!data.env || typeof data.env !== 'object') return;
   if (Object.keys(data.env).length === 0) delete data.env;
 }
@@ -736,7 +651,7 @@ function loadStrippedSettings(filePath) {
   if (!fs.existsSync(filePath)) return null;
   const data = readJson(filePath);
   const { portable, device } = partitionSettingsTopLevel(data);
-  stripDeviceEnv(portable);
+  dropEmptyEnv(portable);
   return { clean: portable, serialized: serializeSettings(portable), dropped: Object.keys(device) };
 }
 
@@ -752,7 +667,7 @@ function loadStrippedSettings(filePath) {
  */
 function loadRepoPortableSettings(repoPath) {
   const { portable } = partitionSettingsTopLevel(readJson(repoPath));
-  stripDeviceEnv(portable);
+  dropEmptyEnv(portable);
   return { clean: portable, serialized: serializeSettings(portable) };
 }
 
@@ -998,13 +913,12 @@ function compareStrippedToRepo(strippedContent, repoPath, op) {
 }
 
 /**
- * 統一構造同步項目的顯示標籤：`<prefix><label>`。
- * prefix 由 materialize 保證存在；`|| 'claude/'` 為手工建構 item 的防呆 fallback。
+ * 統一構造同步項目的顯示標籤：`<prefix><label>`（prefix 由 materialize 取自 SYNC_AREAS）
  * @param {SyncItem} item
  * @returns {string}
  */
 function itemLabel(item) {
-  return `${item.prefix || 'claude/'}${item.label}`;
+  return `${item.prefix}${item.label}`;
 }
 
 /**
@@ -1037,8 +951,11 @@ function diffSettingsItem(item, direction) {
     return { ...base, status: repoStr === stripped.serialized ? null : 'changed', src: null };
   }
 
-  // to-repo：本機 stripped → repo
-  if (!fs.existsSync(localPath)) return { ...base, status: null, src: null };
+  // to-repo：本機 stripped → repo。本機缺檔、repo 有檔與 file 型一致回 'deleted'
+  // （repo 有、本機沒有），否則新裝置會被 diff 誤判一致
+  if (!fs.existsSync(localPath)) {
+    return { ...base, status: fs.existsSync(repoPath) ? 'deleted' : null, src: null };
+  }
   const stripped = loadStrippedSettings(localPath);
   if (stripped === null) return { ...base, status: null, src: null };
   const status = fs.existsSync(repoPath)
@@ -1077,6 +994,22 @@ function applyFileItem(item, dryRun) {
 }
 
 /**
+ * apply：settings 型——有寫入回傳變更記錄，否則 null。
+ * fixedFlow：src 恆本機、dest 恆 repo，寫入目標依 direction 決定；
+ * 依目標寫入前是否存在區分 added／updated，與 to-local 預覽的「將新增」對齊。
+ * @param {SyncItem} item
+ * @param {'to-repo'|'to-local'} direction
+ * @param {boolean} dryRun
+ * @returns {{action: 'added'|'updated', label: string}|null}
+ */
+function applySettingsItem(item, direction, dryRun) {
+  const target = direction === 'to-repo' ? item.dest : item.src;
+  const existed = fs.existsSync(target);
+  if (!mergeSettingsBetween(item.src, item.dest, direction, dryRun)) return null;
+  return { action: existed ? 'updated' : 'added', label: itemLabel(item) };
+}
+
+/**
  * 直接依 SyncItem.type 分派 diff，避免額外的 handler 表。
  * @param {SyncItem} item
  * @param {'to-repo'|'to-local'} direction
@@ -1099,10 +1032,7 @@ function diffSyncItem(item, direction) {
  */
 function applySyncItem(item, direction, dryRun) {
   switch (item.type) {
-    case 'settings':
-      return mergeSettingsBetween(item.src, item.dest, direction, dryRun)
-        ? { action: 'updated', label: 'settings.json' }
-        : null;
+    case 'settings': return applySettingsItem(item, direction, dryRun);
     case 'file': return applyFileItem(item, dryRun);
     default: throw new SyncError(`未知的同步項目型別：${item.type}`, ERR.INVALID_ARGS);
   }
@@ -1136,7 +1066,7 @@ function applySyncItems(items, direction, opts) {
       change = applySyncItem(item, direction, dryRun);
     } catch (e) {
       // 單項失敗：把先前項目已套用的清單附掛給呼叫端（warnPartialApply 印中斷警告），
-      // 讓「例外中斷」路徑的部分寫入可見（訊號中斷不會造成部分寫入，見 handleSignal）
+      // 讓「例外中斷」路徑的部分寫入可見（訊號中斷不會造成部分寫入：寫入為無 await 的同步碼，見 writeFileSafe）
       if (e instanceof SyncError) e.context.applied = { stats, changeLog };
       throw e;
     }
@@ -1381,7 +1311,7 @@ function printToLocalPreview(diffResults) {
 /**
  * 詢問使用者並實際套用變更（to-local）
  * @param {SyncItem[]} items
- * @param {boolean} [autoYes=false] - 是否略過確認（--yes/--force）
+ * @param {boolean} [autoYes=false] - 是否略過確認（--yes）
  * @returns {Promise<number>} exit code
  */
 async function confirmAndApply(items, autoYes = false) {
@@ -1472,7 +1402,7 @@ function parseArgs() {
   for (const arg of args) {
     if (arg === '--dry-run') {
       result.dryRun = true;
-    } else if (arg === '--yes' || arg === '--force') {
+    } else if (arg === '--yes') {
       result.yes = true;
     } else if (arg === '--no-color') {
       result.noColor = true;
@@ -1543,7 +1473,7 @@ function runHelp() {
 
   console.log(col.bold('\n  旗標：'));
   console.log(`    ${col.cyan('--dry-run')}              預覽操作，不實際寫入`);
-  console.log(`    ${col.cyan('--yes')}                  略過互動確認（非互動環境必加，別名 --force）`);
+  console.log(`    ${col.cyan('--yes')}                  略過互動確認（非互動環境必加）`);
   console.log(`    ${col.cyan('--no-color')}             關閉色彩輸出（亦支援 NO_COLOR 環境變數）`);
   console.log(`    ${col.cyan('--verbose')}              顯示詳細路徑與檔案大小`);
   console.log(`    ${col.cyan('--version')}              顯示版本號（別名 -v）`);
@@ -1561,7 +1491,7 @@ function runHelp() {
 
 /**
  * 向使用者提問並等待確認。
- * - autoYes 為 true（--yes/--force）時直接視為同意，不提問。
+ * - autoYes 為 true（--yes）時直接視為同意，不提問。
  * - 非互動環境（stdin 非 TTY，如 CI／pipe／/dev/null）拋錯而非靜默等待：
  *   否則 to-local 會永久 hang，或在 EOF 下 callback 不觸發、靜默 exit 0 什麼都沒做。
  * @param {string} question - 問題文字

@@ -540,8 +540,8 @@ test('applySyncItems：file 型別 added／updated 統計與 changeLog（非 dry
     fs.writeFileSync(updDest, 'old');
 
     const items = [
-      { label: 'CLAUDE.md', src: newSrc, dest: newDest, type: 'file' },
-      { label: 'statusline.sh', src: updSrc, dest: updDest, type: 'file' },
+      { label: 'CLAUDE.md', src: newSrc, dest: newDest, type: 'file', prefix: 'claude/' },
+      { label: 'statusline.sh', src: updSrc, dest: updDest, type: 'file', prefix: 'claude/' },
     ];
     const { stats, changeLog } = applySyncItems(items, 'to-local', { dryRun: false });
 
@@ -559,7 +559,7 @@ test('applySyncItems：dry-run 計入統計但不實際寫入', () => {
     const fileDest = path.join(dir, 'out', 'CLAUDE.md');
     fs.writeFileSync(fileSrc, 'hello');
 
-    const items = [{ label: 'CLAUDE.md', src: fileSrc, dest: fileDest, type: 'file' }];
+    const items = [{ label: 'CLAUDE.md', src: fileSrc, dest: fileDest, type: 'file', prefix: 'claude/' }];
     const { stats } = applySyncItems(items, 'to-local', { dryRun: true });
 
     assert.equal(stats.added, 1, 'dry-run 仍計入將新增的統計');
@@ -776,6 +776,87 @@ test('safety:check：gemini/GEMINI.md 含絕對 HOME 路徑 → hard block exit 
     assert.doesNotMatch(r.stdout, /\/home\/bob/, '不得輸出完整 HOME 路徑');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// WSL UNC 路徑（`wslpath -w` 產物）以反斜線分隔，`/home/` 分支抓不到
+for (const [name, text] of [
+  ['\\\\wsl.localhost', 'cd \\\\wsl.localhost\\Ubuntu\\home\\alice\\code\n'],
+  ['\\\\wsl$', 'cd \\\\wsl$\\Ubuntu\\home\\alice\\code\n'],
+  ['JSON 跳脫', '{ "x": "\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\alice" }\n'],
+]) {
+  test(`safety:check：WSL UNC HOME 路徑（${name}）→ hard block exit 2，不洩漏使用者名`, () => {
+    const { repo, root } = setupSafetySandbox();
+    try {
+      writeSafetyText(repo, 'claude/CLAUDE.md', text);
+      const r = runSafety(repo);
+      assert.equal(r.status, 2, `WSL UNC HOME 路徑應 hard block\n${r.stdout}\n${r.stderr}`);
+      assert.match(r.stdout, /絕對 HOME 路徑/);
+      assert.doesNotMatch(r.stdout, /alice/, '不得洩漏使用者名稱');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test('safety:check：WSL UNC 說明用佔位路徑（無 home\\<user>）不誤判', () => {
+  const { repo, root } = setupSafetySandbox();
+  try {
+    writeSafetyText(repo, 'claude/CLAUDE.md', 'wslpath -w <路徑>   # → \\\\wsl.localhost\\<Distro>\\...\n');
+    const r = runSafety(repo);
+    assert.equal(r.status, 0, `佔位路徑不應命中\n${r.stdout}\n${r.stderr}`);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// 已審核 env key：只關 warning，未審核的照報；值的 text 掃描不受影響
+test('safety:check：SAFETY_REVIEWED_ENV_KEYS 內的 env key 不報 warning，其餘照報', () => {
+  const { SAFETY_REVIEWED_ENV_KEYS } = require('../safety-check.js');
+  const { repo, root } = setupSafetySandbox();
+  try {
+    const reviewed = SAFETY_REVIEWED_ENV_KEYS[0];
+    writeSafetyJson(repo, 'claude/settings.json', { env: { [reviewed]: 'x', UNREVIEWED_FLAG: '1' } });
+    const r = runSafety(repo);
+    assert.equal(r.status, 1, `未審核 key 仍應 warning\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /env\.UNREVIEWED_FLAG/);
+    assert.doesNotMatch(r.stdout, new RegExp(`env\\.${reviewed}\\b`), '已審核 key 不應出現');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('safety:check：env 全為已審核 key → exit 0', () => {
+  const { SAFETY_REVIEWED_ENV_KEYS } = require('../safety-check.js');
+  const { repo, root } = setupSafetySandbox();
+  try {
+    const env = Object.fromEntries(SAFETY_REVIEWED_ENV_KEYS.map(k => [k, '1']));
+    writeSafetyJson(repo, 'claude/settings.json', { env });
+    const r = runSafety(repo);
+    assert.equal(r.status, 0, `全為已審核 key 應 exit 0\n${r.stdout}\n${r.stderr}`);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('safety:check：已審核 env key 的值含已知 token → 仍 hard block（白名單只關 warning）', () => {
+  const { SAFETY_REVIEWED_ENV_KEYS } = require('../safety-check.js');
+  const { repo, root } = setupSafetySandbox();
+  try {
+    writeSafetyJson(repo, 'claude/settings.json',
+      { env: { [SAFETY_REVIEWED_ENV_KEYS[0]]: 'ghp_' + 'a'.repeat(24) } });
+    const r = runSafety(repo);
+    assert.equal(r.status, 2, `值的 secret 掃描不得被白名單關掉\n${r.stdout}\n${r.stderr}`);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// 白名單不得收敏感命名 key（*_API_KEY、*_TOKEN 等）：那類 key 每次都該被人看過
+test('SAFETY_REVIEWED_ENV_KEYS：不得含命中 SENSITIVE_KEY_PATTERN 的 key', () => {
+  const { SAFETY_REVIEWED_ENV_KEYS, SENSITIVE_KEY_PATTERN } = require('../safety-check.js');
+  for (const key of SAFETY_REVIEWED_ENV_KEYS) {
+    assert.ok(!SENSITIVE_KEY_PATTERN.test(key), `敏感命名 key 不得列入白名單：${key}`);
   }
 });
 

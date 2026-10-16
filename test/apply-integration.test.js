@@ -96,6 +96,24 @@ test('to-local --yes：實際把 repo 內容寫入本機', () => {
   }
 });
 
+test('to-local --yes：settings.json 套用輸出與預覽一致（完整標籤、新增記為 added）', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeJson(path.join(repo, 'claude', 'settings.json'), { permissions: ['x'] });
+
+    const added = run(repo, home, ['to-local', '--yes']);
+    assert.equal(added.status, 0, `to-local 應 exit 0\n${added.stdout}\n${added.stderr}`);
+    assert.match(added.stdout, /\[\+\] claude\/settings\.json\n/, '套用行應用完整標籤與新增圖示');
+    assert.match(added.stdout, /claude\/settings\.json \(added\)/, '本機缺檔 → changeLog 記為 added');
+
+    writeJson(path.join(repo, 'claude', 'settings.json'), { permissions: ['y'] });
+    const updated = run(repo, home, ['to-local', '--yes']);
+    assert.match(updated.stdout, /claude\/settings\.json \(updated\)/, '本機已存在 → changeLog 記為 updated');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('to-local：本機已存在且內容相同時宣告一致、不寫入', () => {
   const { repo, home, root } = setupSandbox();
   try {
@@ -488,7 +506,7 @@ test('to-local --yes：gemini/GEMINI.md 套用到本機', () => {
 
 // -----------------------------------------------------------------------------
 // 部分失敗可見度：apply 中途拋錯時，已寫入變更須列出並警告中斷
-// （與 handleSignal 的訊號中斷警告互補；此前例外中斷路徑零可見度）
+// （訊號中斷不會造成部分寫入，只有例外路徑需要此可見度）
 // -----------------------------------------------------------------------------
 test('to-repo 中途失敗：已寫入項目照常列出、警告部分中斷', () => {
   const { repo, home, root } = setupSandbox();

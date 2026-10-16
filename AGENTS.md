@@ -10,7 +10,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 
 此 repo 是 AI 工具（Claude Code、Codex、Gemini/Antigravity）的跨裝置設定同步工具，透過公開 Git repo 讓多台裝置的全域設定保持一致。使用者向說明與行為細節見 `README.md`，本檔只記 AI 需要的流程與守則。
 
-- **執行環境**：Windows 11（主力）／macOS（次要），跨平台設計；Node.js >= 18，**零外部相依、禁止新增 npm 套件**；無 Python 環境。
+- **執行環境**：Windows 11（主力）／macOS（次要），跨平台設計；Node.js >= 22，**零外部相依、禁止新增 npm 套件**；無 Python 環境。
 - **兩個原始檔**：`sync.js`（CLI 入口）、`safety-check.js`（安全掃描）。
 
 ## 目錄命名（重要）
@@ -72,7 +72,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 - **寫入一律走 `writeFileSafe`**（同目錄暫存檔 + rename 的 atomic write，不做 fsync）；讀取走 `readFileSafe`。`diff` 全程唯讀。
 - **錯誤一律拋 `SyncError`**，經檔尾 `formatError` 統一輸出；禁止裸 `console.error + process.exit`。Exit code：`0` 成功／無差異、`1` 有差異、`2` 錯誤。
 - **路徑顯示走 `toRelativePath`**（REPO_ROOT 與 `$HOME` → `~/`），避免洩漏使用者名稱。
-- **部分失敗可見度**：apply 中途失敗時，先前項目已寫入的變更經 `applySyncItems` 附掛 `applied`、由 `warnPartialApply` 警告。**不要在 `handleSignal` 加「寫入中」旗標或中斷警告**：寫入是無 await 的同步碼，訊號排不進去（理由見該函式註解）。
+- **部分失敗可見度**：apply 中途失敗時，先前項目已寫入的變更經 `applySyncItems` 附掛 `applied`、由 `warnPartialApply` 警告。**不要加訊號處理、暫存檔登記表或「寫入中」旗標**：寫入是無 await 的同步碼，訊號 handler 排不進寫入中途，暫存檔也只活在 `writeFileSafe` 一次呼叫內（理由見該函式註解）。
 - **測試不得依賴真實 HOME**；`SYNC_RUNTIME_FILES`／`SAFETY_RUNTIME_FILES` 須含兩個原始檔。
 
 ## 修改守則
@@ -80,7 +80,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 - **設計流程用 Superpowers**：spec 放 `docs/superpowers/specs/`、plan 放 `docs/superpowers/plans/`。
 - **README 須同步更新**：新增／移除指令、改變同步項目或行為、新增旗標時必跟。指令清單、旗標表、`--help`、`DEVICE_SETTINGS_KEYS`／`KEYED_NOTICE_SETTINGS_KEYS`、safety 的排除清單與掃描目錄皆有 drift-guard 測試把關，其餘敘述靠人工。
 - **settings.json 黑名單制**：增減排除欄位只改 `DEVICE_SETTINGS_KEYS` 常數與 README；敏感命名 key 與 `env` 照常同步，由 `safety:check` 審核。
-- **安全審核由 `safety:check` 承擔**（分類與 exit code 見 README「安全檢查」）：commit 前必跑。輸出**不得**顯示 secret 原值、env 值或完整 HOME 路徑；`diff` 不印設定內容。
+- **安全審核由 `safety:check` 承擔**（分類與 exit code 見 README「安全檢查」）：commit 前必跑。同步流程遇到新的 env key warning，使用者審核後可提議加進 `SAFETY_REVIEWED_ENV_KEYS`（敏感命名 key 不得列入）。輸出**不得**顯示 secret 原值、env 值或完整 HOME 路徑；`diff` 不印設定內容。
 
 ## Skills 管理
 

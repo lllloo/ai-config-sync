@@ -39,8 +39,11 @@ const SECRET_VALUE_PATTERN = /\b(sk-[\w-]{8,}|sk_(?:live|test)_\w{8,}|ghp_\w{20,
  * 絕對家目錄路徑偵測（C:\Users\、/Users/、/home/、/root/）——完整使用者路徑不得進 repo。
  * Windows 分支的分隔類別必須吃 1~2 個反斜線：主力平台是 Windows 11，而路徑落在
  * JSON（settings.json）時磁碟原文是跳脫過的 `C:\\Users\\name`，只吃單一分隔字元會漏掉。
+ * WSL UNC 分支（`wslpath -w` 產物 `\\wsl.localhost\<distro>\home\<user>`、`\\wsl$\…`）
+ * 以反斜線分隔，`/home/` 分支抓不到；只在 distro 段後接 `home\<user>`／`root\` 時命中，
+ * 說明用的佔位寫法（`\\wsl.localhost\<Distro>\...`）不誤判。
  */
-const HOME_PATH_PATTERN = /[A-Za-z]:(?:\\{1,2}|\/)Users(?:\\{1,2}|\/)|\/(?:home|Users)\/\w|\/root\//;
+const HOME_PATH_PATTERN = /[A-Za-z]:(?:\\{1,2}|\/)Users(?:\\{1,2}|\/)|\/(?:home|Users)\/\w|\/root\/|wsl(?:\.localhost|\$)\\{1,2}[^\\\s]+\\{1,2}(?:home\\{1,2}\w|root\\)/;
 
 /**
  * 通用 HOME 路徑遮罩（不限本機 HOME）：把任何裝置的家目錄前綴 + 使用者名稱段替換為 `~`。
@@ -71,6 +74,23 @@ const PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
 
 /** repo settings.json 內出現即為 hard block 的 top-level 欄位 */
 const SETTINGS_HARD_BLOCK_KEYS = ['hooks', 'apiKeyHelper', 'awsCredentialExport', 'awsAuthRefresh', 'otelHeadersHelper'];
+
+/**
+ * 已人工審核過的 claude/settings.json env key：不再每次報「env key 需人工審核」warning。
+ * 只關 warning——值仍受 text 掃描（已知 token、私鑰、HOME 路徑）把關；不在清單的新 key 照報。
+ * 不得收命中 SENSITIVE_KEY_PATTERN 的 key（測試把關），那類即使列入也照報。增減須同步改 README。
+ */
+const SAFETY_REVIEWED_ENV_KEYS = [
+  'EDITOR',
+  'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS',
+  'CLAUDE_CODE_DISABLE_MOUSE',
+  'CLAUDE_CODE_DISABLE_MOUSE_CLICKS',
+];
+
+/** 已審核且非敏感命名的 env key 才略過 warning（敏感命名為縱深防禦，即使誤列也照報） */
+function isReviewedEnvKey(key) {
+  return SAFETY_REVIEWED_ENV_KEYS.includes(key) && !SENSITIVE_KEY_PATTERN.test(key);
+}
 
 /** safety:check 僅掃同步來源，不掃 test/docs/README 等文件 */
 const SAFETY_SCAN_DIRS = ['claude', 'codex', 'gemini'];
@@ -166,7 +186,9 @@ function createSafetyChecker(deps) {
       }
     }
     if (data.env && typeof data.env === 'object') {
-      for (const key of Object.keys(data.env)) addSafetyIssue(issues, 'warning', 'env key 需人工審核', filePath, `env.${key}`);
+      for (const key of Object.keys(data.env)) {
+        if (!isReviewedEnvKey(key)) addSafetyIssue(issues, 'warning', 'env key 需人工審核', filePath, `env.${key}`);
+      }
     }
     scanSensitiveKeyPaths(data, filePath, issues, '', true);
   }
@@ -238,6 +260,7 @@ module.exports = {
   SECRET_VALUE_PATTERN,
   maskSecretValues,
   SETTINGS_HARD_BLOCK_KEYS,
+  SAFETY_REVIEWED_ENV_KEYS,
   SAFETY_SCAN_DIRS,
   SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES,
 };

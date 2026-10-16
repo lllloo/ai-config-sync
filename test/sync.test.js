@@ -92,10 +92,17 @@ test('parseArgs：未知指令保留原值供上層判斷', () => {
   assert.equal(result.command, 'nonexistent');
 });
 
-test('parseArgs：--yes / --force 設定 yes 旗標', () => {
+test('parseArgs：--yes 設定 yes 旗標', () => {
   assert.equal(withArgv(['to-local', '--yes'], () => parseArgs()).yes, true);
-  assert.equal(withArgv(['to-local', '--force'], () => parseArgs()).yes, true);
   assert.equal(withArgv(['to-local'], () => parseArgs()).yes, false);
+});
+
+// --force 別名已移除（force 易被讀成「強制覆寫」）：須報未知旗標，不得悄悄沿用為 --yes
+test('parseArgs：--force 已移除 → 拋 INVALID_ARGS', () => {
+  assert.throws(
+    () => withArgv(['to-local', '--force'], () => parseArgs()),
+    (e) => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
+  );
 });
 
 test('parseArgs：未知旗標（含 typo）拋 INVALID_ARGS 而非靜默忽略', () => {
@@ -263,6 +270,14 @@ test('README drift-guard：safety text 掃描排除目錄皆載於 README', () =
   }
 });
 
+test('README drift-guard：已審核 env key（SAFETY_REVIEWED_ENV_KEYS）皆載於 README', () => {
+  const { SAFETY_REVIEWED_ENV_KEYS } = require('../safety-check.js');
+  assert.ok(README.includes('SAFETY_REVIEWED_ENV_KEYS'), 'README 未載明 SAFETY_REVIEWED_ENV_KEYS 常數名');
+  for (const key of SAFETY_REVIEWED_ENV_KEYS) {
+    assert.ok(README.includes(`\`${key}\``), `README 未載明已審核 env key：${key}`);
+  }
+});
+
 // 5.5 drift-guard：safety 掃描來源目錄（SAFETY_SCAN_DIRS）增減須跟 README
 test('README drift-guard：safety 掃描來源目錄皆載於 README', () => {
   for (const dir of SAFETY_SCAN_DIRS) {
@@ -275,7 +290,7 @@ test('README drift-guard：safety 掃描來源目錄皆載於 README', () => {
 // 旗標輸出、README 旗標表——彼此無守門，新增旗標時漏改後兩者不會紅燈（指令
 // 已有上方那組守門，旗標則否）。此組測試以 `parseArgs` 白名單為單一事實來源，
 // 反向斷言另外兩處逐一涵蓋。`runHelp` 未匯出，故與 README 一樣走原始碼字面比對。
-// 同一個 else if 分支內的旗標視為一組（首個為正名、其餘為別名，如 --yes/--force）。
+// 同一個 else if 分支內的旗標視為一組（首個為正名、其餘為別名，如 --version/-v）。
 // -----------------------------------------------------------------------------
 const SYNC_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'sync.js'), 'utf8');
 
@@ -290,17 +305,17 @@ function sliceFunctionSource(name) {
 
 /**
  * 掃 `parseArgs` **整個函式體**的旗標字面，以 `||` 相鄰者為同一組
- * （首個為正名、其餘為別名，如 `--yes`／`--force`）。
+ * （首個為正名、其餘為別名，如 `--version`／`-v`）。
  *
  * 刻意不綁 `else if` 結構、也不綁單引號：舊版抽取器兩者皆綁，因而
  * (a) 漏報——雙引號寫的旗標、或寫在 else-if 鏈外（如迴圈開頭 `if (…) continue;`）
  *     的旗標一律抓不到，漏改 README 仍全綠；
- * (b) 誤報——把 `--yes || --force` 拆成兩個等價 else if（行為與 README 皆不變）
+ * (b) 誤報——把 `--version || -v` 拆成兩個等價 else if（行為與 README 皆不變）
  *     會讓 README 條假紅燈。
  * 對應地，README／runHelp 的斷言只要求「每個旗標都被提及」，不要求正名各佔一列，
  * 否則同一個誤報會從抽取器搬到斷言。
  * @param {string} source - parseArgs 原始碼
- * @returns {string[][]} 旗標組，如 [['--dry-run'], ['--yes', '--force'], ...]
+ * @returns {string[][]} 旗標組，如 [['--dry-run'], ['--version', '-v'], ...]
  */
 function extractFlagGroups(source) {
   const groups = [];
@@ -320,7 +335,7 @@ function extractFlagGroups(source) {
   return groups;
 }
 
-/** parseArgs 白名單旗標組：[['--dry-run'], ['--yes', '--force'], ...] */
+/** parseArgs 白名單旗標組：[['--dry-run'], ['--version', '-v'], ...] */
 const FLAG_GROUPS = extractFlagGroups(sliceFunctionSource('parseArgs'));
 
 /** 旗標字面比對：`-h` 不可被 `--help` 的尾段誤命中，故兩側須為非 [\w-] */
@@ -335,7 +350,7 @@ test('旗標 drift-guard：parseArgs 白名單抽取結果合理（守住抽取�
     assert.match(canonical, /^--[a-z][a-z-]*$/, `旗標正名應為長格式：${canonical}`);
   }
   const all = FLAG_GROUPS.flat();
-  for (const flag of ['--dry-run', '--yes', '--force', '--version', '--help']) {
+  for (const flag of ['--dry-run', '--yes', '--version', '--help']) {
     assert.ok(all.includes(flag), `parseArgs 白名單抽取遺漏已知旗標：${flag}`);
   }
 });

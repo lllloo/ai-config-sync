@@ -77,6 +77,21 @@ test('runDiff (to-repo)：本機 HOME 為空 → 回 EXIT_DIFF 並將 repo 檔�
   }
 });
 
+test('runDiff (to-repo)：本機缺 settings.json、repo 有 → 列為 deleted（與 file 型一致，不得報一致）', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    // 其餘項目兩端一致，只有 settings.json 本機缺檔：diff 不得 exit 0
+    writeFile(path.join(home, '.codex', 'AGENTS.md'), 'CODEX-AGENTS');
+    writeFile(path.join(home, '.gemini', 'GEMINI.md'), 'GEMINI-AGENTS');
+    const result = runDiff(repo, home);
+    assert.equal(result.status, 1, `預期 EXIT_DIFF=1，實得 ${result.status}\n${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /\[-\] claude\/settings\.json.*repo 有、本機沒有/,
+      'settings.json 本機缺檔應列為 deleted');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('runDiff (to-repo)：本機 HOME 為空 → codex/AGENTS.md 也應被回報', () => {
   const { repo, home, root } = setupSandbox();
   try {

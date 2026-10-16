@@ -2,7 +2,7 @@
 
 跨裝置同步 Claude Code / Codex / Antigravity 設定的公開 Git repo 工具。一台機器設定好，其他機器一鍵套用。
 
-零外部相依，只用 Node.js 內建模組（需 Node ≥ 18）。
+零外部相依，只用 Node.js 內建模組（需 Node ≥ 22）。
 
 ## 運作方式
 
@@ -79,7 +79,7 @@ node --test --test-name-pattern="<name>" test/<file>.test.js  # 單一測試
 | 旗標 | 說明 |
 |------|------|
 | `--dry-run` | 預覽操作，不實際寫入（適用 to-repo / to-local） |
-| `--yes` | 略過互動確認（別名 `--force`）；非互動環境（CI／pipe）執行 to-local 時必加，否則報錯而非卡住 |
+| `--yes` | 略過互動確認；非互動環境（CI／pipe）執行 to-local 時必加，否則報錯而非卡住 |
 | `--no-color` | 關閉色彩輸出（亦支援 `NO_COLOR`；`FORCE_COLOR` 可強制開啟） |
 | `--verbose` | 顯示詳細路徑與檔案大小 |
 | `--version` | 顯示版本號（別名 `-v`） |
@@ -128,13 +128,15 @@ node sync.js to-local
 
 **Hard block（exit 2）** — 明顯高風險，應擋下：
 
-- 已知 token 值樣式、私鑰片段、絕對 HOME 路徑（含 JSON 內跳脫的 Windows 路徑 `C:\\Users\\…`）
+- 已知 token 值樣式、私鑰片段、絕對 HOME 路徑（含 JSON 內跳脫的 Windows 路徑 `C:\\Users\\…`，與 WSL UNC 路徑 `\\wsl.localhost\<distro>\home\<user>`／`\\wsl$\…`）
 - `claude/settings.json` 出現 `hooks` 或 credential helper 欄位
 
 **Warning（exit 1）** — 需人工審核，不自動阻斷：
 
-- `claude/settings.json` 的 env key 清單
+- `claude/settings.json` 的 env key 清單（已審核者除外，見下）
 - 結構化設定中命中敏感命名 pattern 的 key path
+
+**已審核 env key**（`SAFETY_REVIEWED_ENV_KEYS`）：`EDITOR`、`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`CLAUDE_CODE_DISABLE_MOUSE`、`CLAUDE_CODE_DISABLE_MOUSE_CLICKS` 已人工審核，不再每次報 warning。只關 warning——值仍受 token／私鑰／HOME 路徑掃描；新出現的 env key 照報。命中敏感命名 pattern 的 key（`*_API_KEY`、`*_TOKEN` 等）不得列入，即使列入也照報。增減須改常數與本節（drift-guard 測試把關）。
 
 **text pattern 掃描的排除**：secret／私鑰／HOME 路徑的字串掃描支援排除清單（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`），**目前為空**。要排除時粒度必須是具體子目錄（如 `<area>/<pkg>/references/`），不得是來源根；排除只作用於 text 掃描，`.json` 的 hard block 不受影響。
 
@@ -175,7 +177,7 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 
 ## 專案檔案
 
-各同步內容（`claude/`、`codex/` 下的檔案）見上方 [同步項目](#同步項目)；此處僅列工具本體。
+各同步內容（`claude/`、`codex/`、`gemini/` 下的檔案）見上方 [同步項目](#同步項目)；此處僅列工具本體。
 
 | 檔案 | 說明 |
 |------|------|
