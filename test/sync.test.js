@@ -28,7 +28,6 @@ const {
   SyncError,
   ERR,
   COMMANDS,
-  COMMAND_ALIASES,
   DEVICE_SETTINGS_KEYS,
   KEYED_NOTICE_SETTINGS_KEYS,
 } = require('../sync.js');
@@ -65,11 +64,6 @@ test('parseArgs：解析指令與 --dry-run', () => {
   assert.equal(result.command, 'to-repo');
   assert.equal(result.dryRun, true);
   assert.equal(result.verbose, false);
-});
-
-test('parseArgs：別名應解析為正式指令', () => {
-  const result = withArgv(['tr'], () => parseArgs());
-  assert.equal(result.command, 'to-repo');
 });
 
 test('parseArgs：--verbose 旗標', () => {
@@ -228,32 +222,23 @@ test('toRelativePath：輸出不得洩漏使用者目錄名（安全回歸）', 
   }
 });
 
-test('COMMAND_ALIASES：別名應對應回正式指令', () => {
-  for (const [alias, cmd] of Object.entries(COMMAND_ALIASES)) {
-    assert.ok(COMMANDS[cmd], `別名 ${alias} -> ${cmd} 應存在於 COMMANDS`);
-    assert.equal(COMMANDS[cmd].alias, alias);
-  }
-});
-
-test('COMMANDS：safety:check 指令存在且無別名', () => {
+test('COMMANDS：safety:check 指令存在', () => {
   assert.ok(COMMANDS['safety:check'], 'COMMANDS 應含 safety:check');
-  assert.equal(COMMANDS['safety:check'].alias, null, 'safety:check 無別名');
   assert.ok(COMMANDS['safety:check'].desc, 'safety:check 應有 desc');
 });
 
 // -----------------------------------------------------------------------------
 // README drift-guard：修改守則要求「改指令／黑名單須同步 README」，此鏈原本
 // 只靠人工守則、零測試把關（git log 反覆出現事後補 docs 的 commit）。
-// 此組測試把同步鏈變成紅燈：常數增減而 README／package.json 未跟上即 fail。
+// 此組測試把同步鏈變成紅燈：常數增減而 README 未跟上即 fail。
 // 只斷言「有載明」（字面出現），不斷言周邊敘述——避免測試綁死文案措辭。
 // -----------------------------------------------------------------------------
 const README = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
 
-test('README drift-guard：指令別名表涵蓋 COMMANDS 全部指令與別名', () => {
-  for (const [cmd, def] of Object.entries(COMMANDS)) {
+test('README drift-guard：COMMANDS 全部指令皆載於 README', () => {
+  for (const cmd of Object.keys(COMMANDS)) {
     if (cmd === 'help') continue; // help 為 CLI 自述指令，README 不列表
-    const row = `| \`${cmd}\` | ${def.alias ? `\`${def.alias}\`` : '—'} |`;
-    assert.ok(README.includes(row), `README 指令別名表缺列或別名不同步：${row}`);
+    assert.ok(README.includes(`node sync.js ${cmd}`), `README 未載明指令：node sync.js ${cmd}`);
   }
 });
 
@@ -287,7 +272,7 @@ test('README drift-guard：safety 掃描來源目錄皆載於 README', () => {
 
 // -----------------------------------------------------------------------------
 // 旗標 drift-guard：CLI 旗標清單目前手抄三處——`parseArgs` 白名單、`runHelp` 的
-// 旗標輸出、README 旗標表——彼此無守門，新增旗標時漏改後兩者不會紅燈（指令別名
+// 旗標輸出、README 旗標表——彼此無守門，新增旗標時漏改後兩者不會紅燈（指令
 // 已有上方那組守門，旗標則否）。此組測試以 `parseArgs` 白名單為單一事實來源，
 // 反向斷言另外兩處逐一涵蓋。`runHelp` 未匯出，故與 README 一樣走原始碼字面比對。
 // 同一個 else if 分支內的旗標視為一組（首個為正名、其餘為別名，如 --yes/--force）。

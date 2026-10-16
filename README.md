@@ -74,17 +74,6 @@ npm test                                                    # 全部單元測試
 node --test --test-name-pattern="<name>" test/<file>.test.js  # 單一測試
 ```
 
-### 指令別名
-
-`node sync.js` 可搭配簡寫：
-
-| 指令 | 別名 |
-|------|------|
-| `diff` | `d` |
-| `to-repo` | `tr` |
-| `to-local` | `tl` |
-| `safety:check` | — |
-
 ### 旗標
 
 | 旗標 | 說明 |

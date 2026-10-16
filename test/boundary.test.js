@@ -28,7 +28,6 @@ const {
   EXIT_DIFF,
   EXIT_ERROR,
   COMMANDS,
-  COMMAND_ALIASES,
   formatError,
 } = require('../sync.js');
 const fs = require('node:fs');
@@ -171,14 +170,6 @@ test('parseArgs：無引數時 command 為 null', () => {
   assert.equal(result.verbose, false);
 });
 
-test('parseArgs：所有別名皆可正確解析', () => {
-  for (const [alias, expected] of Object.entries(COMMAND_ALIASES)) {
-    const result = withArgv([alias], () => parseArgs());
-    assert.equal(result.command, expected,
-      `別名 '${alias}' 應解析為 '${expected}'`);
-  }
-});
-
 // =============================================================================
 // 中優先：toRelativePath 邊界
 // =============================================================================
@@ -242,12 +233,6 @@ test('ERR 常數涵蓋所有必要錯誤代碼', () => {
   }
 });
 
-test('COMMAND_ALIASES 值皆指向 COMMANDS 中存在的 key', () => {
-  for (const [alias, cmd] of Object.entries(COMMAND_ALIASES)) {
-    assert.ok(cmd in COMMANDS,
-      `別名 ${alias} 指向 ${cmd}，但 COMMANDS 中不存在`);
-  }
-});
 
 test('DEVICE_SETTINGS_KEYS 含裝置欄位 model／tui（黑名單正面保證）', () => {
   const { DEVICE_SETTINGS_KEYS } = require('../sync.js');

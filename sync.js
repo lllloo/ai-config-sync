@@ -55,8 +55,7 @@ const KEYED_NOTICE_SETTINGS_KEYS = ['enabledPlugins'];
 const GLOBAL_EXCLUDE = ['.DS_Store'];
 
 /** help 指令排版用欄寬 */
-const CMD_COL_WIDTH = 14;
-const ALIAS_COL_WIDTH = 8;
+const CMD_COL_WIDTH = 16;
 
 /** 統一的狀態圖示映射表，確保語義一致與對齊 */
 const STATUS_ICONS = {
@@ -70,24 +69,17 @@ const STATUS_ICONS = {
 };
 
 /**
- * 指令定義：統一管理指令名稱、別名與說明
+ * 指令定義：統一管理指令名稱與說明
  * 執行分派改走 runCommand() 的 switch，避免多一層 handler 注入抽象。
- * @type {Record<string, {alias: string|null, desc: string}>}
+ * @type {Record<string, {desc: string}>}
  */
 const COMMANDS = {
-  'diff':        { alias: 'd',  desc: '比對本機與 repo 差異' },
-  'to-repo':     { alias: 'tr', desc: '本機設定 -> repo' },
-  'to-local':    { alias: 'tl', desc: 'repo 設定 -> 本機' },
-  'safety:check': { alias: null, desc: '檢查同步來源是否含高風險內容' },
-  'help':        { alias: null, desc: '顯示此說明' },
+  'diff':         { desc: '比對本機與 repo 差異' },
+  'to-repo':      { desc: '本機設定 -> repo' },
+  'to-local':     { desc: 'repo 設定 -> 本機' },
+  'safety:check': { desc: '檢查同步來源是否含高風險內容' },
+  'help':         { desc: '顯示此說明' },
 };
-
-/** 由 COMMANDS 自動建立的別名對應表 */
-const COMMAND_ALIASES = Object.fromEntries(
-  Object.entries(COMMANDS)
-    .filter(([_, v]) => v.alias)
-    .map(([cmd, v]) => [v.alias, cmd])
-);
 
 // -----------------------------------------------------------------------------
 // Type definitions（集中管理，方便查閱）
@@ -1497,7 +1489,7 @@ function parseArgs() {
     } else {
       if (result.command === null) {
         // 第一個 positional arg 是指令；未知指令保留原值，由 main() 處理錯誤
-        result.command = COMMAND_ALIASES[arg] || arg;
+        result.command = arg;
       } else {
         // 沒有任何指令吃位置引數：多餘的引數拒絕而非靜默忽略
         throw new SyncError(`多餘的引數：${arg}`, ERR.INVALID_ARGS);
@@ -1546,10 +1538,7 @@ function runHelp() {
 
   console.log(col.bold('  指令：'));
   for (const [cmd, def] of Object.entries(COMMANDS)) {
-    const aliasRaw = def.alias ? `(${def.alias})` : '';
-    const cmdCol = cmd.padEnd(CMD_COL_WIDTH);
-    const aliasCol = aliasRaw.padEnd(ALIAS_COL_WIDTH);
-    console.log(`    ${col.cyan(cmdCol)}${col.dim(aliasCol)}${def.desc}`);
+    console.log(`    ${col.cyan(cmd.padEnd(CMD_COL_WIDTH))}${def.desc}`);
   }
 
   console.log(col.bold('\n  旗標：'));
@@ -1714,7 +1703,6 @@ if (require.main === module) {
     EXIT_DIFF,
     EXIT_ERROR,
     COMMANDS,
-    COMMAND_ALIASES,
     formatError,
   };
 }

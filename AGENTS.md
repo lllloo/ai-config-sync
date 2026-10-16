@@ -67,7 +67,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 
 - **反向 require 禁令**：`safety-check.js` 不得 `require('./sync.js')`，共用工具經 `createSafetyChecker(deps)` 注入（注入清單見檔頭；`boundary.test.js` 有回歸鎖）。
 - **函式 ≤ 60 行**，超過須拆分；唯一例外是 DI factory 本體（其內各閉包仍須 ≤ 60 行）。
-- **指令分派**：新增指令須同步改 `COMMANDS`（名稱／別名／說明）、`runCommand` 的 `switch` 與 README 別名表（drift-guard 把關）。刻意不走 handler 注入表。
+- **指令分派**：新增指令須同步改 `COMMANDS`（名稱／說明）、`runCommand` 的 `switch` 與 README（drift-guard 把關）。刻意不走 handler 注入表。
 - **`SYNC_MANIFEST`**：一列 = 一路徑，本機路徑一律為 area `homeBase` + `label`；任一列不得指向 `~/.claude.json`（回歸鎖）。`SyncItem.type` 只有 `file`／`settings`（回歸鎖），由 `diffSyncItem`／`applySyncItem` 以 `switch` 分派。
 - **寫入一律走 `writeFileSafe`**（同目錄暫存檔 + rename 的 atomic write，不做 fsync）；讀取走 `readFileSafe`。`diff` 全程唯讀。
 - **錯誤一律拋 `SyncError`**，經檔尾 `formatError` 統一輸出；禁止裸 `console.error + process.exit`。Exit code：`0` 成功／無差異、`1` 有差異、`2` 錯誤。
@@ -78,7 +78,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 ## 修改守則
 
 - **設計流程用 Superpowers**：spec 放 `docs/superpowers/specs/`、plan 放 `docs/superpowers/plans/`。
-- **README 須同步更新**：新增／移除指令、改變同步項目或行為、新增旗標時必跟。別名表、旗標表、`--help`、`DEVICE_SETTINGS_KEYS`／`KEYED_NOTICE_SETTINGS_KEYS`、safety 的排除清單與 section 常數皆有 drift-guard 測試把關，其餘敘述靠人工。
+- **README 須同步更新**：新增／移除指令、改變同步項目或行為、新增旗標時必跟。指令清單、旗標表、`--help`、`DEVICE_SETTINGS_KEYS`／`KEYED_NOTICE_SETTINGS_KEYS`、safety 的排除清單與掃描目錄皆有 drift-guard 測試把關，其餘敘述靠人工。
 - **settings.json 黑名單制**：增減排除欄位只改 `DEVICE_SETTINGS_KEYS` 常數與 README；敏感命名 key 與 `env` 照常同步，由 `safety:check` 審核。
 - **安全審核由 `safety:check` 承擔**（分類與 exit code 見 README「安全檢查」）：commit 前必跑。輸出**不得**顯示 secret 原值、env 值或完整 HOME 路徑；`diff` 不印設定內容。
 
