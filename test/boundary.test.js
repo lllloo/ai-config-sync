@@ -172,12 +172,6 @@ test('parseArgs：無引數時 command 為 null', () => {
   assert.equal(result.verbose, false);
 });
 
-test('parseArgs：僅 -- 時 command 為 null，extraArgs 為空', () => {
-  const result = withArgv(['--'], () => parseArgs());
-  assert.equal(result.command, null);
-  assert.deepEqual(result.extraArgs, []);
-});
-
 test('parseArgs：所有別名皆可正確解析', () => {
   for (const [alias, expected] of Object.entries(COMMAND_ALIASES)) {
     const result = withArgv([alias], () => parseArgs());

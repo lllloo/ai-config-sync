@@ -64,7 +64,6 @@ node sync.js to-local   # repo → 本機（套用，會先預覽再確認）
 node sync.js diff          # 比較本機 vs repo（唯讀）
 node sync.js to-repo       # 本機 → repo（本機內容全數納入）
 node sync.js to-local      # repo → 本機（套用，先預覽再確認）
-node sync.js to-win-local  # repo → Windows 家目錄（僅限在 WSL 內執行，見下方說明）
 node sync.js safety:check  # 掃描 repo 是否含機密或需人工審核項目（唯讀、離線）
 ```
 
@@ -86,7 +85,6 @@ node --test --test-name-pattern="<name>" test/<file>.test.js  # 單一測試
 | `diff` | `d` |
 | `to-repo` | `tr` |
 | `to-local` | `tl` |
-| `to-win-local` | `twl` |
 | `safety:check` | — |
 
 ### 旗標
@@ -108,29 +106,6 @@ node --test --test-name-pattern="<name>" test/<file>.test.js  # 單一測試
 > npm run to-repo -- --dry-run   # ← 加 -- 分隔
 > node sync.js to-repo --dry-run # 直接呼叫則不需要
 > ```
-
-## WSL → Windows 套用（`to-win-local`）
-
-同一台機器上，WSL 與 Windows 是兩套獨立家目錄（`/home/<user>` 與 `C:\Users\<user>`），各自有一份 `.claude/`、`.codex/`、`.agents/`。在 WSL 內跑 `to-local` 只會寫到 WSL 那份；要把 repo 同時套用到 Windows 那份，用：
-
-```bash
-node sync.js to-win-local --dry-run   # 先預覽（強烈建議）
-node sync.js to-win-local             # 套用（仍會先預覽再要求確認）
-```
-
-Windows 家目錄預設由 `cmd.exe` 的 `%USERPROFILE%` 自動探測並轉為 `/mnt/<drive>/...`；探測不到或想指定別的目標時，以位置引數或環境變數覆寫：
-
-```bash
-node sync.js to-win-local /mnt/c/Users/Joe
-AI_CONFIG_SYNC_WIN_HOME=/mnt/c/Users/Joe node sync.js to-win-local
-```
-
-實作上，這個指令**不另外實作一套同步邏輯**：它以覆寫過的 `HOME` 在子行程重跑 `to-local`（POSIX 下 Node 的 `os.homedir()` 優先讀 `$HOME`），所以預覽、確認、`settings.json` 黑名單等行為與 `to-local` 完全一致。`--dry-run`／`--yes`／`--no-color`／`--verbose` 會原樣轉交子行程。
-
-**限制與注意事項：**
-
-- 僅能在 WSL 內執行（以 `/proc/version` 的 microsoft 標記判定），否則報錯；目標與目前 `HOME` 相同時也會拒絕執行。
-- **反向不支援**：沒有 `to-win-repo`。Windows 端只當套用目的地，`to-repo` 固定在 WSL 這側做——跨 `/mnt` 抓回的檔案容易帶進換行符差異。
 
 ## 部署
 

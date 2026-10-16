@@ -18,7 +18,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { noColorEnv } = require('./helpers.js');
-const { COMMANDS, isWsl } = require('../sync.js');
+const { COMMANDS } = require('../sync.js');
 
 // sync.js require('./safety-check.js')，任何 `node sync.js` 指令缺任一檔即崩，故兩檔同抄。
 const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js'];
@@ -44,18 +44,9 @@ function setupSandbox() {
 function run(repo, home, args) {
   return spawnSync(process.execPath, [path.join(repo, 'sync.js'), ...args], {
     cwd: repo,
-    // AI_CONFIG_SYNC_WIN_HOME 指向沙箱：WSL 內 to-win-local（含 dispatch guard 迴圈）
-    // 不得探測 cmd.exe 的真實 Windows 家目錄——那是對真實環境的隱性依賴
-    env: noColorEnv({ HOME: home, USERPROFILE: home, AI_CONFIG_SYNC_WIN_HOME: winHomeOf(home) }),
+    env: noColorEnv({ HOME: home, USERPROFILE: home }),
     encoding: 'utf8',
   });
-}
-
-/** 沙箱內的假 Windows 家目錄落點（與 HOME 平行、lazy 建立） */
-function winHomeOf(home) {
-  const winHome = path.join(path.dirname(home), 'win-home');
-  fs.mkdirSync(winHome, { recursive: true });
-  return winHome;
 }
 
 function writeJson(filePath, obj) {
@@ -570,47 +561,6 @@ test('to-repo：本機 settings 出現 repo 沒有的 top-level key → 印出�
     assert.equal(r.status, 0, `to-repo 應 exit 0\n${r.stdout}\n${r.stderr}`);
     assert.match(r.stdout, /首次出現 top-level key/, 'to-repo 應印出首次出現 key 提示');
     assert.match(r.stdout, /statusLine/, '提示應點名該 key');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// -----------------------------------------------------------------------------
-// to-win-local：旗標須原樣轉交子行程（漏轉交任一旗標都不會有其他測試紅燈）
-// --dry-run 轉交失敗 → 沙箱目標被寫入；--yes 轉交失敗 → 非互動確認被拒、exit != 0
-// -----------------------------------------------------------------------------
-test('to-win-local --dry-run：預覽指定家目錄、不寫入（--dry-run 有轉交子行程）',
-  { skip: isWsl() ? false : '需在 WSL 內執行' }, () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'claude', 'CLAUDE.md'), 'REPO-CLAUDE');
-    const winHome = winHomeOf(home);
-
-    const r = run(repo, home, ['to-win-local', winHome, '--dry-run']);
-    assert.equal(r.status, 0, `dry-run 應 exit 0\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /目標 HOME/, '應顯示橋接目標');
-    assert.match(r.stdout, /CLAUDE\.md.*將新增/, '子行程應以目標 HOME 跑 to-local 預覽');
-    assert.equal(fs.existsSync(path.join(winHome, '.claude', 'CLAUDE.md')), false,
-      '--dry-run 未轉交時目標會被寫入——不得發生');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('to-win-local --yes：實際寫入指定家目錄、不碰目前 HOME（--yes 有轉交子行程）',
-  { skip: isWsl() ? false : '需在 WSL 內執行' }, () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'claude', 'CLAUDE.md'), 'REPO-CLAUDE');
-    const winHome = winHomeOf(home);
-
-    // 非互動環境下 --yes 未轉交會被 askConfirm 拒絕而非 exit 0，此斷言同時覆蓋轉交
-    const r = run(repo, home, ['to-win-local', winHome, '--yes']);
-    assert.equal(r.status, 0, `to-win-local 應 exit 0（exit code 原樣傳回）\n${r.stdout}\n${r.stderr}`);
-    assert.equal(fs.readFileSync(path.join(winHome, '.claude', 'CLAUDE.md'), 'utf8'),
-      'REPO-CLAUDE', '應寫入指定的 Windows 家目錄');
-    assert.equal(fs.existsSync(path.join(home, '.claude', 'CLAUDE.md')), false,
-      '不得寫入目前 HOME（語意等同 to-local、但目標是覆寫後的 HOME）');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

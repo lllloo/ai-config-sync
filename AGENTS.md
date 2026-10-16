@@ -24,7 +24,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 
 AI 一律以 `node sync.js <指令>` 執行，免去 npm 的 `--` 分隔陷阱（`npm run` 傳旗標不加 `--` 會被 npm 吞掉，`assertNoSwallowedNpmFlags` 會 fail fast）。
 
-- 同步：`diff`、`to-repo`、`to-local`、`to-win-local`（僅 WSL，repo → Windows 家目錄）、`safety:check`
+- 同步：`diff`、`to-repo`、`to-local`、`safety:check`
 - 旗標：`--dry-run`、`--yes`（非互動 to-local 必加）、`--verbose`；**未知旗標拋 `INVALID_ARGS`**，不靜默忽略
 - 測試：`npm test`；單一測試 `node --test --test-name-pattern="<name>" test/<file>.test.js`
 
@@ -33,7 +33,7 @@ AI 一律以 `node sync.js <指令>` 執行，免去 npm 的 `--` 分隔陷阱�
 核心見檔頭「同步核心」。使用者說「同步」「sync」時照下列步驟做——使用者不自己跑指令，一律由 AI 執行。
 
 1. **收**：`git pull --ff-only`；失敗（分岔）即停下回報，不自行 merge／rebase。
-2. **找差異**：`node sync.js diff`（exit 0 無差異 → 結束，使用者要求時才做步驟 8）。
+2. **找差異**：`node sync.js diff`（exit 0 無差異 → 結束）。
 3. **提 repo 變更**：每個差異項以「repo 將如何改」呈現（新增／修改／刪除哪些段落、檔案、settings key）並附建議，以 git 歷史標出來源：
    - 本機整份等於 repo 歷史舊版（`git hash-object --path=<repo 路徑> <本機檔>` 對照 `git log --follow --format=%H -- <repo 路徑>` 各版）→ 本機落後，repo 不改
    - 本機才有、repo 歷史從未出現 → 本機新增，建議加進 repo
@@ -45,7 +45,6 @@ AI 一律以 `node sync.js <指令>` 執行，免去 npm 的 `--` 分隔陷阱�
 5. **改 repo**：照確認結果編輯 repo 內檔案；全數採本機內容時可直接 `node sync.js to-repo`。`settings.json` 維持 repo 既有格式，`DEVICE_SETTINGS_KEYS` 不得寫入。
 6. **把關與提交**：`node sync.js safety:check`（exit 2 即停下回報；exit 1 把 warning 給使用者看過）→ 給使用者看 `git diff --stat` → commit（沿用專案格式，如 `chore(sync): …`）。**repo 公開，push `main` 須使用者明確同意。**
 7. **套回本機**：`node sync.js to-local --yes`，再跑 `node sync.js diff` 確認 exit 0。
-8. **Windows 端**（僅 WSL 內、使用者要求時）：`node sync.js to-win-local --dry-run` 預覽，確認後 `--yes`。
 
 ## 同步項目
 

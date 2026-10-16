@@ -78,7 +78,6 @@ const COMMANDS = {
   'diff':        { alias: 'd',  desc: '比對本機與 repo 差異' },
   'to-repo':     { alias: 'tr', desc: '本機設定 -> repo' },
   'to-local':    { alias: 'tl', desc: 'repo 設定 -> 本機' },
-  'to-win-local': { alias: 'twl', desc: 'repo 設定 -> WSL 外的 Windows 家目錄' },
   'safety:check': { alias: null, desc: '檢查同步來源是否含高風險內容' },
   'help':        { alias: null, desc: '顯示此說明' },
 };
@@ -112,7 +111,6 @@ const COMMAND_ALIASES = Object.fromEntries(
  * @property {boolean} verbose - 是否為 verbose 模式
  * @property {boolean} showVersion - 是否顯示版本
  * @property {boolean} showHelp - 是否顯示 help
- * @property {string[]} extraArgs - 指令之後的額外 positional 引數
  */
 
 // =============================================================================
@@ -583,27 +581,6 @@ function getFiles(dir, base = '', rootReal) {
     }
   }
   return result;
-}
-
-// =============================================================================
-// Section: Symlink Utilities -- 不跟隨 link 的屬性讀取
-// 目前唯一消費者為 to-win-local 的 Windows 家目錄探測（lstatSyncSafe）。
-// =============================================================================
-
-/**
- * lstat（不跟隨 link）取檔案屬性；不存在回 null，其他錯誤包成 SyncError。
- * 消費者為 to-win-local 的 Windows 家目錄探測：用 lstat 而非 existsSync，
- * 讓懸空 symlink 也能被辨識為「存在但非目錄」而拒絕，不被靜默當成不存在。
- * @param {string} p
- * @returns {fs.Stats|null}
- */
-function lstatSyncSafe(p) {
-  try {
-    return fs.lstatSync(p);
-  } catch (e) {
-    if (e.code === 'ENOENT') return null;
-    throw toSyncFsError(e, p, '讀取連結屬性');
-  }
 }
 
 // =============================================================================
@@ -1262,7 +1239,7 @@ function runSafetyCheck() {
 
 // =============================================================================
 // Section: Commands -- 各指令的實作
-// diff, to-repo, to-local, to-win-local, safety:check, help
+// diff, to-repo, to-local, safety:check, help
 // =============================================================================
 
 /**
@@ -1480,126 +1457,6 @@ async function runToLocal(opts) {
 }
 
 // =============================================================================
-// Section: WSL Bridge -- to-win-local（WSL 內把 repo 套用到 Windows 家目錄）
-//
-// HOME 是模組載入時算好的 const，CLAUDE_HOME／CODEX_HOME／GEMINI_HOME 與 SYNC_AREAS
-// 全由它衍生，執行期改不了。故本指令**不另寫一套路徑解析**，而是以覆寫過的 HOME
-// 在子行程重跑自己的 to-local——語意（預覽／確認／黑名單）與既有
-// to-local 完全一致，不存在會各自漂移的第二套同步實作。
-//
-// 可行性依據：POSIX 下 Node 的 os.homedir() 優先讀 $HOME。Windows 端家目錄在 WSL
-// 內表現為 /mnt/<drive>/Users/<name>，一般 fs 操作照常。
-// =============================================================================
-
-/** 覆寫 Windows 家目錄探測結果的環境變數（優先於 cmd.exe 探測） */
-const WIN_HOME_ENV = 'AI_CONFIG_SYNC_WIN_HOME';
-
-/**
- * 是否執行於 WSL。WSL_DISTRO_NAME 未必存在（如以 systemd unit 啟動），
- * 故以 /proc/version 的 microsoft 標記為主要判準。
- * @returns {boolean}
- */
-function isWsl() {
-  if (process.platform !== 'linux') return false;
-  if (process.env.WSL_DISTRO_NAME) return true;
-  try {
-    return /microsoft/i.test(fs.readFileSync('/proc/version', 'utf8'));
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Windows 路徑轉 WSL 掛載路徑（`C:\Users\X` -> `/mnt/c/Users/X`）。
- * 純字串轉換、零 IO：刻意不呼叫 wslpath，少一個外部程序相依且可單元測試。
- * @param {string} winPath
- * @returns {string|null} 無法解析（非 `<drive>:` 開頭）時回 null
- */
-function winPathToWslPath(winPath) {
-  const m = /^([A-Za-z]):[\\/](.*)$/.exec(String(winPath).trim());
-  if (!m) return null;
-  const rest = m[2].replace(/\\/g, '/').replace(/\/+$/, '');
-  return `/mnt/${m[1].toLowerCase()}/${rest}`;
-}
-
-/**
- * 探測 Windows 家目錄：環境變數優先，其次問 cmd.exe 要 %USERPROFILE%。
- * cwd 指定為 `/` 以避開「UNC 路徑不支援」警告（cmd.exe 無法以 WSL 路徑為 cwd）。
- * @returns {string|null}
- */
-function detectWinHome() {
-  const fromEnv = process.env[WIN_HOME_ENV];
-  if (fromEnv) return fromEnv;
-  const r = spawnSync('cmd.exe', ['/c', 'echo %USERPROFILE%'], { encoding: 'utf8', cwd: '/' });
-  if (r.error || r.status !== 0 || !r.stdout) return null;
-  return winPathToWslPath(r.stdout);
-}
-
-/**
- * 決定並驗證目標 Windows 家目錄。
- * @param {string[]} [extraArgs] - 位置引數；第一個可直接指定路徑，略過探測
- * @returns {string} 已解析的絕對路徑
- * @throws {SyncError} 非 WSL 環境、探測失敗、路徑不存在，或與目前 HOME 相同
- */
-function resolveWinHome(extraArgs) {
-  if (!isWsl()) {
-    throw new SyncError(
-      'to-win-local 僅能在 WSL 內執行（目標為 /mnt/<drive> 上的 Windows 家目錄）',
-      ERR.INVALID_ARGS,
-    );
-  }
-  const candidate = (extraArgs && extraArgs[0]) || detectWinHome();
-  if (!candidate) {
-    throw new SyncError(
-      `無法探測 Windows 家目錄；請以位置引數指定路徑，或設環境變數 ${WIN_HOME_ENV}`,
-      ERR.FILE_NOT_FOUND,
-    );
-  }
-  const winHome = path.resolve(candidate);
-  const st = lstatSyncSafe(winHome);
-  if (!st || !st.isDirectory()) {
-    throw new SyncError('Windows 家目錄不存在或不是目錄', ERR.FILE_NOT_FOUND, { path: winHome });
-  }
-  // 與目前 HOME 相同時拒絕：多半是誤在原生 Windows／非 WSL 佈局下呼叫，
-  // 放行等同偽裝成 to-local，讓使用者以為寫到了另一端。
-  if (winHome === path.resolve(HOME)) {
-    throw new SyncError(
-      '目標與目前 HOME 相同，拒絕執行（要套用到本機請用 to-local）',
-      ERR.INVALID_ARGS,
-    );
-  }
-  return winHome;
-}
-
-/**
- * to-win-local 指令：以覆寫的 HOME 在子行程重跑 to-local。
- * stdio 直接繼承，故預覽輸出與互動確認的行為與 to-local 無異。
- * @param {ParsedArgs} opts - CLI 引數
- * @returns {number} 子行程的 exit code
- */
-function runToWinLocal(opts) {
-  const winHome = resolveWinHome(opts.extraArgs);
-  console.log(col.bold('\n  repo -> Windows 家目錄（WSL 橋接）'));
-  console.log(col.dim(`  目標 HOME：${winHome}\n`));
-
-  const flags = [];
-  if (opts.dryRun) flags.push('--dry-run');
-  if (opts.yes) flags.push('--yes');
-  if (opts.noColor) flags.push('--no-color');
-  if (opts.verbose) flags.push('--verbose');
-
-  const r = spawnSync(process.execPath, [__filename, 'to-local', ...flags], {
-    stdio: 'inherit',
-    env: { ...process.env, HOME: winHome },
-  });
-  if (r.error) throw toSyncFsError(r.error, winHome, '啟動 to-local 子行程');
-  if (r.signal) {
-    throw new SyncError(`to-local 子行程被訊號中止：${r.signal}`, ERR.IO_ERROR, { path: winHome });
-  }
-  return r.status === null ? EXIT_ERROR : r.status;
-}
-
-// =============================================================================
 // Section: CLI Parser -- 命令列引數解析
 // 集中解析所有 CLI 引數與旗標
 // =============================================================================
@@ -1618,18 +1475,10 @@ function parseArgs() {
     verbose: false,
     showVersion: false,
     showHelp: false,
-    extraArgs: [],
   };
 
-  let pastSeparator = false;
-
   for (const arg of args) {
-    if (arg === '--') {
-      // `--` 之後的所有引數皆視為 extraArgs（支援以 `-` 開頭的位置引數，如路徑）
-      pastSeparator = true;
-    } else if (pastSeparator) {
-      result.extraArgs.push(arg);
-    } else if (arg === '--dry-run') {
+    if (arg === '--dry-run') {
       result.dryRun = true;
     } else if (arg === '--yes' || arg === '--force') {
       result.yes = true;
@@ -1650,8 +1499,8 @@ function parseArgs() {
         // 第一個 positional arg 是指令；未知指令保留原值，由 main() 處理錯誤
         result.command = COMMAND_ALIASES[arg] || arg;
       } else {
-        // 指令之後的 positional args
-        result.extraArgs.push(arg);
+        // 沒有任何指令吃位置引數：多餘的引數拒絕而非靜默忽略
+        throw new SyncError(`多餘的引數：${arg}`, ERR.INVALID_ARGS);
       }
     }
   }
@@ -1732,7 +1581,6 @@ function runHelp() {
   console.log(col.bold('\n  範例：'));
   console.log(col.dim('    node sync.js diff'));
   console.log(col.dim('    node sync.js to-repo --dry-run'));
-  console.log(col.dim('    node sync.js to-win-local --dry-run   # WSL 內套用到 Windows 家目錄'));
   console.log('');
 }
 
@@ -1823,7 +1671,6 @@ async function runCommand(command, opts) {
     case 'diff': return runDiff(opts);
     case 'to-repo': return runToRepo(opts);
     case 'to-local': return runToLocal(opts);
-    case 'to-win-local': return runToWinLocal(opts);
     case 'safety:check': return runSafetyCheck();
     case 'help': runHelp(); return EXIT_OK;
     default: throw new SyncError(`未知指令：${command}`, ERR.INVALID_ARGS);
@@ -1850,11 +1697,6 @@ if (require.main === module) {
     isPathInside,
     getFiles,
     copyFile,
-    // WSL 橋接（to-win-local）
-    isWsl,
-    winPathToWslPath,
-    detectWinHome,
-    resolveWinHome,
     applySyncItems,
     diffSyncItems,
     diffFileItem,

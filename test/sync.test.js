@@ -31,10 +31,6 @@ const {
   COMMAND_ALIASES,
   DEVICE_SETTINGS_KEYS,
   KEYED_NOTICE_SETTINGS_KEYS,
-  isWsl,
-  winPathToWslPath,
-  detectWinHome,
-  resolveWinHome,
 } = require('../sync.js');
 const {
   SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES,
@@ -87,21 +83,19 @@ test('parseArgs：--version / --help 旗標', () => {
   assert.equal(withArgv(['-h'], () => parseArgs()).showHelp, true);
 });
 
-test('parseArgs：extraArgs 收集指令後的 positional 引數', () => {
-  const result = withArgv(['to-win-local', '/mnt/c/Users/me'], () => parseArgs());
-  assert.equal(result.command, 'to-win-local');
-  assert.deepEqual(result.extraArgs, ['/mnt/c/Users/me']);
+test('parseArgs：指令後的多餘位置引數拋 INVALID_ARGS 而非靜默忽略', () => {
+  for (const argv of [['diff', 'extra'], ['to-local', '/mnt/c/Users/me'], ['to-repo', '--', '--some-flag']]) {
+    assert.throws(
+      () => withArgv(argv, () => parseArgs()),
+      (e) => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
+      `應對 ${argv.join(' ')} 拋 INVALID_ARGS`,
+    );
+  }
 });
 
 test('parseArgs：未知指令保留原值供上層判斷', () => {
   const result = withArgv(['nonexistent'], () => parseArgs());
   assert.equal(result.command, 'nonexistent');
-});
-
-test('parseArgs：-- 分隔符後的引數皆收入 extraArgs', () => {
-  const result = withArgv(['to-win-local', '--', '--some-flag', 'value'], () => parseArgs());
-  assert.equal(result.command, 'to-win-local');
-  assert.deepEqual(result.extraArgs, ['--some-flag', 'value']);
 });
 
 test('parseArgs：--yes / --force 設定 yes 旗標', () => {
@@ -666,56 +660,3 @@ itPosixPerms('getFiles：遞迴進入不可讀子目錄時同樣拋出（錯誤�
   });
 });
 
-// -----------------------------------------------------------------------------
-// WSL 橋接（to-win-local）
-// resolveWinHome 是唯一的守門：非 WSL、探測失敗、路徑不存在、目標等同 HOME 皆須擋下。
-// 放行任一情形都會讓「以為寫到 Windows 端」變成靜默寫錯地方。
-// -----------------------------------------------------------------------------
-test('winPathToWslPath：Windows 路徑轉為 /mnt 掛載路徑', () => {
-  assert.equal(winPathToWslPath('C:\\Users\\Joe'), '/mnt/c/Users/Joe');
-  assert.equal(winPathToWslPath('D:/Users/Joe/'), '/mnt/d/Users/Joe');
-  // cmd.exe 的輸出帶尾端換行，須先 trim
-  assert.equal(winPathToWslPath('C:\\Users\\Joe\r\n'), '/mnt/c/Users/Joe');
-});
-
-test('winPathToWslPath：非 <drive>: 開頭回 null（不臆造路徑）', () => {
-  for (const bad of ['', '   ', '\\\\server\\share', '/home/barney', 'Users\\Joe']) {
-    assert.equal(winPathToWslPath(bad), null, `應無法解析：${JSON.stringify(bad)}`);
-  }
-});
-
-test('detectWinHome：環境變數 AI_CONFIG_SYNC_WIN_HOME 優先，不問 cmd.exe', () => {
-  // env 分支為早退路徑、零 IO，跨平台皆可測（不需 WSL、不 spawn cmd.exe）
-  const key = 'AI_CONFIG_SYNC_WIN_HOME';
-  const original = process.env[key];
-  process.env[key] = '/mnt/c/Users/Test';
-  try {
-    assert.equal(detectWinHome(), '/mnt/c/Users/Test');
-  } finally {
-    if (original === undefined) delete process.env[key];
-    else process.env[key] = original;
-  }
-});
-
-test('resolveWinHome：非 WSL 環境直接拋 INVALID_ARGS', { skip: isWsl() ? '目前在 WSL 內' : false }, () => {
-  assert.throws(
-    () => resolveWinHome(['/tmp']),
-    (e) => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
-  );
-});
-
-test('resolveWinHome：位置引數指向不存在路徑時拋 FILE_NOT_FOUND', { skip: isWsl() ? false : '需在 WSL 內執行' }, () => {
-  withTmpDir((dir) => {
-    assert.throws(
-      () => resolveWinHome([path.join(dir, 'nope')]),
-      (e) => e instanceof SyncError && e.code === ERR.FILE_NOT_FOUND,
-    );
-  });
-});
-
-test('resolveWinHome：目標等同目前 HOME 時拒絕執行', { skip: isWsl() ? false : '需在 WSL 內執行' }, () => {
-  assert.throws(
-    () => resolveWinHome([os.homedir()]),
-    (e) => e instanceof SyncError && e.code === ERR.INVALID_ARGS,
-  );
-});
