@@ -1133,9 +1133,11 @@ function showGitStatus() {
   }
   console.log('');
   console.log(col.bold('  下一步：'));
+  // 只 add 同步來源目錄（git add -A 會夾帶無關檔案）；commit 訊息不帶主機名（repo 公開）
+  const syncDirs = Object.values(SYNC_AREAS).map(a => a.repoDir).join(' ');
   console.log(col.dim('   node sync.js safety:check   # commit 前先掃 hard block／需人工審核的機密'));
-  console.log(col.dim(`   git add -A && git commit -m "chore(sync): from ${os.hostname()}"`));
-  console.log(col.dim('   git push                    # repo 公開，複核 git diff 後再推'));
+  console.log(col.dim(`   git add ${syncDirs} && git commit -m "chore(sync): <說明>"`));
+  console.log(col.dim('   git push                    # repo 公開：push main 前先複核上方變動'));
 }
 
 // =============================================================================

@@ -237,6 +237,9 @@ test('to-repo：下一步提示先 safety:check 再 commit，不串 git push、�
     assert.match(r.stdout, /git commit -m "chore\(sync\): /, 'commit 訊息沿用專案格式');
     assert.doesNotMatch(r.stdout, /&& git push/, 'push 不得串在 commit 之後');
     assert.doesNotMatch(r.stdout, /npm run/);
+    assert.doesNotMatch(r.stdout, /git add -A/, '只 add 同步來源目錄，不得夾帶無關檔案');
+    assert.match(r.stdout, /git add claude codex gemini /);
+    assert.ok(!r.stdout.includes(`from ${os.hostname()}`), 'commit 訊息不得帶主機名（repo 公開）');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
