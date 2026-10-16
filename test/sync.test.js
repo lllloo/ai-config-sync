@@ -408,9 +408,9 @@ test('SYNC_MANIFEST：gemini/GEMINI.md 為 file 型', () => {
   assert.equal(SYNC_MANIFEST[idx].type, 'file');
 });
 
-// 回歸鎖：目錄型同步（整目錄鏡射 + prune 多餘檔）已整個移除。它曾與 npx skills 在
-// ~/.claude/skills 建的探索 symlink 競爭（prune 會刪它），commands 層則違反「一律使用
-// skill、不再新增 command」政策。要恢復任何目錄層須先重新設計，不得只塞回一列 manifest。
+// 回歸鎖：同步型別只剩 file／settings。這一條即擋下所有已移除的舊型別（dir、mcp、
+// advisory、xtool-dir、codex-config）；dir 的 prune 曾刪掉 npx skills 建的探索 symlink，
+// 要恢復任何舊型別須先重新設計，不得只塞回一列 manifest。
 test('SYNC_MANIFEST 回歸鎖：type 只能是 file／settings（目錄型已移除）', () => {
   for (const e of SYNC_MANIFEST) {
     assert.ok(['file', 'settings'].includes(e.type),
@@ -418,60 +418,8 @@ test('SYNC_MANIFEST 回歸鎖：type 只能是 file／settings（目錄型已移
   }
 });
 
-test('SYNC_MANIFEST 回歸鎖：不得含 claude 區的 skills／commands 列', () => {
-  for (const label of ['skills', 'commands']) {
-    const found = SYNC_MANIFEST.find(e => e.area === 'claude' && e.label === label);
-    assert.equal(found, undefined, `SYNC_MANIFEST 不應含 claude/${label} 列`);
-  }
-});
-
-test('README drift-guard：全域 skill 落點 skills/ 與 npx skills 安裝方式載於 README', () => {
-  assert.ok(README.includes('`skills/`'), 'README 未載明 repo 路徑 skills/');
-  assert.ok(README.includes('npx skills add'), 'README 未載明全域 skill 以 npx skills add 安裝');
-  assert.ok(!README.includes('`agents/skills/`'), 'README 不得再引用已移除的 agents/skills/');
-});
-
-// codex config.toml 已不再同步：SYNC_MANIFEST 不得再出現該列（回歸鎖）
-test('drift-guard：SYNC_MANIFEST 不含 codex config.toml', () => {
-  assert.equal(SYNC_MANIFEST.some(e => e.label === 'config.toml'), false,
-    'codex config.toml 已移除同步，不應重新出現在 SYNC_MANIFEST');
-  assert.equal(SYNC_MANIFEST.some(e => e.type === 'codex-config'), false,
-    'codex-config 型別已移除');
-});
-
-// MCP 同步已整批移除，待重新設計。
-// 回歸鎖：兩種 MCP 型別皆不得復活——`mcp` 會投影寫入 config.toml、`advisory` 會讀本機
-// 設定產生建議指令；重新設計時應開新 change 明確決定形狀，而非讓舊型別悄悄回來。
-test('drift-guard：MCP 型別（mcp／advisory）皆不得復活', () => {
-  assert.equal(SYNC_MANIFEST.some(e => e.type === 'mcp'), false,
-    'type:\'mcp\'（TOML section 投影寫入）已移除，不得重新出現');
-  assert.equal(SYNC_MANIFEST.some(e => e.type === 'advisory'), false,
-    'type:\'advisory\'（MCP 諮詢式比對）已移除，不得重新出現');
-});
-
-// 跨工具全域 skill 同步（xtool-dir 型）已整批移除：
-// 自寫全域 skill 改放 repo 頂層 skills/、經 npx skills add -g 安裝，sync.js 不再寫入
-// ~/.agents/skills／~/.claude/skills／~/.gemini/config/skills。回歸鎖：型別、agents 同步區、
-// 模組 require 與 type switch 分支皆不得復活——共管同一目錄的守門成本正是撤除的理由。
-test('drift-guard：xtool-dir 型別與 agents 同步區皆不得復活', () => {
-  assert.equal(SYNC_MANIFEST.some(e => e.type === 'xtool-dir'), false,
-    'type:\'xtool-dir\'（跨工具全域 skill 共管同步）已移除，不得重新出現');
-  assert.equal(SYNC_MANIFEST.some(e => e.area === 'agents'), false,
-    'agents 同步區已移除，SYNC_MANIFEST 不得再有 area:\'agents\' 列');
-  assert.equal(Object.prototype.hasOwnProperty.call(SYNC_AREAS, 'agents'), false,
-    'SYNC_AREAS 不得再有 agents 區（~/.agents 不由 sync.js 寫入）');
-  assert.equal(/require\(['"]\.\/xtool-dir(\.js)?['"]\)/.test(SYNC_SOURCE), false,
-    'sync.js 不得 require xtool-dir.js（模組已刪除）');
-  for (const fn of ['diffSyncItem', 'applySyncItem']) {
-    assert.equal(sliceFunctionSource(fn).includes("case 'xtool-dir'"), false,
-      `${fn} 不得保留 case 'xtool-dir'`);
-  }
-});
-
-// 回歸鎖：MCP 的 repo 來源與本機目標皆已移除，manifest 不得再指向它們
-test('drift-guard：SYNC_MANIFEST 不含 MCP 來源列', () => {
-  assert.equal(SYNC_MANIFEST.some(e => e.label === 'mcp.json'), false,
-    'claude/mcp.json 與 codex/mcp.json 已刪除，不應出現在 SYNC_MANIFEST');
+// 回歸鎖：~/.claude.json 含 OAuth token 與 MCP 憑證，任何 manifest 列都不得指向它
+test('SYNC_MANIFEST 回歸鎖：任何列皆不得指向 ~/.claude.json', () => {
   // 以 materialize 後的實際路徑判斷（不綁特定欄位名），任何機制指向 ~/.claude.json 都會被擋
   const claudeJson = path.join(os.homedir(), '.claude.json');
   for (const entry of SYNC_MANIFEST) {
