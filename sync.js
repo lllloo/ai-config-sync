@@ -1509,24 +1509,6 @@ function parseArgs() {
 }
 
 /**
- * `npm run <cmd> --dry-run` 這類寫法的旗標會被 npm 攔截成自家 config（argv 收不到），
- * 導致「以為在預覽、實際真寫入」。npm 會把被吞旗標轉成 npm_config_* 環境變數，
- * 據此偵測並直接拋錯中止（fail fast），要求以 `--` 分隔重新執行。
- * @returns {void}
- */
-function assertNoSwallowedNpmFlags() {
-  const swallowed = [
-    ['npm_config_dry_run', '--dry-run'],
-    ['npm_config_yes', '--yes'],
-  ].filter(([envKey]) => process.env[envKey] === 'true').map(([, flag]) => flag);
-  if (swallowed.length === 0) return;
-  throw new SyncError(
-    `旗標 ${swallowed.join('、')} 被 npm 攔截，未傳入 sync.js（npm run 傳旗標須以 -- 分隔，例：npm run to-repo -- --dry-run）`,
-    ERR.INVALID_ARGS,
-  );
-}
-
-/**
  * 讀取 package.json（使用 readJson，不丟出錯誤）
  * @returns {Record<string, unknown>|null}
  */
@@ -1630,7 +1612,6 @@ function askConfirm(question, autoYes = false) {
  * @returns {Promise<number>}
  */
 async function main() {
-  assertNoSwallowedNpmFlags();
   const opts = parseArgs();
   if (opts.noColor) disableColor();
 
@@ -1715,7 +1696,6 @@ if (require.main === module) {
     askConfirm,
     statusToStatsKey,
     parseArgs,
-    assertNoSwallowedNpmFlags,
     toRelativePath,
     maskHome,
     serializeSettings,

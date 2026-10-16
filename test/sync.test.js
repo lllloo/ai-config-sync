@@ -257,19 +257,6 @@ test('README drift-guard：指令別名表涵蓋 COMMANDS 全部指令與別名'
   }
 });
 
-test('README drift-guard：package.json scripts 與 COMMANDS 雙向一致', () => {
-  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-  for (const cmd of Object.keys(COMMANDS)) {
-    if (cmd === 'help') continue; // help 走 node sync.js help／--help，不設 npm script
-    assert.equal(pkg.scripts[cmd], `node sync.js ${cmd}`,
-      `package.json scripts 缺 "${cmd}" 或未指向 node sync.js ${cmd}`);
-  }
-  for (const [name, script] of Object.entries(pkg.scripts)) {
-    const m = script.match(/^node sync\.js (\S+)$/);
-    if (m) assert.ok(COMMANDS[m[1]], `npm script "${name}" 指向未登錄指令：${m[1]}`);
-  }
-});
-
 test('README drift-guard：DEVICE_SETTINGS_KEYS 黑名單欄位皆載於 README', () => {
   for (const key of DEVICE_SETTINGS_KEYS) {
     assert.ok(README.includes(`\`${key}\``), `README 未載明 settings 黑名單欄位：${key}`);

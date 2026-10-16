@@ -3,10 +3,6 @@
   "version": "1.0.0",
   "description": "跨裝置同步 Claude Code / Codex / Antigravity 設定",
   "scripts": {
-    "diff": "node sync.js diff",
-    "safety:check": "node sync.js safety:check",
-    "to-repo": "node sync.js to-repo",
-    "to-local": "node sync.js to-local",
     "test": "node --test \"test/*.test.js\""
   },
   "engines": {

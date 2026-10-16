@@ -10,7 +10,6 @@ const assert = require('node:assert/strict');
 
 const {
   parseArgs,
-  assertNoSwallowedNpmFlags,
   toRelativePath,
   maskHome,
   isEolOnlyDiff,
@@ -178,55 +177,6 @@ test('parseArgs：所有別名皆可正確解析', () => {
     assert.equal(result.command, expected,
       `別名 '${alias}' 應解析為 '${expected}'`);
   }
-});
-
-// =============================================================================
-// npm 吞旗標防護：`npm run to-repo --dry-run` 的旗標被 npm 攔截、argv 收不到，
-// 只留下 npm_config_* 環境變數——偵測到即 fail fast，不得靜默以真寫入模式執行
-// =============================================================================
-
-function withEnv(overrides, fn) {
-  const saved = {};
-  for (const [k, v] of Object.entries(overrides)) {
-    saved[k] = process.env[k];
-    if (v === undefined) delete process.env[k];
-    else process.env[k] = v;
-  }
-  try { return fn(); }
-  finally {
-    for (const [k, v] of Object.entries(saved)) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  }
-}
-
-test('assertNoSwallowedNpmFlags：npm_config_dry_run=true 拋 INVALID_ARGS', () => {
-  withEnv({ npm_config_dry_run: 'true' }, () => {
-    assert.throws(() => assertNoSwallowedNpmFlags(), (e) => {
-      assert.ok(e instanceof SyncError);
-      assert.equal(e.code, ERR.INVALID_ARGS);
-      assert.ok(e.message.includes('--dry-run'), '訊息應點名被吞的旗標');
-      assert.ok(e.message.includes('--'), '訊息應教學 -- 分隔用法');
-      return true;
-    });
-  });
-});
-
-test('assertNoSwallowedNpmFlags：npm_config_yes=true 拋 INVALID_ARGS', () => {
-  withEnv({ npm_config_yes: 'true' }, () => {
-    assert.throws(() => assertNoSwallowedNpmFlags(), (e) => {
-      assert.ok(e instanceof SyncError && e.code === ERR.INVALID_ARGS);
-      assert.ok(e.message.includes('--yes'));
-      return true;
-    });
-  });
-});
-
-test('assertNoSwallowedNpmFlags：無 npm_config_* 旗標時不拋錯', () => {
-  withEnv({ npm_config_dry_run: undefined, npm_config_yes: undefined }, () => {
-    assert.doesNotThrow(() => assertNoSwallowedNpmFlags());
-  });
 });
 
 // =============================================================================

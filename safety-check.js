@@ -4,8 +4,8 @@
 // safety-check.js -- safety:check 唯讀安全掃描模組
 //
 // 從 sync.js 抽出的獨立模組：承載掃描範圍收集、文字掃描、結構化 key path
-// 掃描、issue 產生與 report 格式化。對外入口仍是 `node sync.js safety:check`
-// 與 `npm run safety:check`，本檔不作為獨立 CLI 執行。
+// 掃描、issue 產生與 report 格式化。對外入口仍是 `node sync.js safety:check`，
+// 本檔不作為獨立 CLI 執行。
 //
 // 邊界原則：
 // - 不反向 require sync.js；共用工具（REPO_ROOT、getFiles、readFileSafe、

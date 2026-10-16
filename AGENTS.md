@@ -22,7 +22,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 
 ## 常用指令
 
-AI 一律以 `node sync.js <指令>` 執行，免去 npm 的 `--` 分隔陷阱（`npm run` 傳旗標不加 `--` 會被 npm 吞掉，`assertNoSwallowedNpmFlags` 會 fail fast）。
+一律以 `node sync.js <指令>` 執行（`package.json` 只登錄 `test`，沒有其他 npm script）。
 
 - 同步：`diff`、`to-repo`、`to-local`、`safety:check`
 - 旗標：`--dry-run`、`--yes`（非互動 to-local 必加）、`--verbose`；**未知旗標拋 `INVALID_ARGS`**，不靜默忽略

@@ -67,8 +67,6 @@ node sync.js to-local      # repo → 本機（套用，先預覽再確認）
 node sync.js safety:check  # 掃描 repo 是否含機密或需人工審核項目（唯讀、離線）
 ```
 
-`package.json` 也登錄了同名 npm script（`npm run diff` 等），但經 `npm run` 傳旗標須加 `--` 分隔（見 [旗標](#旗標)），故文件與 CLI 提示一律寫 `node sync.js`。
-
 測試：
 
 ```bash
@@ -99,13 +97,6 @@ node --test --test-name-pattern="<name>" test/<file>.test.js  # 單一測試
 | `--help` | 顯示指令說明（別名 `-h`） |
 
 不在白名單內的旗標（含 typo 如 `--dryrun`）會**直接報錯**，不會被靜默忽略——避免打錯字略過 dry-run 而真寫入。
-
-> **經 `npm run` 傳旗標必須加 `--` 分隔**：`npm run to-repo --dry-run` 的 `--dry-run` 會被 npm 攔成自家 config、傳不進 `sync.js`。`sync.js` 偵測到被 npm 吞掉的 `--dry-run`／`--yes`（`npm_config_*` 環境變數）會**直接報錯中止**，不會靜默以真寫入模式執行。正確寫法：
->
-> ```bash
-> npm run to-repo -- --dry-run   # ← 加 -- 分隔
-> node sync.js to-repo --dry-run # 直接呼叫則不需要
-> ```
 
 ## 部署
 
@@ -202,7 +193,7 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 | `sync.js` | 主 CLI 入口，實作同步／diff 核心與 command dispatch（無外部相依） |
 | `safety-check.js` | `safety:check` 唯讀掃描模組，由 `sync.js` 注入共用工具（不獨立執行、不反向 require） |
 | `test/` | `node:test` 測試（單元、沙箱整合、邊界與 drift-guard 回歸鎖） |
-| `package.json` | npm script 別名（與 `COMMANDS` 一致，drift-guard 把關） |
+| `package.json` | 套件中繼資料與 `npm test` |
 
 ## Exit Code
 
