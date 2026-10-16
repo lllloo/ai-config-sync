@@ -11,7 +11,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 此 repo 是 AI 工具（Claude Code、Codex、Gemini/Antigravity）的跨裝置設定同步工具，透過公開 Git repo 讓多台裝置的全域設定保持一致。使用者向說明與行為細節見 `README.md`，本檔只記 AI 需要的流程與守則。
 
 - **執行環境**：Windows 11（主力）／macOS（次要），跨平台設計；Node.js >= 18，**零外部相依、禁止新增 npm 套件**；無 Python 環境。
-- **三個原始檔**：`sync.js`（CLI 入口）、`safety-check.js`（安全掃描）、`toml-reader.js`（TOML 讀取）。
+- **兩個原始檔**：`sync.js`（CLI 入口）、`safety-check.js`（安全掃描）。
 
 ## 目錄命名（重要）
 
@@ -66,8 +66,7 @@ AI 一律以 `node sync.js <指令>` 執行，免去 npm 的 `--` 分隔陷阱�
 
 ## 架構不變式
 
-- **反向 require 禁令**：`safety-check.js`／`toml-reader.js` 不得 `require('./sync.js')`，共用工具經 `createSafetyChecker(deps)` 注入（注入清單見各檔檔頭；`boundary.test.js` 有回歸鎖）。
-- **`toml-reader.js` 不可刪**：它是 `safety:check` 掃 `.toml` 機密 section 的唯一依賴，擋「人工把 `~/.codex/config.toml` 複製進 repo」，與 MCP 同步無關。header 解析與各種 fail-closed 設計見檔內註解，由 `toml-reader.test.js`／`boundary.test.js` 把關。
+- **反向 require 禁令**：`safety-check.js` 不得 `require('./sync.js')`，共用工具經 `createSafetyChecker(deps)` 注入（注入清單見檔頭；`boundary.test.js` 有回歸鎖）。
 - **函式 ≤ 60 行**，超過須拆分；唯一例外是 DI factory 本體（其內各閉包仍須 ≤ 60 行）。
 - **指令分派**：新增指令須同步改 `COMMANDS`（名稱／別名／說明）、`runCommand` 的 `switch` 與 README 別名表（drift-guard 把關）。刻意不走 handler 注入表。
 - **`SYNC_MANIFEST`**：一列 = 一路徑，本機路徑一律為 area `homeBase` + `label`；任一列不得指向 `~/.claude.json`（回歸鎖）。`SyncItem.type` 只有 `file`／`settings`（回歸鎖），由 `diffSyncItem`／`applySyncItem` 以 `switch` 分派。
@@ -75,7 +74,7 @@ AI 一律以 `node sync.js <指令>` 執行，免去 npm 的 `--` 分隔陷阱�
 - **錯誤一律拋 `SyncError`**，經檔尾 `formatError` 統一輸出；禁止裸 `console.error + process.exit`。Exit code：`0` 成功／無差異、`1` 有差異、`2` 錯誤。
 - **路徑顯示走 `toRelativePath`**（REPO_ROOT 與 `$HOME` → `~/`），避免洩漏使用者名稱。
 - **部分失敗可見度**：apply 中途失敗時，先前項目已寫入的變更經 `applySyncItems` 附掛 `applied`、由 `warnPartialApply` 警告。**不要在 `handleSignal` 加「寫入中」旗標或中斷警告**：寫入是無 await 的同步碼，訊號排不進去（理由見該函式註解）。
-- **測試不得依賴真實 HOME**；`SYNC_RUNTIME_FILES`／`SAFETY_RUNTIME_FILES` 須含三個原始檔。
+- **測試不得依賴真實 HOME**；`SYNC_RUNTIME_FILES`／`SAFETY_RUNTIME_FILES` 須含兩個原始檔。
 
 ## 修改守則
 

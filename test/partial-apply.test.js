@@ -17,9 +17,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { noColorEnv } = require('./helpers.js');
 
-// sync.js require('./safety-check.js')（後者 require('./toml-reader.js')），
-// 缺任一檔即崩，故三檔同抄（與 apply-integration 一致）。
-const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js'];
+// sync.js require('./safety-check.js')，缺任一檔即崩，故兩檔同抄（與 apply-integration 一致）。
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js'];
 
 const REAL_HOME = os.homedir();
 

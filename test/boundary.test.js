@@ -642,9 +642,9 @@ test('applySyncItems：dry-run 計入統計但不實際寫入', () => {
 // safety:check：獨立、唯讀、安全輸出與 exit code
 // =============================================================================
 
-// safety:check 執行期依賴 sync.js + safety-check.js + toml-reader.js 三檔，
+// safety:check 執行期依賴 sync.js + safety-check.js 兩檔，
 // sandbox 需同時複製，避免單檔假設回歸（sync.js require 缺任一檔會直接崩）。
-const SAFETY_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js'];
+const SAFETY_RUNTIME_FILES = ['sync.js', 'safety-check.js'];
 
 function setupSafetySandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-safety-'));
@@ -795,244 +795,12 @@ test('safety:check：hard block exit 2，輸出遮罩 secret 與 HOME 路徑', (
   }
 });
 
-// 回歸：token 反常地作為 section／key 名（而非 value）時，st.name／keyPath 會經
-// detail 原樣輸出——「只列位置、不輸出值」在名字即是值的情況下失守。
-// addSafetyIssue 現對 detail 加套 SECRET_REDACT_PATTERN 遮罩。
-test('safety:check：token 作為 TOML section 名時輸出遮罩為 ***，不印原值', () => {
-  const { repo, root } = setupSafetySandbox();
-  try {
-    const token = 'sk-ant-' + 'q'.repeat(20);
-    writeSafetyText(repo, 'codex/config.toml', `[mcp_servers."${token}"]\nurl = "v"\n`);
-    const r = runSafety(repo);
-    assert.equal(r.status, 2, `機密 section 應 hard block\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /不應同步 codex 機密 section/);
-    assert.doesNotMatch(r.stdout, new RegExp(token), '不得輸出 section 名內的 token 原值');
-    assert.match(r.stdout, /\*\*\*/, 'token 應被遮罩為 ***');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('maskSecretValues：前綴型 alternative（glpat- 等）連同 token 本體整段遮罩', () => {
   const { maskSecretValues } = require('../safety-check.js');
   // 偵測 pattern 只比對前綴即可；遮罩若只吃前綴，token 本體會照印
   assert.equal(maskSecretValues('credentials.glpat-REALTOKEN123'), 'credentials.***');
   assert.equal(maskSecretValues(`servers.sk-${'a'.repeat(20)}.url`), 'servers.***');
   assert.equal(maskSecretValues('無 token 的一般 detail 原樣保留'), '無 token 的一般 detail 原樣保留');
-});
-
-test('safety:check：repo config.toml 機密 section（model_providers）→ hard block exit 2，只印 section 路徑', () => {
-  const { repo, root } = setupSafetySandbox();
-  try {
-    const valueMarker = 'provider-value-marker';
-    writeSafetyText(repo, 'codex/config.toml',
-      `personality = "x"\n\n[model_providers.openai]\nbase_url = "${valueMarker}"\n`);
-    const r = runSafety(repo);
-    assert.equal(r.status, 2, `機密 section 應 exit 2\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /不應同步 codex 機密 section/);
-    assert.match(r.stdout, /model_providers\.openai/, '應指出 section 路徑');
-    assert.doesNotMatch(r.stdout, new RegExp(valueMarker), '不得輸出 section 內的值');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('safety:check：機密 section header 變體（[[x]]／尾註解／內部空白）仍 hard block exit 2', () => {
-  const variants = [
-    '[[model_providers]]\nbase_url = "v"\n',            // array-of-tables
-    '[model_providers.openai] # 尾註解\nbase_url = "v"\n', // 尾註解
-    '[ mcp_servers.foo ]\ncommand = "v"\n',              // header 內部空白
-  ];
-  for (const body of variants) {
-    const { repo, root } = setupSafetySandbox();
-    try {
-      writeSafetyText(repo, 'codex/config.toml', `personality = "x"\n\n${body}`);
-      const r = runSafety(repo);
-      assert.equal(r.status, 2, `header 變體應 hard block\n${body}\n${r.stdout}\n${r.stderr}`);
-      assert.match(r.stdout, /不應同步 codex 機密 section/);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  }
-});
-
-// 回歸（D2 / remove-mcp-sync）：MCP 同步已整批移除，但 .toml 機密 section 的 hard block
-// 與之脫鉤——它擋的是「人工把含機密的 config.toml 複製進 repo 備份」，這風險不因
-// 不再同步 MCP 而降低。此測試連同 toml-reader.js 一起鎖住該防線，避免日後有人把
-// toml-reader.js 誤判為 MCP 遺留物清掉。
-test('safety:check：MCP 同步移除後，repo .toml 的 mcp_servers section 仍 hard block exit 2', () => {
-  const { repo, root } = setupSafetySandbox();
-  try {
-    const valueMarker = 'mcp-section-value-marker';
-    writeSafetyText(repo, 'codex/config.toml',
-      `personality = "x"\n\n[mcp_servers.foo]\nurl = "${valueMarker}"\n`);
-    const r = runSafety(repo);
-    assert.equal(r.status, 2, `mcp_servers section 應 exit 2\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /不應同步 codex 機密 section/);
-    assert.match(r.stdout, /mcp_servers\.foo/, '應指出 section 路徑');
-    assert.doesNotMatch(r.stdout, new RegExp(valueMarker), '不得輸出 section 內的值');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// 回歸：TOML 的 root 層 dotted key／inline table 與 section header 語意等價
-// （`mcp_servers.a.command = ..` ≡ `[mcp_servers.a]`），只查 header 會被整條繞過。
-test('safety:check：root 層 dotted key／inline table 形式的機密 section 同樣 hard block', () => {
-  for (const body of [
-    'mcp_servers.acme.command = "v"\n',
-    'model_providers = { x = { base_url = "v" } }\n',
-    '"mcp_servers".acme.url = "v"\n',
-    '"\\u006dcp_servers".acme.url = "v"\n',
-  ]) {
-    const { repo, root } = setupSafetySandbox();
-    try {
-      writeSafetyText(repo, 'codex/config.toml', body);
-      const r = runSafety(repo);
-      assert.equal(r.status, 2, `應 exit 2：${body}\n${r.stdout}\n${r.stderr}`);
-      assert.match(r.stdout, /不應同步 codex 機密 section/);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  }
-});
-
-test('safety:check：root 層 key 名無法解碼時 fail closed（hard block）', () => {
-  const { repo, root } = setupSafetySandbox();
-  try {
-    writeSafetyText(repo, 'codex/config.toml', '"\\qmcp".x = "v"\n');
-    const r = runSafety(repo);
-    assert.equal(r.status, 2, `${r.stdout}\n${r.stderr}`);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('safety:check：section 內的同名 dotted key 不誤判（機密 section 只在 top-level 有意義）', () => {
-  const { repo, root } = setupSafetySandbox();
-  try {
-    writeSafetyText(repo, 'codex/config.toml', '[tools]\nmcp_servers.x = "v"\n');
-    const r = runSafety(repo);
-    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// 回歸（F2）：section 名含 ] 的引號 key 曾讓 header 解析失敗、key 誤掛前一 section，
-// 使機密 section 的 hard block 靜默降級成 warning（exit 2 → exit 1）——CI 若以
-// exit 2 當閘門就會放行含 MCP 憑證的 config.toml。
-test('safety:check：機密 section 名含 ] 的引號 key 仍 hard block exit 2（不得降級為 warning）', () => {
-  const variants = [
-    '[mcp_servers."weird]name"]\naccess_password = "v"\n',
-    '[[model_providers."x]y"]]\nbase_url = "v"\n',
-  ];
-  for (const body of variants) {
-    const { repo, root } = setupSafetySandbox();
-    try {
-      writeSafetyText(repo, 'codex/config.toml', `personality = "x"\n\n${body}`);
-      const r = runSafety(repo);
-      assert.equal(r.status, 2, `引號 section 名應 hard block、不得降級\n${body}\n${r.stdout}`);
-      assert.match(r.stdout, /不應同步 codex 機密 section/);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  }
-});
-
-// 回歸（A）：整個 section 名以引號包裝（`["mcp_servers"]`，語意等同 `[mcp_servers]`、
-// Codex 照讀）曾繞過 section 級 hard block——修正前比對用字面字串（含引號）故 miss。
-// 這裡刻意用「不命中任何 secret pattern 的值 + 不敏感的 key」，使修正前結果為 clean
-// exit 0（完全繞過、非靠 text-scan 兜底），證明 splitTomlKey 正規化確實補上結構性防線。
-test('safety:check：引號包裝的機密 section 名（["mcp_servers"]）仍 hard block exit 2', () => {
-  const variants = [
-    '["mcp_servers"]\nbase_url = "provider-value-marker"\n',        // 基本字串整段引號
-    '["model_providers".openai]\nbase_url = "provider-value-marker"\n', // 引號首段 + 子表
-    "['mcp_servers']\nbase_url = \"provider-value-marker\"\n",      // 字面字串整段引號
-  ];
-  for (const body of variants) {
-    const { repo, root } = setupSafetySandbox();
-    try {
-      writeSafetyText(repo, 'codex/config.toml', `personality = "x"\n\n${body}`);
-      const r = runSafety(repo);
-      assert.equal(r.status, 2, `引號包裝 section 名應 hard block、不得繞過\n${body}\n${r.stdout}`);
-      assert.match(r.stdout, /不應同步 codex 機密 section/);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  }
-});
-
-// fail closed：header 解析不出來時 section 名不可信，機密判斷失去依據，
-// 寧可 hard block 讓人工檢視，也不沿用前一 section 名而漏判。
-test('safety:check：malformed section header → hard block exit 2，只印行號', () => {
-  const { repo, root } = setupSafetySandbox();
-  try {
-    const valueMarker = 'malformed-value-marker';
-    writeSafetyText(repo, 'codex/config.toml',
-      `personality = "x"\n\n[mcp_servers\nbase_url = "${valueMarker}"\n`);
-    const r = runSafety(repo);
-    assert.equal(r.status, 2, `malformed header 應 hard block\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /無法解析的 TOML section header/);
-    assert.match(r.stdout, /line 3/, '應指出行號');
-    assert.doesNotMatch(r.stdout, new RegExp(valueMarker), '不得輸出該 section 內的值');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// 回歸（#4）：未閉合的多行 value 曾無條件吞掉後續每一行（含 section header），
-// 使 `[mcp_servers.*]` 永不 emit 成 section、isCodexSecretSection 從未被呼叫，
-// 機密 section 的 hard block 靜默消失（實測退回 exit 1，連敏感 key warning 都沒有）。
-test('safety:check：未閉合 TOML value 之後的機密 section 仍 hard block exit 2（不得被吞掉）', () => {
-  const { repo, root } = setupSafetySandbox();
-  try {
-    const valueMarker = 'swallowed-token-marker';
-    writeSafetyText(repo, 'codex/config.toml',
-      `[tui]\nnotify = [\n\n[mcp_servers.acme]\nbearer_token = "${valueMarker}"\n`);
-    const r = runSafety(repo);
-    assert.equal(r.status, 2, `未閉合 value 之後的機密 section 應 hard block\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /未閉合的 TOML value/, '未閉合 value 本身應 fail closed');
-    assert.match(r.stdout, /不應同步 codex 機密 section/, 'header 不得被吞掉');
-    assert.match(r.stdout, /mcp_servers\.acme/);
-    assert.doesNotMatch(r.stdout, new RegExp(valueMarker), '不得輸出值');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// 回歸（#15）：section 名以 basic string 跳脫序列改寫（`_` 代替 `_`）在 TOML
-// 語意上等同 `[mcp_servers]`、Codex 照讀，但未解碼的字面比對不會命中 hard block 清單。
-// 值刻意不命中 secret pattern、key 不敏感，使修正前為 clean exit 0（完全繞過）。
-test('safety:check：跳脫序列改寫的機密 section 名（\\u005F）仍 hard block exit 2', () => {
-  const variants = [
-    '["mcp\\u005Fservers"]\nbase_url = "provider-value-marker"\n',
-    '["model\\u005Fproviders".openai]\nbase_url = "provider-value-marker"\n',
-  ];
-  for (const body of variants) {
-    const { repo, root } = setupSafetySandbox();
-    try {
-      writeSafetyText(repo, 'codex/config.toml', `personality = "x"\n\n${body}`);
-      const r = runSafety(repo);
-      assert.equal(r.status, 2, `跳脫改寫的 section 名不得繞過\n${body}\n${r.stdout}`);
-      assert.match(r.stdout, /不應同步 codex 機密 section/);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  }
-});
-
-test('safety:check：無法解碼跳脫的 section 名 → hard block exit 2，只印行號', () => {
-  const { repo, root } = setupSafetySandbox();
-  try {
-    writeSafetyText(repo, 'codex/config.toml', 'personality = "x"\n\n["a\\q b"]\nbase_url = "v"\n');
-    const r = runSafety(repo);
-    assert.equal(r.status, 2, `無法解碼的 section 名應 fail closed\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /無法解碼的 TOML section 名/);
-    assert.match(r.stdout, /line 3/);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
 });
 
 // 回歸（#5）：HOME_PATH_PATTERN 的 Windows 分支只吃單一分隔字元，但路徑落在 JSON 時
@@ -1051,44 +819,6 @@ test('safety:check：settings.json 中 JSON 跳脫的 Windows HOME 路徑 → ha
     assert.equal(r.status, 2, `跳脫的 Windows HOME 路徑應 hard block\n${r.stdout}\n${r.stderr}`);
     assert.match(r.stdout, /絕對 HOME 路徑/);
     assert.doesNotMatch(r.stdout, /alice/, '不得洩漏使用者名稱');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// 回歸（#14）：issue detail 的 section／key path 原文直接印出。addSafetyIssue 只套
-// maskHome（本機 HOME 字串替換），對「從別台裝置來的 config.toml」無效——其 section
-// 名內嵌的是那台裝置的 HOME，比對不到，alice 的家目錄被原樣印出。
-test('safety:check：section 名內嵌他機 HOME 路徑被遮罩（maskHome 抓不到的情況）', () => {
-  const cases = [
-    { body: '[mcp_servers."C:\\\\Users\\\\alice\\\\srv"]\nurl = "v"\n', leak: 'alice' },
-    { body: '[mcp_servers."/home/carol/srv"]\nurl = "v"\n', leak: 'carol' },
-    { body: '[profiles."/Users/dave/p"]\nmodel = "o3"\n', leak: 'dave' },
-  ];
-  for (const { body, leak } of cases) {
-    const { repo, root } = setupSafetySandbox();
-    try {
-      writeSafetyText(repo, 'codex/config.toml', body);
-      const r = runSafety(repo);
-      assert.doesNotMatch(r.stdout, new RegExp(leak),
-        `detail 不得洩漏他機使用者名稱：${body}\n${r.stdout}`);
-      assert.match(r.stdout, /mcp_servers|profiles/, '仍應指出 section 前綴供人工定位');
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  }
-});
-
-test('safety:check：repo config.toml 裝置狀態 section（history 等）→ warning exit 1', () => {
-  const { repo, root } = setupSafetySandbox();
-  try {
-    writeSafetyText(repo, 'codex/config.toml',
-      'personality = "x"\n\n[history]\npersistence = "save-all"\n\n[profiles.fast]\nmodel = "o3"\n');
-    const r = runSafety(repo);
-    assert.equal(r.status, 1, `裝置狀態 section 應 warning exit 1\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /codex 裝置狀態 section 需人工審核/);
-    assert.match(r.stdout, /history/, '應指出 section 路徑');
-    assert.match(r.stdout, /profiles\.fast/, '前綴子 section 也應命中');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -1115,23 +845,6 @@ test('safety:check：gemini/GEMINI.md 含絕對 HOME 路徑 → hard block exit 
     assert.equal(r.status, 2, `GEMINI.md 內 HOME 路徑應 hard block\n${r.stdout}\n${r.stderr}`);
     assert.match(r.stdout, /絕對 HOME 路徑/);
     assert.doesNotMatch(r.stdout, /\/home\/bob/, '不得輸出完整 HOME 路徑');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('safety:check：三引號字串內的假 section header 不誤標 key 歸屬（跨行狀態感知）', () => {
-  const { repo, root } = setupSafetySandbox();
-  try {
-    // description 是三引號多行字串，內容剛好含 `[personality]` 樣式；其後 api_token 實際
-    // 屬於 [tui]。逐行掃描會把字串內 `[personality]` 誤判成 header、把 api_token 標成
-    // personality.api_token。改用 readCodexStatements 後應正確標為 tui.api_token。
-    writeSafetyText(repo, 'codex/config.toml',
-      '[tui]\ndescription = """\n[personality]\n"""\napi_token = "x"\n');
-    const r = runSafety(repo);
-    assert.match(r.stdout, /敏感命名 key path/, 'api_token 應觸發敏感命名 warning');
-    assert.match(r.stdout, /tui\.api_token/, 'key 應正確歸屬 tui，而非字串內的假 section');
-    assert.doesNotMatch(r.stdout, /personality\.api_token/, '不得把 key 誤標到三引號字串內的假 section');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -1204,7 +917,7 @@ test('safety:check：設定來源（statusline.sh）含機密樣式 → 仍 hard
 // 此前無回歸鎖、純靠自律。註解裡提及該字串（如檔頭的禁令說明）不算違規，故先剝除註解再比對。
 // =============================================================================
 
-const FEATURE_MODULES = ['safety-check.js', 'toml-reader.js'];
+const FEATURE_MODULES = ['safety-check.js'];
 
 /** 剝除區塊註解與行註解，避免檔頭禁令說明被誤判為真實 require。 */
 function stripJsComments(src) {

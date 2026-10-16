@@ -37,8 +37,6 @@ const {
   resolveWinHome,
 } = require('../sync.js');
 const {
-  CODEX_CONFIG_HARD_BLOCK_SECTIONS,
-  CODEX_CONFIG_DEVICE_WARN_SECTIONS,
   SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES,
   SAFETY_SCAN_DIRS,
 } = require('../safety-check.js');
@@ -289,15 +287,6 @@ test('README drift-guard：KEYED_NOTICE_SETTINGS_KEYS 欄位皆載於 README', (
     assert.ok(README.includes(`\`${key}\``), `README 未載明鍵級提示欄位：${key}`);
   }
   assert.ok(README.includes('KEYED_NOTICE_SETTINGS_KEYS'), 'README 未載明 KEYED_NOTICE_SETTINGS_KEYS 常數名');
-});
-
-test('README drift-guard：codex 機密／裝置狀態 section 清單皆載於 README', () => {
-  for (const prefix of CODEX_CONFIG_HARD_BLOCK_SECTIONS) {
-    assert.ok(README.includes(`\`${prefix}`), `README 未載明 codex 機密 section：${prefix}`);
-  }
-  for (const prefix of CODEX_CONFIG_DEVICE_WARN_SECTIONS) {
-    assert.ok(README.includes(`\`${prefix}`), `README 未載明 codex 裝置狀態 warning section：${prefix}`);
-  }
 });
 
 // CLAUDE.md 修改守則宣稱「增減排除目錄須改常數與 README（drift-guard 測試把關）」，

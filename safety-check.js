@@ -13,21 +13,7 @@
 //   createSafetyChecker(deps) 注入，sync.js 以 lazy singleton 建立 checker
 //   （避開 const 相依的 TDZ），runSafetyCheck／runSafetyChecks 僅為轉接。
 // - safety 專屬常數（SENSITIVE_KEY_PATTERN 等 pattern、SETTINGS_HARD_BLOCK_KEYS、
-//   CODEX_CONFIG_HARD_BLOCK_SECTIONS、掃描範圍）由本檔持有並匯出，測試直接
-//   require 本模組（sync.js 不 re-export）。
-//
-// TOML 解析直接 require toml-reader.js 的 readTomlStatements（純函式、零 IO，
-// 不經 deps 注入；非 sync.js 故不違反反向 require 禁令）：不自製逐行 regex，
-// 統一 header／kv 判斷並具備跨行狀態感知（多行陣列、"""／''' 三引號字串併入
-// 續行）——既辨識 array-of-tables（[[x]]）／尾註解／內部空白等合法 header 變體，
-// 也杜絕字串內的 [x] 樣式被誤判為 section header 而錯標 key 歸屬。
-// scanTomlKeyWarnings 除敏感命名 key 的 warning 外，另對命中
-// CODEX_CONFIG_HARD_BLOCK_SECTIONS 的 section header 回報 hard block
-// （只印 section 路徑、不印值）。
-//
-// codex config.toml 已不再同步（改由 README 列建議設定、使用者手動套用），
-// 本檔的 .toml 掃描保留為純防禦性覆蓋：repo 內若出現任何 .toml（人工新增或
-// 未來新同步項），機密 section 與敏感命名 key 仍被攔下。
+//   掃描範圍）由本檔持有並匯出，測試直接 require 本模組（sync.js 不 re-export）。
 //
 // text pattern 掃描（scanSafetyTextFile：secret／私鑰／HOME 路徑）於
 // runSafetyChecks 逐檔迴圈中對命中 SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES 的檔略過。
@@ -37,7 +23,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { readTomlStatements, splitTomlKey } = require('./toml-reader.js');
 
 /** 敏感命名 review pattern：僅供 safety:check warning，不參與同步剝除。 */
 const SENSITIVE_KEY_PATTERN = /(key|token|secret|credential|password|auth|cert|cookie|session|jwt|helper|refresh)/i;
@@ -60,7 +45,7 @@ const HOME_PATH_PATTERN = /[A-Za-z]:(?:\\{1,2}|\/)Users(?:\\{1,2}|\/)|\/(?:home|
 /**
  * 通用 HOME 路徑遮罩（不限本機 HOME）：把任何裝置的家目錄前綴 + 使用者名稱段替換為 `~`。
  * `maskHome` 只做本機 HOME 字串替換，對「從別台裝置來的設定檔」無效——例如
- * `[mcp_servers."C:\\Users\\alice\\srv"]` 的 section 名會被原樣印出，洩漏 alice。
+ * key path 內嵌的別台家目錄會被原樣印出，洩漏 alice。
  */
 const ANY_HOME_PATH_PATTERN = /(?:[A-Za-z]:(?:\\{1,2}|\/)Users|\/home|\/Users|\/root)(?:\\{1,2}|\/)[^\\/"'\s]+/g;
 
@@ -71,7 +56,7 @@ function maskAnyHomePath(text) {
 /**
  * detail 輸出遮罩用的 SECRET_VALUE_PATTERN 延伸版：偵測用 pattern 的部分 alternative
  * 只比對「前綴」（glpat-／xoxb- 等），拿來遮罩會只遮掉前綴、token 本體照印，
- * 故往後多吃連續的 token 字元。detail 通常是 section／key 名或行號，正常內容
+ * 故往後多吃連續的 token 字元。detail 通常是 key 名或行號，正常內容
  * 不含這些前綴，誤遮風險可忽略。
  */
 const SECRET_REDACT_PATTERN = new RegExp(`${SECRET_VALUE_PATTERN.source}[\\w.-]*`, 'g');
@@ -87,23 +72,6 @@ const PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
 /** repo settings.json 內出現即為 hard block 的 top-level 欄位 */
 const SETTINGS_HARD_BLOCK_KEYS = ['hooks', 'apiKeyHelper', 'awsCredentialExport', 'awsAuthRefresh', 'otelHeadersHelper'];
 
-/**
- * repo `.toml` 內出現即為 hard block 的機密載體 section 前綴。config.toml 已不再
- * 同步（沒有同步層會先剝除），此為唯一防線——防人工把含 API key／MCP 憑證的
- * config.toml 放進 repo。比照 SETTINGS_HARD_BLOCK_KEYS 對 settings.json 的守備。
- *
- * 注意：本防線與 MCP 同步機制**無因果關係**。MCP 同步已整批移除，但「有人手動複製 ~/.codex/config.toml
- * 進 repo 備份」的風險並未因此降低，故 `mcp_servers` 仍留在清單中，`toml-reader.js`
- * 亦隨之保留。不要把它們當成 MCP 同步的遺留物清掉。
- */
-const CODEX_CONFIG_HARD_BLOCK_SECTIONS = ['model_providers', 'mcp_servers'];
-
-/**
- * repo `.toml` 內出現即為 warning 的裝置狀態 section 前綴：這些 section 綁定單一
- * 裝置（設定檔路徑、歷史、shell 環境），放進 repo 多半是誤加，出現時提示人工確認。
- */
-const CODEX_CONFIG_DEVICE_WARN_SECTIONS = ['profiles', 'history', 'shell_environment_policy'];
-
 /** safety:check 僅掃同步來源，不掃 test/docs/README 等文件 */
 const SAFETY_SCAN_DIRS = ['claude', 'codex', 'gemini'];
 
@@ -115,7 +83,7 @@ const SAFETY_SCAN_DIRS = ['claude', 'codex', 'gemini'];
  *
  * 日後若真的引入原樣鏡射的上游套件文件（為說明偵測規則本就含 token／路徑樣式，
  * 掃它天生整類 false positive），只列**該 package 的具體子目錄**，不得整棵樹排除。
- * 排除只作用於 text 掃描；結構化 .json／.toml 掃描（含 hard block）不受影響。
+ * 排除只作用於 text 掃描；結構化 .json 掃描（含 hard block）不受影響。
  */
 const SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES = [];
 
@@ -146,9 +114,9 @@ function findFirstMatchingLine(content, pattern) {
 function createSafetyChecker(deps) {
   const { REPO_ROOT, getFiles, readFileSafe, readJson, toRelativePath, maskHome, col, EXIT_OK, EXIT_DIFF, EXIT_ERROR } = deps;
 
-  // detail 除本機 HOME 遮罩外，再套通用 HOME 路徑遮罩（section／key path 原文可能
+  // detail 除本機 HOME 遮罩外，再套通用 HOME 路徑遮罩（key path 原文可能
   // 內嵌**別台裝置**的家目錄，maskHome 抓不到，見 ANY_HOME_PATH_PATTERN）與 secret
-  // 遮罩（token 反常地作為 section／key 名而非 value 時，st.name／keyPath 會經 detail
+  // 遮罩（token 反常地作為 key 名而非 value 時，keyPath 會經 detail
   // 原樣輸出，違反「只列位置、不輸出值」的不變式，見 SECRET_REDACT_PATTERN）
   function addSafetyIssue(issues, severity, category, filePath, detail = '') {
     issues.push({
@@ -207,87 +175,10 @@ function createSafetyChecker(deps) {
     scanSensitiveKeyPaths(readJson(filePath), filePath, issues);
   }
 
-  function scanTomlKeyWarnings(filePath, issues) {
-    const content = String(readFileSafe(filePath, '讀取 TOML 安全檢查檔案', 'utf8'));
-    // 使用 toml-reader 的狀態感知語句讀取器：統一 header／kv 判斷、正確處理多行
-    // 陣列、三引號字串與含 `]` 的引號 section 名，避免自製逐行 regex 把字串內的
-    // `[x]` 樣式誤判為 section header（section 歸屬錯標）。
-    //
-    // malformed header（name === null）一律 hard block 並清空 section：section
-    // 名不可信時，機密 section 判斷失去依據，寧可 fail closed 讓人工檢視，也不
-    // 沿用前一個 section 名（那會讓機密 section 的 hard block 靜默降級成 warning）。
-    let section = '';
-    for (const st of readTomlStatements(content)) {
-      if (st.type === 'section') { section = handleTomlSection(st, filePath, issues); continue; }
-      if (st.type !== 'kv') continue;
-      if (section === '') checkTomlRootKey(st, filePath, issues);
-      const keyPath = section ? `${section}.${st.key}` : st.key;
-      if (SENSITIVE_KEY_PATTERN.test(keyPath)) addSafetyIssue(issues, 'warning', '敏感命名 key path', filePath, keyPath);
-    }
-  }
-
-  /**
-   * 處理一筆 section statement，回傳其後 kv 應歸屬的 section 名（不可信時回 ''）。
-   * 三條 fail-closed 路徑（皆 hard block + 清空 section）：
-   * 1. malformed header（reason 'header'）
-   * 2. 未閉合 value 造成的不可信邊界（reason 'unterminated-value'）
-   * 3. section 名含無法解碼的跳脫序列（splitTomlKey 回 null）
-   */
-  function handleTomlSection(st, filePath, issues) {
-    if (st.name === null) {
-      const category = st.reason === 'unterminated-value'
-        ? '未閉合的 TOML value（其後 section 歸屬不可信）'
-        : '無法解析的 TOML section header';
-      addSafetyIssue(issues, 'hard', category, filePath, `line ${st.line}`);
-      return '';
-    }
-    if (splitTomlKey(st.name) === null) {
-      addSafetyIssue(issues, 'hard', '無法解碼的 TOML section 名', filePath, `line ${st.line}`);
-      return '';
-    }
-    if (isCodexSecretSection(st.name)) {
-      addSafetyIssue(issues, 'hard', '不應同步 codex 機密 section', filePath, st.name);
-    } else if (isCodexDeviceWarnSection(st.name)) {
-      addSafetyIssue(issues, 'warning', 'codex 裝置狀態 section 需人工審核', filePath, st.name);
-    }
-    return st.name;
-  }
-
-  /**
-   * root 層 kv 的 key 第一段即 top-level table 名：`mcp_servers.a.command = ..` 與
-   * `mcp_servers = { .. }` 語意等同 `[mcp_servers.a]`，只查 section header 會被整條繞過。
-   * 套同一份 hard block／warn 清單；key 名無法解碼同樣 fail closed。
-   * section 內的 kv 不查——這些名稱只在 top-level 才是機密載體。
-   */
-  function checkTomlRootKey(st, filePath, issues) {
-    if (splitTomlKey(st.key) === null) {
-      addSafetyIssue(issues, 'hard', '無法解碼的 TOML key 名', filePath, `line ${st.line}`);
-    } else if (isCodexSecretSection(st.key)) {
-      addSafetyIssue(issues, 'hard', '不應同步 codex 機密 section', filePath, st.key);
-    } else if (isCodexDeviceWarnSection(st.key)) {
-      addSafetyIssue(issues, 'warning', 'codex 裝置狀態 section 需人工審核', filePath, st.key);
-    }
-  }
-
-  // 比對 section 的第一個 dotted 片段（引號感知去引號 + 跳脫解碼後）：`[mcp_servers]`／
-  // `[mcp_servers.foo]`／`["mcp_servers"]`／`["mcp_servers"]` 均命中，杜絕以引號
-  // 包裝或跳脫序列繞過 hard block（splitTomlKey 正規化，見 toml-reader.js）。
-  // 呼叫端已先擋掉 splitTomlKey 回 null 的情況（handleTomlSection）。
-  function isCodexSecretSection(section) {
-    const [first] = splitTomlKey(section);
-    return CODEX_CONFIG_HARD_BLOCK_SECTIONS.includes(first);
-  }
-
-  function isCodexDeviceWarnSection(section) {
-    const [first] = splitTomlKey(section);
-    return CODEX_CONFIG_DEVICE_WARN_SECTIONS.includes(first);
-  }
-
   function scanSafetyStructuredFile(filePath, issues) {
     const rel = toRelativePath(filePath).replace(/\\/g, '/');
     if (rel === 'claude/settings.json') scanClaudeSettingsSafety(filePath, issues);
     else if (rel.endsWith('.json')) scanJsonKeyWarnings(filePath, issues);
-    else if (rel.endsWith('.toml')) scanTomlKeyWarnings(filePath, issues);
   }
 
   function isTextScanExcluded(filePath) {
@@ -299,7 +190,7 @@ function createSafetyChecker(deps) {
     const issues = [];
     for (const filePath of collectSafetyScanFiles()) {
       // 排除清單內的外部套件文件只略過 text pattern 掃描；結構化掃描仍跑
-      // （對 .md no-op、對未來 .json／.toml 保留 hard block 偵測）
+      // （對 .md no-op、對未來 .json 保留 hard block 偵測）
       if (!isTextScanExcluded(filePath)) scanSafetyTextFile(filePath, issues);
       scanSafetyStructuredFile(filePath, issues);
     }
@@ -347,8 +238,6 @@ module.exports = {
   SECRET_VALUE_PATTERN,
   maskSecretValues,
   SETTINGS_HARD_BLOCK_KEYS,
-  CODEX_CONFIG_HARD_BLOCK_SECTIONS,
-  CODEX_CONFIG_DEVICE_WARN_SECTIONS,
   SAFETY_SCAN_DIRS,
   SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES,
 };

@@ -163,7 +163,7 @@ node sync.js to-local
 
 > 預設值依 [Codex config reference](https://learn.chatgpt.com/docs/config-file/config-reference) 與 codex-rs 原始碼（`PluginConfig` 的 `default_enabled`、`DEFAULT_STATUS_LINE_ITEMS`）查核，可能隨版本變動。
 
-**切勿把 `config.toml` 放進 repo**：它可能含 `model_providers.*`／`mcp_servers.*` 等機密載體與 `projects.*` 的絕對家目錄路徑。`node sync.js safety:check` 會對 repo 內任何 `.toml` 的機密 section 直接 hard block（exit 2）擋下。
+**切勿把 `config.toml` 放進 repo**：它可能含 `model_providers.*`／`mcp_servers.*` 等機密載體與 `projects.*` 的絕對家目錄路徑。`safety:check` 不解析 `.toml` 結構，只會做一般的 token／私鑰／HOME 路徑字串掃描。
 
 ## 安全檢查 safety:check
 
@@ -175,21 +175,15 @@ node sync.js to-local
 
 - 已知 token 值樣式、私鑰片段、絕對 HOME 路徑（含 JSON 內跳脫的 Windows 路徑 `C:\\Users\\…`）
 - `claude/settings.json` 出現 `hooks` 或 credential helper 欄位
-- repo 內任何 `.toml` 出現機密載體 section（`model_providers.*`／`mcp_servers.*`），含 root 層 dotted key（`mcp_servers.a.b = ..`）與 inline table（`mcp_servers = { .. }`）等價寫法，只印 section 路徑不印值
-- repo 內任何 `.toml` 出現**無法解析的結構**，只印行號不印值（fail closed——結構解不出來時 section 歸屬不可信，機密判斷失去依據）：
-  - 無法解析的 section header（如 `[mcp_servers` 未閉合）
-  - 未閉合的 TOML value（如 `notify = [` 之後直接接下一個 section header）
-  - section 名含無法解碼的跳脫序列
 
 **Warning（exit 1）** — 需人工審核，不自動阻斷：
 
 - `claude/settings.json` 的 env key 清單
 - 結構化設定中命中敏感命名 pattern 的 key path
-- `.toml` 出現裝置狀態 section（`profiles.*`／`history`／`shell_environment_policy`）
 
-**text pattern 掃描的排除**：secret／私鑰／HOME 路徑的字串掃描支援排除清單（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`），**目前為空**。要排除時粒度必須是具體子目錄（如 `<area>/<pkg>/references/`），不得是來源根；排除只作用於 text 掃描，`.json`／`.toml` 的 hard block 不受影響。
+**text pattern 掃描的排除**：secret／私鑰／HOME 路徑的字串掃描支援排除清單（`SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES`），**目前為空**。要排除時粒度必須是具體子目錄（如 `<area>/<pkg>/references/`），不得是來源根；排除只作用於 text 掃描，`.json` 的 hard block 不受影響。
 
-**輸出遮罩**：issue detail（section 名、key path）另套通用家目錄遮罩（涵蓋來自別台裝置的家目錄）與 secret 遮罩（token 誤當 key 名時以 `***` 輸出）。
+**輸出遮罩**：issue detail（key path）另套通用家目錄遮罩（涵蓋來自別台裝置的家目錄）與 secret 遮罩（token 誤當 key 名時以 `***` 輸出）。
 
 ## 同步行為細節
 
@@ -217,7 +211,7 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 
 ## 刻意不同步
 
-- **`~/.codex/config.toml`** — 不進 repo，且**永不被本工具寫入或讀取**。偏好、projects、providers 與所有 MCP section 皆保持本機。`safety:check` 仍對 repo 內任何 `.toml` 的機密 section hard block——該防線與 MCP 是否同步無關，擋的是「人工把 config.toml 複製進 repo 備份」。
+- **`~/.codex/config.toml`** — 不進 repo，且**永不被本工具寫入或讀取**。偏好、projects、providers 與所有 MCP section 皆保持本機，也別手動複製進 repo 備份。
 - **MCP Server 定義（兩端）** — 目前**完全不在同步範圍**，待重新設計。請用 `claude mcp add --scope user ...`／`codex mcp add ...` 於各裝置手動維護。舊版曾留下的 `~/.codex/.ai-config-sync-mcp-state.json` 為孤兒檔，可自行 `rm`（本工具不代刪——為了清理而破例寫本機檔會與「不寫入本機」的承諾自相矛盾）。OAuth／ChatGPT 登入狀態同樣不在同步範圍。
 - **`~/.claude.json`** — 含 OAuth token、專案級歷史與 MCP 設定，屬高風險敏感活檔，**永不被本工具寫入或讀取**。
 - **Skills** — 本工具不管 skill：自寫全域 skill 住在獨立的 [lllloo/skills](https://github.com/lllloo/skills)（該 repo 的 `skills/` 下），各裝置自行以 `npx skills add lllloo/skills -g --skill <name>` 安裝、`npx skills update -g` 更新（`npx skills check -g` 可查哪些過期，但未列在 `npx skills --help`）。`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/`、`~/.gemini/config/skills/`。本 repo 目前無本地 skill 層；要新增時建 `.agents/skills/<name>/SKILL.md`，並補 `.claude/skills` → `../.agents/skills` symlink（Windows clone 需開啟「開發者模式」才會還原成真 symlink）。
@@ -232,7 +226,6 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 |------|------|
 | `sync.js` | 主 CLI 入口，實作同步／diff 核心與 command dispatch（無外部相依） |
 | `safety-check.js` | `safety:check` 唯讀掃描模組，由 `sync.js` 注入共用工具（不獨立執行、不反向 require） |
-| `toml-reader.js` | TOML 邏輯語句讀取器（純函式、零 IO），由 `safety-check.js` 直接 require，供 `.toml` 掃描正確歸屬 section |
 | `test/` | `node:test` 測試（單元、沙箱整合、邊界與 drift-guard 回歸鎖） |
 | `package.json` | npm script 別名（與 `COMMANDS` 一致，drift-guard 把關） |
 
