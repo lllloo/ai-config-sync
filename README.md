@@ -15,7 +15,6 @@
    │  │
    ▼  │ to-repo（本機內容納入 repo）
  公開 Git repo（claude/ codex/ gemini/）──push/clone──▶ 其他裝置
-   （自寫全域 skill 在 lllloo/skills，另由各裝置 npx skills add 安裝，不經 to-local）
 ```
 
 - **不碰本機敏感活檔**：`~/.claude.json` 與 `~/.codex/config.toml` 皆**永不被本工具寫入或讀取**。見 [刻意不同步](#刻意不同步)。
@@ -43,20 +42,12 @@ node sync.js to-local   # repo → 本機（套用，會先預覽再確認）
 | 全域指示／規則 | `CLAUDE.md` | `AGENTS.md` | `GEMINI.md` |
 | 主設定檔 | `settings.json` | —（見 [建議設定](#codex-建議設定手動套用)） | — |
 | Statusline | `statusline.sh` | — | — |
-| 全域 Skill（自寫） | [lllloo/skills](https://github.com/lllloo/skills)（`npx skills` 安裝，見下） | 同左 | 同左 |
-
-自寫全域 skill **不在本 repo**，住在獨立的 [lllloo/skills](https://github.com/lllloo/skills)（`skills/<name>/SKILL.md`，`npx skills` 的慣例掃描位置）。本 repo 只保留 `skills-lock.json`——那是「這台裝置裝了哪些 skill」的清單，屬設定同步的一部分，自寫與外部來源一視同仁，由 `node sync.js skills:diff` 比對。
-
-各裝置以 `npx skills add lllloo/skills -g --skill <name>` 安裝（實體進 `~/.agents/skills/<name>/`，並由 `npx skills` 自行在 `~/.claude/skills/<name>` 等各工具探索點建 symlink）。更新流程：在 skills repo 改 skill、commit、push，各裝置 `npx skills update -g`。
-
-**要先知道哪些該更新，用 `npx skills check -g`**（依 `skillFolderHash` 比對整個 skill 資料夾，涵蓋自寫與外部來源）。這個指令**沒有列在 `npx skills --help`**（1.5.26 實測），只看 help 會以為不存在。已知上游 bug：[#954](https://github.com/vercel-labs/skills/issues/954) check 可能直接重裝 outdated 項而非只報告（別預設它唯讀）、[#286](https://github.com/vercel-labs/skills/issues/286) 有時全回 `Could not check`、[#162](https://github.com/vercel-labs/skills/issues/162) private repo 的 `skillFolderHash` 為空會讓 check／update 失效（本 repo 與 skills repo 皆 public，不受影響）。
 
 補充說明：
 
 - **全域指示**各自獨立（`CLAUDE.md`、`AGENTS.md` 與 `GEMINI.md` 內容可分歧）。
 - **主設定檔**：Claude 為黑名單過濾版（排除裝置欄位，見 [settings.json 同步行為](#settingsjson-同步行為)）。
-- **全域 Skill 一律走 `npx skills`**：自寫與外部來源都記在 `skills-lock.json`、由 `node sync.js skills:diff` 比對後手動套用建議指令（安裝固定帶 `--skill <name>`，逐支安裝）。`sync.js` 不安裝、不更新、不移除 skill，也永不寫入 `~/.agents/skills/`、`~/.claude/skills/`、`~/.gemini/config/skills/`。
-- MCP、Agents、Commands、`~/.claude/rules/` 等不在同步範圍，見 [刻意不同步](#刻意不同步)。
+- Skills、MCP、Agents、Commands、`~/.claude/rules/` 等不在同步範圍，見 [刻意不同步](#刻意不同步)。
 
 ### 目錄命名
 
@@ -71,7 +62,6 @@ node sync.js to-local   # repo → 本機（套用，會先預覽再確認）
 
 ```bash
 node sync.js diff          # 比較本機 vs repo（唯讀）
-node sync.js status        # 同時比較設定與 skills 差異
 node sync.js to-repo       # 本機 → repo（本機內容全數納入）
 node sync.js to-local      # repo → 本機（套用，先預覽再確認）
 node sync.js to-win-local  # repo → Windows 家目錄（僅限在 WSL 內執行，見下方說明）
@@ -79,27 +69,6 @@ node sync.js safety:check  # 掃描 repo 是否含機密或需人工審核項目
 ```
 
 `package.json` 也登錄了同名 npm script（`npm run diff` 等），但經 `npm run` 傳旗標須加 `--` 分隔（見 [旗標](#旗標)），故文件與 CLI 提示一律寫 `node sync.js`。
-
-Skills 獨立管理，不隨設定自動同步：
-
-```bash
-node sync.js skills:diff                     # 比較本機 vs repo skills，列出建議指令
-node sync.js skills:add <url>                # 記錄一個 skill（也可 <name> <source>）
-node sync.js skills:add <name> <source> --agent claude-code   # 指定安裝目標工具
-node sync.js skills:remove <name>            # 從 skills-lock.json 移除記錄
-```
-
-`skills:diff` 對本機多裝的 skill 會同時列出 (A) `node sync.js skills:add`（加入 repo）與 (B) `npx skills remove`（從本機移除）兩種建議。
-
-**`agents` 欄位（optional）**：`skills-lock.json` 每個項目可帶 `agents`，記的是「這台要裝給哪個工具」的**安裝意圖**，不是「這支 skill 支援誰」——Agent Skills 為開放標準、幾乎都跨工具通用，真正需要記的是刻意的排除。值為逗號分隔的 agent 名，白名單為 `claude-code`／`codex`（`--agent` 旗標同時支援 `--agent <值>` 與 `--agent=<值>`）。`skills:diff` 的安裝建議會據此接上 `--agent`：
-
-| `agents` 值 | 安裝落點 | 誰看得到 |
-|---|---|---|
-| 省略（預設） | `~/.agents/skills/<name>` 實體 + `~/.claude/skills/<name>` symlink | Claude Code + Codex |
-| `claude-code` | `~/.claude/skills/<name>` 實體 | 只有 Claude Code |
-| `codex` | `~/.agents/skills/<name>` 實體，不建 symlink | 只有 Codex |
-
-目前 `skills-lock.json` 無任何項目使用此欄位（原使用者 `skill-creator` 已移除）；欄位保留，Codex 自帶同名 skill 的相撞情境日後仍可能再現。增減白名單值須改 `skills.js` 的 `VALID_SKILL_AGENTS` 常數與本表。
 
 測試：
 
@@ -115,14 +84,10 @@ node --test --test-name-pattern="<name>" test/<file>.test.js  # 單一測試
 | 指令 | 別名 |
 |------|------|
 | `diff` | `d` |
-| `status` | `s` |
 | `to-repo` | `tr` |
 | `to-local` | `tl` |
 | `to-win-local` | `twl` |
 | `safety:check` | — |
-| `skills:diff` | `sd` |
-| `skills:add` | `sa` |
-| `skills:remove` | `sr` |
 
 ### 旗標
 
@@ -132,7 +97,6 @@ node --test --test-name-pattern="<name>" test/<file>.test.js  # 單一測試
 | `--yes` | 略過互動確認（別名 `--force`）；非互動環境（CI／pipe）執行 to-local 時必加，否則報錯而非卡住 |
 | `--no-color` | 關閉色彩輸出（亦支援 `NO_COLOR`；`FORCE_COLOR` 可強制開啟） |
 | `--verbose` | 顯示詳細路徑與檔案大小 |
-| `--agent` | **僅 `skills:add`**：指定安裝目標工具（`--agent <值>` 或 `--agent=<值>`，白名單 `claude-code`／`codex`）；用於其他指令會拋 `INVALID_ARGS` |
 | `--version` | 顯示版本號（別名 `-v`） |
 | `--help` | 顯示指令說明（別名 `-h`） |
 
@@ -167,7 +131,6 @@ AI_CONFIG_SYNC_WIN_HOME=/mnt/c/Users/Joe node sync.js to-win-local
 
 - 僅能在 WSL 內執行（以 `/proc/version` 的 microsoft 標記判定），否則報錯；目標與目前 `HOME` 相同時也會拒絕執行。
 - **反向不支援**：沒有 `to-win-repo`。Windows 端只當套用目的地，`to-repo` 固定在 WSL 這側做——跨 `/mnt` 抓回的檔案容易帶進換行符差異。
-- 全域 skill 不在此指令範圍：Windows 側要用 skill，請在 Windows 端自行 `npx skills add`（需可 clone skill 來源 repo 的 git 認證與 Node）。
 
 ## 部署
 
@@ -183,26 +146,7 @@ Fork 或複製本 repo 時，內容是作者的個人設定。在你的主力機
 git clone <your-repo-url>
 cd <your-repo>
 node sync.js to-local
-node sync.js skills:diff   # 依建議的 npx skills add 指令安裝全域 skill（含自寫的）
 ```
-
-### 自寫全域 skill 從舊同步機制遷移
-
-2026-09 之前，自寫 skill 放在本 repo 的 `skills/` 下、由 `sync.js` 直接鏡射到 `~/.agents/skills/` 並建 symlink 橋。已用過舊機制的裝置需一次性手動改由 `npx skills` 管理（skill 內容今已移至 [lllloo/skills](https://github.com/lllloo/skills)）：
-
-```bash
-rm -rf ~/.agents/skills/{bmad-goal,map,map-fast,project-map}
-rm -f ~/.claude/skills/{bmad-goal,map,map-fast,project-map}
-rm -f ~/.gemini/config/skills/{map,map-fast}
-npx skills add lllloo/skills -g -y --skill bmad-goal
-node sync.js skills:diff
-```
-
-`--skill` 不吃逗號分隔，一支一個旗標。安裝輸出末尾的「Failed to install … PromptScript does not support global skill installation」是 `npx skills` 對不支援全域安裝的 agent 的常態訊息，可忽略。
-
-**探索點由 `npx skills` 決定**（2026-09-11 於 WSL 實測，`npx skills` 1.5.25）：實體在 `~/.agents/skills/<name>`；Claude Code 得到 `~/.claude/skills/<name>` 相對路徑 symlink；Codex 與 Antigravity CLI 被歸為直接讀 `~/.agents/skills` 的「universal」工具，**不會**再寫 `~/.gemini/config/skills/`（舊機制曾在那裡建橋）。若你的 Antigravity 版本實際只讀 `~/.gemini/config/skills/`，手動補 symlink 即可：`ln -s ~/.agents/skills/<name> ~/.gemini/config/skills/<name>`。
-
-裝完檢查 `~/.agents/.skill-lock.json` 內該筆的 `skillFolderHash` 不是空字串——空值代表安裝時抓不到 GitHub tree，`npx skills update -g` 會以「Private or deleted repo」跳過它；重裝即可。
 
 ## Codex 建議設定（手動套用）
 
@@ -223,7 +167,7 @@ node sync.js skills:diff
 
 ## 安全檢查 safety:check
 
-`node sync.js safety:check` 是手動、唯讀、離線的檢查，掃描 `claude/`、`codex/`、`gemini/` 與 `skills-lock.json`（不掃 `test/`、`docs/`、README 等非同步來源）。自寫全域 skill 已拆出 [lllloo/skills](https://github.com/lllloo/skills)，其內容不在本 repo 的掃描射程內。輸出只列**分類、檔案與欄位／key／行號**，不列 env 值、secret 原值或完整 HOME 路徑。
+`node sync.js safety:check` 是手動、唯讀、離線的檢查，掃描 `claude/`、`codex/`、`gemini/`（不掃 `test/`、`docs/`、README 等非同步來源）。自寫全域 skill 已拆出 [lllloo/skills](https://github.com/lllloo/skills)，其內容不在本 repo 的掃描射程內。輸出只列**分類、檔案與欄位／key／行號**，不列 env 值、secret 原值或完整 HOME 路徑。
 
 **它不會被 `to-repo` 自動執行，也不保證能阻止機密寫入 repo**。`to-repo` 只做明確不同步欄位的剝除與資料搬移，`CLAUDE.md`／`AGENTS.md`／`GEMINI.md`、`statusline.sh` 等皆原樣鏡射。AI 同步流程在 commit 前固定跑這一步；手動操作時，改完 repo（或 `node sync.js to-repo`）後、commit 前，跑 `node sync.js safety:check` 與 `git diff` 人工複核。
 
@@ -260,7 +204,7 @@ node sync.js skills:diff
 
 ### env 區塊
 
-`settings.json` 的 `env` 全部依一般同步語意同步——不因命名 pattern 被剝除，也不在 to-local 特別保留本機 env key。`diff`／`status` 只輸出狀態行、**不印任何設定內容**（env 值不會出現在輸出）；repo 內容是否安全須由 `safety:check` 與人工審核判斷。
+`settings.json` 的 `env` 全部依一般同步語意同步——不因命名 pattern 被剝除，也不在 to-local 特別保留本機 env key。`diff` 只輸出狀態行、**不印任何設定內容**（env 值不會出現在輸出）；repo 內容是否安全須由 `safety:check` 與人工審核判斷。
 
 ### hooks 不跨裝置同步
 
@@ -276,7 +220,7 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 - **`~/.codex/config.toml`** — 不進 repo，且**永不被本工具寫入或讀取**。偏好、projects、providers 與所有 MCP section 皆保持本機。`safety:check` 仍對 repo 內任何 `.toml` 的機密 section hard block——該防線與 MCP 是否同步無關，擋的是「人工把 config.toml 複製進 repo 備份」。
 - **MCP Server 定義（兩端）** — 目前**完全不在同步範圍**，待重新設計。請用 `claude mcp add --scope user ...`／`codex mcp add ...` 於各裝置手動維護。舊版曾留下的 `~/.codex/.ai-config-sync-mcp-state.json` 為孤兒檔，可自行 `rm`（本工具不代刪——為了清理而破例寫本機檔會與「不寫入本機」的承諾自相矛盾）。OAuth／ChatGPT 登入狀態同樣不在同步範圍。
 - **`~/.claude.json`** — 含 OAuth token、專案級歷史與 MCP 設定，屬高風險敏感活檔，**永不被本工具寫入或讀取**。
-- **Skills** — 一律經 `npx skills` 安裝，用 `node sync.js skills:diff` 查看差異（見 [同步項目](#同步項目)）。本 repo 目前無本地 skill 層；要新增時建 `.agents/skills/<name>/SKILL.md`，並補 `.claude/skills` → `../.agents/skills` symlink（Windows clone 需開啟「開發者模式」才會還原成真 symlink）。
+- **Skills** — 本工具不管 skill：自寫全域 skill 住在獨立的 [lllloo/skills](https://github.com/lllloo/skills)（該 repo 的 `skills/` 下），各裝置自行以 `npx skills add lllloo/skills -g --skill <name>` 安裝、`npx skills update -g` 更新（`npx skills check -g` 可查哪些過期，但未列在 `npx skills --help`）。`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/`、`~/.gemini/config/skills/`。本 repo 目前無本地 skill 層；要新增時建 `.agents/skills/<name>/SKILL.md`，並補 `.claude/skills` → `../.agents/skills` symlink（Windows clone 需開啟「開發者模式」才會還原成真 symlink）。
 - **Agents、Commands** — 皆未列同步項目；目錄型同步已整個移除，日後要同步須先重新設計。Command 已改用 skill，不再新增。
 - **`~/.claude/rules/`** — 全域規則一律寫進 `CLAUDE.md`，不再拆檔。
 
@@ -289,10 +233,8 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 | `sync.js` | 主 CLI 入口，實作同步／diff 核心與 command dispatch（無外部相依） |
 | `safety-check.js` | `safety:check` 唯讀掃描模組，由 `sync.js` 注入共用工具（不獨立執行、不反向 require） |
 | `toml-reader.js` | TOML 邏輯語句讀取器（純函式、零 IO），由 `safety-check.js` 直接 require，供 `.toml` 掃描正確歸屬 section |
-| `skills.js` | skills 指令族（`skills:diff`／`skills:add`／`skills:remove`）模組，由 `sync.js` 經 `createSkillsHandler(deps)` 注入共用工具（不獨立執行、不反向 require） |
 | `test/` | `node:test` 測試（單元、沙箱整合、邊界與 drift-guard 回歸鎖） |
 | `package.json` | npm script 別名（與 `COMMANDS` 一致，drift-guard 把關） |
-| `skills-lock.json` | 全域 skills 清單（跨裝置 source of truth） |
 
 ## Exit Code
 

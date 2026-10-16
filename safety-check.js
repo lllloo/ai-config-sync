@@ -104,9 +104,8 @@ const CODEX_CONFIG_HARD_BLOCK_SECTIONS = ['model_providers', 'mcp_servers'];
  */
 const CODEX_CONFIG_DEVICE_WARN_SECTIONS = ['profiles', 'history', 'shell_environment_policy'];
 
-/** safety:check 僅掃同步來源與 skills manifest，不掃 test/docs/README 等文件 */
+/** safety:check 僅掃同步來源，不掃 test/docs/README 等文件 */
 const SAFETY_SCAN_DIRS = ['claude', 'codex', 'gemini'];
-const SAFETY_SCAN_FILES = ['skills-lock.json'];
 
 /**
  * text pattern 掃描（secret／私鑰／HOME 路徑）排除的外部套件文件目錄前綴
@@ -163,10 +162,6 @@ function createSafetyChecker(deps) {
     for (const dir of SAFETY_SCAN_DIRS) {
       const root = path.join(REPO_ROOT, dir);
       for (const rel of getFiles(root)) files.push(path.join(root, rel));
-    }
-    for (const rel of SAFETY_SCAN_FILES) {
-      const filePath = path.join(REPO_ROOT, rel);
-      if (fs.existsSync(filePath)) files.push(filePath);
     }
     return files;
   }
@@ -345,7 +340,7 @@ function createSafetyChecker(deps) {
 }
 
 // 只導出有外部消費者（sync.js 或 test/）的成員。findFirstMatchingLine／HOME_PATH_PATTERN／
-// PRIVATE_KEY_PATTERN／SAFETY_SCAN_FILES 僅供本檔內部使用，刻意不導出以縮小對外契約面
+// PRIVATE_KEY_PATTERN 僅供本檔內部使用，刻意不導出以縮小對外契約面
 module.exports = {
   createSafetyChecker,
   SENSITIVE_KEY_PATTERN,

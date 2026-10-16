@@ -13,7 +13,6 @@ const crypto = require('crypto');
 const readline = require('readline');
 const { spawnSync } = require('child_process');
 const safetyCheckModule = require('./safety-check.js');
-const skillsModule = require('./skills.js');
 
 // =============================================================================
 // Section: Constants -- 全域常數與設定
@@ -31,8 +30,6 @@ const HOME = os.homedir();
 const CLAUDE_HOME = path.join(HOME, '.claude');
 const CODEX_HOME = path.join(HOME, '.codex');
 const GEMINI_HOME = path.join(HOME, '.gemini');
-// ~/.agents 只讀其 npx skills lock（skills:diff 比對用）；sync.js 不寫入 ~/.agents 下任何內容
-const LOCAL_SKILL_LOCK = path.join(HOME, '.agents', '.skill-lock.json');
 
 /**
  * settings.json top-level 採黑名單制：預設同步，僅排除列於此黑名單的裝置／平台綁定欄位。
@@ -79,14 +76,10 @@ const STATUS_ICONS = {
  */
 const COMMANDS = {
   'diff':        { alias: 'd',  desc: '比對本機與 repo 差異' },
-  'status':      { alias: 's',  desc: '同時比對設定與 skills 差異' },
   'to-repo':     { alias: 'tr', desc: '本機設定 -> repo' },
   'to-local':    { alias: 'tl', desc: 'repo 設定 -> 本機' },
   'to-win-local': { alias: 'twl', desc: 'repo 設定 -> WSL 外的 Windows 家目錄' },
   'safety:check': { alias: null, desc: '檢查同步來源是否含高風險內容' },
-  'skills:diff': { alias: 'sd', desc: '比對 skills 差異' },
-  'skills:add':  { alias: 'sa', desc: '新增 skill 到 skills-lock.json' },
-  'skills:remove': { alias: 'sr', desc: '從 skills-lock.json 移除 skill' },
   'help':        { alias: null, desc: '顯示此說明' },
 };
 
@@ -1269,7 +1262,7 @@ function runSafetyCheck() {
 
 // =============================================================================
 // Section: Commands -- 各指令的實作
-// diff, to-repo, to-local, safety:check, skills:diff, skills:add, help
+// diff, to-repo, to-local, to-win-local, safety:check, help
 // =============================================================================
 
 /**
@@ -1347,17 +1340,6 @@ function printDiffItem(item, opts) {
   }
   if (opts.verbose && item.verboseSrc) logVerbosePaths(item.verboseSrc, item.verboseDest || item.dest);
   return item.status !== null;
-}
-
-/**
- * status 指令：依序執行 diff 與 skills:diff（設定 + skills 差異一次看）
- * @param {ParsedArgs} opts - CLI 引數
- * @returns {number} exit code（有任一差異即回傳 EXIT_DIFF）
- */
-function runStatus(opts) {
-  const diffCode = runDiff(opts);
-  const skillsCode = skillsHandler().runSkillsDiff();
-  return (diffCode === EXIT_OK && skillsCode === EXIT_OK) ? EXIT_OK : EXIT_DIFF;
 }
 
 /**
@@ -1618,24 +1600,6 @@ function runToWinLocal(opts) {
 }
 
 // =============================================================================
-// Section: Skills Handler -- Skills 管理指令
-// 讀取／比對／驗證／輸出邏輯在 skills.js；此處僅注入共用工具並轉接 dispatch。
-// =============================================================================
-
-/** lazy singleton：延後到執行期建立，避開對 const 相依（col／REPO_ROOT 等）的 TDZ。 */
-let _skillsHandler = null;
-function skillsHandler() {
-  if (!_skillsHandler) {
-    _skillsHandler = skillsModule.createSkillsHandler({
-      REPO_ROOT, LOCAL_SKILL_LOCK, EXIT_OK, EXIT_DIFF,
-      SyncError, ERR, readJson, writeJsonSafe,
-      printSectionDivider, printStatusLine, col,
-    });
-  }
-  return _skillsHandler;
-}
-
-// =============================================================================
 // Section: CLI Parser -- 命令列引數解析
 // 集中解析所有 CLI 引數與旗標
 // =============================================================================
@@ -1661,7 +1625,7 @@ function parseArgs() {
 
   for (const arg of args) {
     if (arg === '--') {
-      // `--` 之後的所有引數皆視為 extraArgs（支援以 `-` 開頭的 skill 名稱等）
+      // `--` 之後的所有引數皆視為 extraArgs（支援以 `-` 開頭的位置引數，如路徑）
       pastSeparator = true;
     } else if (pastSeparator) {
       result.extraArgs.push(arg);
@@ -1677,11 +1641,6 @@ function parseArgs() {
       result.showVersion = true;
     } else if (arg === '--help' || arg === '-h') {
       result.showHelp = true;
-    } else if (result.command === 'skills:add' && (arg === '--agent' || arg.startsWith('--agent='))) {
-      // 帶值旗標原樣轉入 extraArgs，由 skills.js 的 extractAgentOption 解析與驗證。
-      // npm run 會吃掉 `--` 分隔符，故不能仰賴 pastSeparator 放行；只對 skills:add 開放，
-      // 其他指令的 --agent 仍走下方未知旗標拒絕。
-      result.extraArgs.push(arg);
     } else if (arg.startsWith('-')) {
       // 不在白名單的旗標（含 typo 如 --dryrun、--dri-run）：拒絕而非靜默忽略。
       // 否則 `--dry-run` 打錯字會略過預覽直接真寫入，使安全閘門失效。
@@ -1767,7 +1726,6 @@ function runHelp() {
   console.log(`    ${col.cyan('--yes')}                  略過互動確認（非互動環境必加，別名 --force）`);
   console.log(`    ${col.cyan('--no-color')}             關閉色彩輸出（亦支援 NO_COLOR 環境變數）`);
   console.log(`    ${col.cyan('--verbose')}              顯示詳細路徑與檔案大小`);
-  console.log(`    ${col.cyan('--agent <值>')}           僅 skills:add：指定安裝目標工具（claude-code／codex）`);
   console.log(`    ${col.cyan('--version')}              顯示版本號（別名 -v）`);
   console.log(`    ${col.cyan('--help')}                 顯示此說明（別名 -h）`);
 
@@ -1775,7 +1733,6 @@ function runHelp() {
   console.log(col.dim('    node sync.js diff'));
   console.log(col.dim('    node sync.js to-repo --dry-run'));
   console.log(col.dim('    node sync.js to-win-local --dry-run   # WSL 內套用到 Windows 家目錄'));
-  console.log(col.dim('    node sync.js skills:add https://skills.sh/anthropics/skills/web-search'));
   console.log('');
 }
 
@@ -1864,14 +1821,10 @@ async function main() {
 async function runCommand(command, opts) {
   switch (command) {
     case 'diff': return runDiff(opts);
-    case 'status': return runStatus(opts);
     case 'to-repo': return runToRepo(opts);
     case 'to-local': return runToLocal(opts);
     case 'to-win-local': return runToWinLocal(opts);
     case 'safety:check': return runSafetyCheck();
-    case 'skills:diff': return skillsHandler().runSkillsDiff();
-    case 'skills:add': return skillsHandler().runSkillsAdd(opts);
-    case 'skills:remove': return skillsHandler().runSkillsRemove(opts);
     case 'help': runHelp(); return EXIT_OK;
     default: throw new SyncError(`未知指令：${command}`, ERR.INVALID_ARGS);
   }

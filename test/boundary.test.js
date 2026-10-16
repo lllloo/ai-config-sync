@@ -642,9 +642,9 @@ test('applySyncItems：dry-run 計入統計但不實際寫入', () => {
 // safety:check：獨立、唯讀、安全輸出與 exit code
 // =============================================================================
 
-// safety:check 執行期依賴 sync.js + safety-check.js + toml-reader.js + skills.js 四檔，
+// safety:check 執行期依賴 sync.js + safety-check.js + toml-reader.js 三檔，
 // sandbox 需同時複製，避免單檔假設回歸（sync.js require 缺任一檔會直接崩）。
-const SAFETY_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js'];
+const SAFETY_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js'];
 
 function setupSafetySandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-safety-'));
@@ -1155,7 +1155,7 @@ test('safety:check：claude/agents 已自豁免清單移除（agent 庫已不同
 // 回歸（#8）：SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES 曾整棵排除全域 skill 樹根，而那是
 // 掃描來源根目錄之一的**全部內容**——等於整棵樹不受 secret／私鑰／HOME 路徑掃描。
 // 清單現為空，此測試鎖住「來源根不得被整棵豁免」。全域 skill 已拆出 lllloo/skills，
-// `skills/` 不再是本 repo 的掃描來源；`skills-lock.json` 仍留在 SAFETY_SCAN_FILES。
+// `skills/` 不再是本 repo 的掃描來源。
 test('safety:check：來源根不得整棵排除，且 skills/、agents/ 已不在掃描射程', () => {
   const { SAFETY_TEXT_SCAN_EXCLUDE_PREFIXES, SAFETY_SCAN_DIRS } = require('../safety-check.js');
   assert.ok(!SAFETY_SCAN_DIRS.includes('skills'), 'skills/ 已拆出獨立 repo，不得留在 SAFETY_SCAN_DIRS');
@@ -1165,15 +1165,6 @@ test('safety:check：來源根不得整棵排除，且 skills/、agents/ 已不�
 
   const { repo, root } = setupSafetySandbox();
   try {
-    // skills-lock.json 仍在射程（SAFETY_SCAN_FILES 刻意不導出，故以行為斷言）：
-    // 縮小 SAFETY_SCAN_DIRS 時不得連 lock 檔一併掉出掃描
-    writeSafetyText(repo, 'skills-lock.json',
-      '{"version":1,"skills":{"x":{"source":"ghp_' + 'q'.repeat(24) + '"}}}\n');
-    const r1 = runSafety(repo);
-    assert.equal(r1.status, 2, `skills-lock.json 應留在掃描射程\n${r1.stdout}\n${r1.stderr}`);
-    assert.match(r1.stdout, /疑似機密值/);
-    fs.rmSync(path.join(repo, 'skills-lock.json'), { force: true });
-
     // claude/skills/ 已隨同步層移除自豁免清單撤除（repo 已無此目錄，排除屬預防性列名）：
     // 若日後重新引入且含機密樣式，text pattern 應照常攔截
     writeSafetyText(repo, 'claude/skills/demo/SKILL.md', '範例：ghp_' + 'z'.repeat(24) + '\n');
@@ -1209,11 +1200,11 @@ test('safety:check：設定來源（statusline.sh）含機密樣式 → 仍 hard
 
 // =============================================================================
 // 模組邊界：功能模組不得反向 require sync.js
-// safety-check-module-boundary／skills-module-boundary 兩份 spec 皆有此 SHALL NOT，
+// safety-check-module-boundary spec 有此 SHALL NOT，
 // 此前無回歸鎖、純靠自律。註解裡提及該字串（如檔頭的禁令說明）不算違規，故先剝除註解再比對。
 // =============================================================================
 
-const FEATURE_MODULES = ['safety-check.js', 'toml-reader.js', 'skills.js'];
+const FEATURE_MODULES = ['safety-check.js', 'toml-reader.js'];
 
 /** 剝除區塊註解與行註解，避免檔頭禁令說明被誤判為真實 require。 */
 function stripJsComments(src) {

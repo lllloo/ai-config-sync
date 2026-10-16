@@ -20,12 +20,12 @@ const { spawnSync } = require('node:child_process');
 const { noColorEnv } = require('./helpers.js');
 const { COMMANDS, isWsl } = require('../sync.js');
 
-// sync.js require('./safety-check.js')（後者 require('./toml-reader.js')）與
-// require('./skills.js')，任何 `node sync.js` 指令缺任一檔即崩，故四檔同抄。
-const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js', 'skills.js'];
+// sync.js require('./safety-check.js')（後者 require('./toml-reader.js')），
+// 任何 `node sync.js` 指令缺任一檔即崩，故三檔同抄。
+const SYNC_RUNTIME_FILES = ['sync.js', 'safety-check.js', 'toml-reader.js'];
 
 /**
- * 建立沙箱：repo（含 sync.js + safety-check.js + toml-reader.js + skills.js 副本、git init）與 home。
+ * 建立沙箱：repo（含 sync.js + safety-check.js + toml-reader.js 副本、git init）與 home。
  * @returns {{repo: string, home: string}}
  */
 function setupSandbox() {
@@ -353,169 +353,6 @@ test('to-local 互動：EOF（未作答即 close）→ 取消、本機不得被�
 });
 
 // -----------------------------------------------------------------------------
-// skills:diff：三向集合差 + 退出碼語義（供 CI）+ 建議指令
-// -----------------------------------------------------------------------------
-test('skills:diff：兩邊皆空 → 完全一致、exit 0', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    const r = run(repo, home, ['skills:diff']);
-    assert.equal(r.status, 0, `應 exit 0\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /完全一致/);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('skills:diff：repo 有、本機未裝 → exit 1 並建議 npx skills add', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeJson(path.join(repo, 'skills-lock.json'),
-      { skills: { foo: { source: 'https://skills.sh/x/foo' } } });
-
-    const r = run(repo, home, ['skills:diff']);
-    assert.equal(r.status, 1, `差異應 exit EXIT_DIFF=1\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /repo 有、本機未安裝/);
-    assert.match(r.stdout, /npx skills add https:\/\/skills\.sh\/x\/foo .*--skill foo/);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('skills:diff：本機有、repo 未記錄 → exit 1 並列出加入/移除兩選項', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeJson(path.join(home, '.agents', '.skill-lock.json'),
-      { skills: { bar: { source: 'org/bar' } } });
-
-    const r = run(repo, home, ['skills:diff']);
-    assert.equal(r.status, 1);
-    assert.match(r.stdout, /本機有、repo 未記錄/);
-    assert.match(r.stdout, /node sync\.js skills:add bar org\/bar/);
-    assert.doesNotMatch(r.stdout, /npm run/, "建議指令一律走 node sync.js，免 npm 的 -- 分隔陷阱");
-    assert.match(r.stdout, /npx skills remove bar/);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// -----------------------------------------------------------------------------
-// skills:add / skills:remove：實際寫入 skills-lock.json 的端到端行為
-// 此前只有 parseSkillSource 純函式與 skills:diff 被覆蓋，寫入路徑（撞名不覆寫、
-// lock 初始化、remove happy path、缺檔/缺引數錯誤）無任何回歸防護。
-// -----------------------------------------------------------------------------
-function readLock(repo) {
-  return JSON.parse(fs.readFileSync(path.join(repo, 'skills-lock.json'), 'utf8'));
-}
-
-test('skills:add：name+source 形式 → 寫入 lock、exit 0、印安裝指令', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    const r = run(repo, home, ['skills:add', 'foo', 'org/foo']);
-    assert.equal(r.status, 0, `應 exit 0\n${r.stdout}\n${r.stderr}`);
-    assert.deepEqual(readLock(repo).skills.foo, { source: 'org/foo', sourceType: 'github' });
-    assert.match(r.stdout, /已加入/);
-    assert.match(r.stdout, /npx skills add org\/foo .*--skill foo/);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('skills:add：lock 不存在時初始化 version:1 並寫入', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    assert.equal(fs.existsSync(path.join(repo, 'skills-lock.json')), false, '前提：無 lock');
-    const r = run(repo, home, ['skills:add', 'foo', 'org/foo']);
-    assert.equal(r.status, 0, `應 exit 0\n${r.stdout}\n${r.stderr}`);
-    const lock = readLock(repo);
-    assert.equal(lock.version, 1);
-    assert.equal(lock.skills.foo.source, 'org/foo');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('skills:add：URL 形式解析 name/source', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    const r = run(repo, home, ['skills:add', 'https://skills.sh/acme/repo/myskill']);
-    assert.equal(r.status, 0, `應 exit 0\n${r.stdout}\n${r.stderr}`);
-    assert.deepEqual(readLock(repo).skills.myskill, { source: 'acme/repo', sourceType: 'github' });
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('skills:add：撞名不覆寫既有 source、exit 0 並警告', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeJson(path.join(repo, 'skills-lock.json'),
-      { version: 1, skills: { foo: { source: 'orig/foo', sourceType: 'github' } } });
-    const r = run(repo, home, ['skills:add', 'foo', 'other/foo']);
-    assert.equal(r.status, 0, `撞名應 exit 0\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /已存在/);
-    assert.equal(readLock(repo).skills.foo.source, 'orig/foo', '不得覆寫既有 source');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('skills:add：缺來源引數 → INVALID_ARGS exit 2', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    const r = run(repo, home, ['skills:add']);
-    assert.equal(r.status, 2, `缺引數應 exit 2\n${r.stdout}\n${r.stderr}`);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('skills:remove：移除既有 skill、exit 0、印 npx remove 指令', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeJson(path.join(repo, 'skills-lock.json'), {
-      version: 1,
-      skills: {
-        foo: { source: 'org/foo', sourceType: 'github' },
-        bar: { source: 'org/bar', sourceType: 'github' },
-      },
-    });
-    const r = run(repo, home, ['skills:remove', 'foo']);
-    assert.equal(r.status, 0, `應 exit 0\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /已移除/);
-    assert.match(r.stdout, /npx skills remove foo/);
-    const lock = readLock(repo);
-    assert.equal(lock.skills.foo, undefined, 'foo 應被移除');
-    assert.ok(lock.skills.bar, 'bar 應保留');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('skills:remove：不在 lock → no-op、exit 0 並提示', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeJson(path.join(repo, 'skills-lock.json'),
-      { version: 1, skills: { bar: { source: 'org/bar', sourceType: 'github' } } });
-    const r = run(repo, home, ['skills:remove', 'foo']);
-    assert.equal(r.status, 0, `不存在應 no-op exit 0\n${r.stdout}\n${r.stderr}`);
-    assert.match(r.stdout, /不在 skills-lock\.json/);
-    assert.ok(readLock(repo).skills.bar, '既有項不受影響');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('skills:remove：lock 檔不存在 → FILE_NOT_FOUND exit 2', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    const r = run(repo, home, ['skills:remove', 'foo']);
-    assert.equal(r.status, 2, `缺 lock 應 exit 2\n${r.stdout}\n${r.stderr}`);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// -----------------------------------------------------------------------------
 // 同步流程降責：敏感命名、known secret value 與 HOME 路徑不再讓同步中止
 // -----------------------------------------------------------------------------
 test('to-repo：敏感命名、known secret 與 HOME 路徑不再中止', () => {
@@ -699,45 +536,6 @@ test('diff：二進位檔差異輸出不得含沙箱絕對路徑', () => {
     assert.equal(r.status, 1, `有差異應 exit 1\n${r.stdout}\n${r.stderr}`);
     const output = r.stdout + r.stderr;
     assert.ok(!output.includes(root), `輸出不得含沙箱絕對路徑（外部 diff 的 Binary files 訊息須遮罩）\n${output}`);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// -----------------------------------------------------------------------------
-// dispatch drift-guard：每個 COMMANDS 登錄指令都須能被 runCommand 分派，
-// 不落入「未知指令」default——鎖住「新增指令漏改 runCommand switch」的漂移。
-// 以 --dry-run --yes 讓破壞性指令安全非互動執行；缺參數的 skills:* 會回其自身
-// 參數錯誤（非「未知指令」），故 guard 只斷言「未落 default 分支」。
-// -----------------------------------------------------------------------------
-// -----------------------------------------------------------------------------
-// status：exit code 為 diff 與 skills:diff 的聯集（任一有差異即 EXIT_DIFF）
-// -----------------------------------------------------------------------------
-test('status：設定一致但 skills 有差異 → exit 1（聚合 skills:diff 的退出碼）', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'claude', 'CLAUDE.md'), 'SAME');
-    writeText(path.join(home, '.claude', 'CLAUDE.md'), 'SAME');
-    writeJson(path.join(repo, 'skills-lock.json'),
-      { version: 1, skills: { foo: { source: 'org/foo', sourceType: 'github' } } });
-
-    const r = run(repo, home, ['status']);
-    assert.match(r.stdout, /本機與 repo 完全一致/, '前提：設定端無差異（diff 回 EXIT_OK）');
-    assert.match(r.stdout, /repo 有、本機未安裝/, '前提：skills 端有差異');
-    assert.equal(r.status, 1, `skills 有差異即應 exit 1\n${r.stdout}\n${r.stderr}`);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('status：設定與 skills 皆一致 → exit 0', () => {
-  const { repo, home, root } = setupSandbox();
-  try {
-    writeText(path.join(repo, 'claude', 'CLAUDE.md'), 'SAME');
-    writeText(path.join(home, '.claude', 'CLAUDE.md'), 'SAME');
-
-    const r = run(repo, home, ['status']);
-    assert.equal(r.status, 0, `兩端皆一致應 exit 0\n${r.stdout}\n${r.stderr}`);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

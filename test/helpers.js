@@ -56,7 +56,7 @@ function withTmpDir(fn) {
 }
 
 /**
- * 在臨時目錄建立 skills-lock.json 並執行 fn
+ * 在臨時目錄建立 JSON 檔並執行 fn
  * @template T
  * @param {string|null} contentOrSkip - 要寫入的內容；傳 null 則不建檔（僅給路徑）
  * @param {(filePath: string) => T} fn
@@ -64,7 +64,7 @@ function withTmpDir(fn) {
  */
 function withTmpFile(contentOrSkip, fn) {
   return withTmpDir((dir) => {
-    const fp = path.join(dir, 'skills-lock.json');
+    const fp = path.join(dir, 'tmp.json');
     if (contentOrSkip !== null) fs.writeFileSync(fp, contentOrSkip);
     return fn(fp);
   });
