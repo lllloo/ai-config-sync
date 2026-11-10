@@ -41,10 +41,10 @@ function setupSandbox() {
   return { repo, home, root };
 }
 
-function run(repo, home, args) {
+function run(repo, home, args, extraEnv = {}) {
   return spawnSync(process.execPath, [path.join(repo, 'sync.js'), ...args], {
     cwd: repo,
-    env: noColorEnv({ HOME: home, USERPROFILE: home }),
+    env: noColorEnv({ HOME: home, USERPROFILE: home, ...extraEnv }),
     encoding: 'utf8',
   });
 }
@@ -502,6 +502,77 @@ test('to-local --yes：gemini/GEMINI.md 套用到本機', () => {
     assert.equal(r.status, 0, `to-local 應 exit 0\n${r.stdout}\n${r.stderr}`);
     assert.equal(fs.readFileSync(path.join(home, '.gemini', 'GEMINI.md'), 'utf8'),
       'GEMINI-B', 'gemini/GEMINI.md 應套用到本機');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// CODEX_HOME：Codex 路徑與 Codex 本身一致，設定時讀寫 $CODEX_HOME 而非 ~/.codex
+// （例：WSL 以 CODEX_HOME 指向 Windows 家目錄，與 Windows 端共用一份 Codex 設定）
+// 沙箱的 codexHome 刻意放在 HOME 外，才驗得到顯示遮罩。
+// -----------------------------------------------------------------------------
+test('to-local --yes：設 CODEX_HOME 時 AGENTS.md 寫入 $CODEX_HOME、不寫 ~/.codex，config.toml 原封不動', () => {
+  const { repo, home, root } = setupSandbox();
+  const codexHome = path.join(root, 'win-codex');
+  try {
+    writeText(path.join(repo, 'codex', 'AGENTS.md'), 'CODEX-ENV');
+    writeText(path.join(codexHome, 'config.toml'), 'model = "o3"\n');
+
+    const r = run(repo, home, ['to-local', '--yes'], { CODEX_HOME: codexHome });
+    assert.equal(r.status, 0, `to-local 應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.equal(fs.readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8'),
+      'CODEX-ENV', 'AGENTS.md 應寫入 $CODEX_HOME');
+    assert.equal(fs.existsSync(path.join(home, '.codex', 'AGENTS.md')), false,
+      '設 CODEX_HOME 時不得寫入 ~/.codex');
+    assert.equal(fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8'),
+      'model = "o3"\n', '$CODEX_HOME/config.toml 須原封不動');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('to-repo：設 CODEX_HOME 時自 $CODEX_HOME 讀 AGENTS.md，忽略 ~/.codex', () => {
+  const { repo, home, root } = setupSandbox();
+  const codexHome = path.join(root, 'win-codex');
+  try {
+    writeText(path.join(codexHome, 'AGENTS.md'), 'FROM-CODEX-HOME');
+    writeText(path.join(home, '.codex', 'AGENTS.md'), 'STALE-DOT-CODEX');
+
+    const r = run(repo, home, ['to-repo'], { CODEX_HOME: codexHome });
+    assert.equal(r.status, 0, `to-repo 應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.equal(fs.readFileSync(path.join(repo, 'codex', 'AGENTS.md'), 'utf8'),
+      'FROM-CODEX-HOME', 'repo 應取 $CODEX_HOME 版本');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('diff --verbose：CODEX_HOME 在 HOME 外時路徑顯示為 $CODEX_HOME，不洩漏絕對路徑', () => {
+  const { repo, home, root } = setupSandbox();
+  const codexHome = path.join(root, 'win-codex');
+  try {
+    writeText(path.join(codexHome, 'AGENTS.md'), 'LOCAL');
+    writeText(path.join(repo, 'codex', 'AGENTS.md'), 'REPO');
+
+    const r = run(repo, home, ['diff', '--verbose'], { CODEX_HOME: codexHome });
+    assert.equal(r.status, 1, `有差異應 exit 1\n${r.stdout}\n${r.stderr}`);
+    assert.match(r.stdout, /\$CODEX_HOME\/AGENTS\.md/, '應以 $CODEX_HOME 顯示 Codex 路徑');
+    assert.ok(!r.stdout.includes(codexHome), '輸出不得含 CODEX_HOME 絕對路徑');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('CODEX_HOME 為空字串時視同未設定，退回 ~/.codex', () => {
+  const { repo, home, root } = setupSandbox();
+  try {
+    writeText(path.join(repo, 'codex', 'AGENTS.md'), 'CODEX-DEFAULT');
+
+    const r = run(repo, home, ['to-local', '--yes'], { CODEX_HOME: '' });
+    assert.equal(r.status, 0, `to-local 應 exit 0\n${r.stdout}\n${r.stderr}`);
+    assert.equal(fs.readFileSync(path.join(home, '.codex', 'AGENTS.md'), 'utf8'),
+      'CODEX-DEFAULT', '空字串 CODEX_HOME 應退回 ~/.codex');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -38,6 +38,25 @@ const { withArgv, withTmpDir, noColorEnv, loadGetFiles } = require('./helpers');
 const getFiles = loadGetFiles();
 
 // =============================================================================
+// 測試沙箱回歸鎖：spawn 子行程不得繼承外層 CODEX_HOME
+// sync.js 的 Codex 路徑跟隨 CODEX_HOME，繼承到真實值會讓整合測試寫進使用者的 Codex 設定
+// =============================================================================
+
+test('noColorEnv：剔除外層 CODEX_HOME，overrides 明確傳入時以其為準', () => {
+  const saved = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = '/real/user/codex-home';
+  try {
+    assert.equal('CODEX_HOME' in noColorEnv({ HOME: '/sandbox' }), false,
+      '未覆寫時不得繼承外層 CODEX_HOME');
+    assert.equal(noColorEnv({ CODEX_HOME: '/sandbox/codex' }).CODEX_HOME, '/sandbox/codex',
+      'overrides 傳入的 CODEX_HOME 應保留');
+  } finally {
+    if (saved === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = saved;
+  }
+});
+
+// =============================================================================
 // 安全：askConfirm 在非互動環境的行為（避免 to-local 卡死或靜默 no-op）
 // =============================================================================
 

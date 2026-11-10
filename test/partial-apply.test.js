@@ -51,19 +51,23 @@ function setupSpawnSandbox() {
  * 路徑，保護僅靠 noColorEnv 覆寫 HOME／USERPROFILE。覆寫若失效（子行程仍看到真實
  * HOME）就會直接改寫使用者設定，且不會有任何人告訴你。故 spawn 前實測子行程眼中
  * 的 home：POSIX 取 $HOME、Windows 取 %USERPROFILE%，兩邊皆已覆寫，斷言於兩平台同時成立。
+ * Codex 路徑另跟隨 CODEX_HOME（覆寫 HOME 擋不住），一併確認子行程看不到外層的值。
  * @param {string} home - 沙箱 HOME
  */
 function assertSandboxHome(home) {
   assert.notEqual(home, REAL_HOME, '沙箱 HOME 不得等於真實 HOME');
-  const probe = spawnSync(process.execPath, ['-p', 'require("os").homedir()'], {
-    env: noColorEnv({ HOME: home, USERPROFILE: home }),
-    encoding: 'utf8',
-  });
+  const probe = spawnSync(process.execPath,
+    ['-p', 'JSON.stringify([require("os").homedir(), process.env.CODEX_HOME ?? null])'], {
+      env: noColorEnv({ HOME: home, USERPROFILE: home }),
+      encoding: 'utf8',
+    });
   assert.equal(probe.status, 0, `HOME 探針執行失敗：${probe.stderr}`);
-  const childHome = probe.stdout.trim();
+  const [childHome, childCodexHome] = JSON.parse(probe.stdout);
   assert.notEqual(childHome, REAL_HOME,
     '子行程仍看到真實 HOME，中止以免 to-local 寫入使用者設定');
   assert.equal(childHome, home, `子行程 HOME 未指向沙箱（實得 ${childHome}）`);
+  assert.equal(childCodexHome, null,
+    '子行程仍繼承外層 CODEX_HOME，中止以免 to-local 寫入使用者的 Codex 設定');
 }
 
 function runSync(repo, home, args) {

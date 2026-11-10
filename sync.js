@@ -28,7 +28,13 @@ const EXIT_ERROR = 2;
 const REPO_ROOT = __dirname;
 const HOME = os.homedir();
 const CLAUDE_HOME = path.join(HOME, '.claude');
-const CODEX_HOME = path.join(HOME, '.codex');
+/**
+ * Codex home 與 Codex 本身一致：有設 CODEX_HOME 就用它（例：WSL 指向 Windows 家目錄、
+ * 兩端共用一份 Codex 設定），未設定或為空字串時為 ~/.codex。
+ * CODEX_HOME_ENV 另供路徑顯示遮罩使用（落在 HOME 外時以 `$CODEX_HOME` 代替）。
+ */
+const CODEX_HOME_ENV = process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : '';
+const CODEX_HOME = CODEX_HOME_ENV || path.join(HOME, '.codex');
 const GEMINI_HOME = path.join(HOME, '.gemini');
 
 /**
@@ -228,23 +234,39 @@ function toRelativePath(filePath) {
   if (HOME && filePath.startsWith(HOME + path.sep)) {
     return '~' + filePath.slice(HOME.length).replace(/\\/g, '/');
   }
+  // 再次：CODEX_HOME 落在 HOME 外（如 WSL 指向 Windows 家目錄）時以變數名代替
+  if (CODEX_HOME_ENV && filePath.startsWith(CODEX_HOME_ENV + path.sep)) {
+    return '$CODEX_HOME' + filePath.slice(CODEX_HOME_ENV.length).replace(/\\/g, '/');
+  }
   // 其它：系統暫存檔等，保留原路徑
   return filePath;
 }
 
 /**
+ * 將文字中所有 base 路徑出現替換為 label，同時處理 Windows 反斜線與正斜線兩種寫法
+ * @param {string} text
+ * @param {string} base - 絕對路徑
+ * @param {string} label - 替換字串
+ * @returns {string}
+ */
+function replacePathPrefix(text, base, label) {
+  let out = text.split(base).join(label);
+  const baseFwd = base.replace(/\\/g, '/');
+  if (baseFwd !== base) out = out.split(baseFwd).join(label);
+  return out;
+}
+
+/**
  * 將文字中所有 HOME 絕對路徑出現替換為 ~（縱深防禦）。
- * 用於無結構的錯誤訊息字串（如非 SyncError 的原生 Error.message，可能內嵌絕對路徑）；
- * 同時處理 Windows 反斜線與正斜線兩種寫法。
+ * 用於無結構的錯誤訊息字串（如非 SyncError 的原生 Error.message，可能內嵌絕對路徑）。
+ * CODEX_HOME 落在 HOME 外時另替換為 `$CODEX_HOME`（在 HOME 內者已先被 ~ 取代）。
  * @param {string} text
  * @returns {string}
  */
 function maskHome(text) {
   if (!text || !HOME) return text;
-  let out = text.split(HOME).join('~');
-  const homeFwd = HOME.replace(/\\/g, '/');
-  if (homeFwd !== HOME) out = out.split(homeFwd).join('~');
-  return out;
+  const out = replacePathPrefix(text, HOME, '~');
+  return CODEX_HOME_ENV ? replacePathPrefix(out, CODEX_HOME_ENV, '$CODEX_HOME') : out;
 }
 
 // =============================================================================
@@ -752,7 +774,7 @@ const SYNC_AREAS = {
 /**
  * 同步項目宣告式清單：一列 = 一個同步路徑，為所有同步項目的單一事實來源。
  * 新增同步內容只需在此加一列（不需改任何 builder 或 dispatch switch）。
- *   - area：對應 SYNC_AREAS 的 key（'claude' → ~/.claude ↔ repo claude/；'codex' → ~/.codex ↔ repo codex/）
+ *   - area：對應 SYNC_AREAS 的 key（'claude' → ~/.claude ↔ repo claude/；'codex' → $CODEX_HOME 或 ~/.codex ↔ repo codex/）
  *   - type：'file'|'settings'（型別行為由 diffSyncItem／applySyncItem 分派）
  *   - fixedFlow：true 代表 src 恆為本機端、dest 恆為 repo 端，不隨 direction 交換
  *     （settings.json 由 mergeSettingsBetween 依 direction 決定流向）

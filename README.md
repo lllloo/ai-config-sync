@@ -47,6 +47,7 @@ node sync.js to-local   # repo → 本機（套用，會先預覽再確認）
 
 - **全域指示**各自獨立（`CLAUDE.md`、`AGENTS.md` 與 `GEMINI.md` 內容可分歧）。
 - **主設定檔**：Claude 為黑名單過濾版（排除裝置欄位，見 [settings.json 同步行為](#settingsjson-同步行為)）。
+- **Codex 路徑跟隨 `CODEX_HOME`**：與 Codex 本身一致，有設定時讀寫 `$CODEX_HOME/AGENTS.md`（例：WSL 以 `CODEX_HOME` 指向 Windows 家目錄，兩端共用一份 Codex 設定），未設定或為空字串時為 `~/.codex/`。`config.toml` 照樣永不讀寫；路徑落在家目錄外時，輸出以 `$CODEX_HOME` 顯示。
 - Skills、MCP、Agents、Commands、`~/.claude/rules/` 等不在同步範圍，見 [刻意不同步](#刻意不同步)。
 
 ### 目錄命名

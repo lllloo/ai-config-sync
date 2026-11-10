@@ -53,7 +53,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 | `claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | 全文比對 |
 | `claude/settings.json` | `~/.claude/settings.json` | top-level 黑名單制：排除 `DEVICE_SETTINGS_KEYS`（裝置偏好、`hooks`），其餘整鍵同步、不合併；細節見 README「settings.json 同步行為」 |
 | `claude/statusline.sh` | `~/.claude/statusline.sh` | 全文比對 |
-| `codex/AGENTS.md` | `~/.codex/AGENTS.md` | 全文比對 |
+| `codex/AGENTS.md` | `~/.codex/AGENTS.md` | 全文比對；本機路徑跟隨 `CODEX_HOME`（有設定時為 `$CODEX_HOME/AGENTS.md`，與 Codex 本身一致） |
 | `gemini/GEMINI.md` | `~/.gemini/GEMINI.md` | 全文比對 |
 
 ### 刻意不同步（勿加入 `SYNC_MANIFEST`）
@@ -71,9 +71,9 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 - **`SYNC_MANIFEST`**：一列 = 一路徑，本機路徑一律為 area `homeBase` + `label`；任一列不得指向 `~/.claude.json`（回歸鎖）。`SyncItem.type` 只有 `file`／`settings`（回歸鎖），由 `diffSyncItem`／`applySyncItem` 以 `switch` 分派。
 - **寫入一律走 `writeFileSafe`**（同目錄暫存檔 + rename 的 atomic write，不做 fsync）；讀取走 `readFileSafe`。`diff` 全程唯讀。
 - **錯誤一律拋 `SyncError`**，經檔尾 `formatError` 統一輸出；禁止裸 `console.error + process.exit`。Exit code：`0` 成功／無差異、`1` 有差異、`2` 錯誤。
-- **路徑顯示走 `toRelativePath`**（REPO_ROOT 與 `$HOME` → `~/`），避免洩漏使用者名稱。
+- **路徑顯示走 `toRelativePath`**（REPO_ROOT 與 `$HOME` → `~/`；落在 HOME 外的 `CODEX_HOME` → `$CODEX_HOME`），避免洩漏使用者名稱。
 - **部分失敗可見度**：apply 中途失敗時，先前項目已寫入的變更經 `applySyncItems` 附掛 `applied`、由 `warnPartialApply` 警告。**不要加訊號處理、暫存檔登記表或「寫入中」旗標**：寫入是無 await 的同步碼，訊號 handler 排不進寫入中途，暫存檔也只活在 `writeFileSafe` 一次呼叫內（理由見該函式註解）。
-- **測試不得依賴真實 HOME**；`SYNC_RUNTIME_FILES`／`SAFETY_RUNTIME_FILES` 須含兩個原始檔。
+- **測試不得依賴真實 HOME**；spawn 子行程一律經 `noColorEnv`（會剔除外層 `CODEX_HOME`，只覆寫 HOME 擋不住它）。`SYNC_RUNTIME_FILES`／`SAFETY_RUNTIME_FILES` 須含兩個原始檔。
 
 ## 修改守則
 

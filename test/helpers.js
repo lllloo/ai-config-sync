@@ -74,11 +74,17 @@ function withTmpFile(contentOrSkip, fn) {
  * 產生 spawn 子行程用的無色彩環境：設 NO_COLOR 並剔除外層繼承的 FORCE_COLOR，
  * 讓整合測試的純文字斷言不受終端環境影響（外層設 FORCE_COLOR 時，子行程雖為
  * pipe 非 TTY 仍會輸出 ANSI 色碼，插在圖示與檔名之間破壞 regex 鄰接性）。
- * @param {Record<string, string>} [overrides] - 額外覆寫的環境變數（如 HOME）
+ *
+ * 同時剔除外層繼承的 CODEX_HOME：sync.js 的 Codex 路徑跟隨 CODEX_HOME，
+ * 只覆寫 HOME 擋不住它，子行程會直接寫進使用者真實的 Codex 設定。
+ * 要測 CODEX_HOME 行為時由 overrides 明確傳入沙箱路徑。
+ * @param {Record<string, string>} [overrides] - 額外覆寫的環境變數（如 HOME、CODEX_HOME）
  * @returns {NodeJS.ProcessEnv}
  */
 function noColorEnv(overrides = {}) {
-  const env = { ...process.env, NO_COLOR: '1', ...overrides };
+  const env = { ...process.env };
+  delete env.CODEX_HOME;
+  Object.assign(env, { NO_COLOR: '1' }, overrides);
   delete env.FORCE_COLOR;
   return env;
 }
