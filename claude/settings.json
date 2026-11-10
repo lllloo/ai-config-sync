@@ -39,5 +39,9 @@
   },
   "language": "繁體中文",
   "skipDangerousModePermissionPrompt": true,
-  "remoteControlAtStartup": false
+  "remoteControlAtStartup": false,
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  }
 }
