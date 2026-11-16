@@ -80,5 +80,5 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 
 ## Skills 管理
 
-- **勿恢復 skill 管理層**：`skills.js`、`skills:*` 指令與 `skills-lock.json` 已移除。安裝指令固定帶 `--skill`，避免把來源 repo 的其他 skill 一併裝成全域。
+- **勿恢復 skill 管理層**：`skills.js`、`skills:*` 指令與 `skills-lock.json` 已移除。安裝指令固定帶 `--skill`，避免把來源 repo 的其他 skill 一併裝成全域。<!-- doc-ref-ok: skills.js — 已刪檔，此處指名為禁止恢復 -->
 - **勿恢復 `claude/skills/`、`commands` 或任何目錄同步層**：`dir` 型的 prune 曾會刪掉 `npx skills` 在 `~/.claude/skills/` 建的探索 symlink。Agents 目前亦無同步項目，真要恢復任何目錄層須先重新設計。

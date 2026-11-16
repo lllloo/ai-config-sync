@@ -117,7 +117,7 @@ node sync.js to-local
 
 其餘常見欄位**值等同 Codex 現行預設，不必寫進設定檔**：目標追蹤（`features.goals`）已 stable 且預設開啟；記憶生成／使用開關（`memories.generate_memories`／`memories.use_memories`）預設就開；各 `[plugins."…"]` 的 `enabled` 預設為 `true`。
 
-> 預設值依 [Codex config reference](https://learn.chatgpt.com/docs/config-file/config-reference) 與 codex-rs 原始碼（`PluginConfig` 的 `default_enabled`、`DEFAULT_STATUS_LINE_ITEMS`）查核，可能隨版本變動。
+> 預設值依 [Codex config reference](https://learn.chatgpt.com/docs/config-file/config-reference) 與 codex-rs 原始碼（`PluginConfig` 的 `default_enabled`、`DEFAULT_STATUS_LINE_ITEMS`）查核，可能隨版本變動。<!-- doc-ref-ok: PluginConfig, DEFAULT_STATUS_LINE_ITEMS — codex-rs 外部原始碼識別字 -->
 
 **切勿把 `config.toml` 放進 repo**：它可能含 `model_providers.*`／`mcp_servers.*` 等機密載體與 `projects.*` 的絕對家目錄路徑。`safety:check` 不解析 `.toml` 結構，只會做一般的 token／私鑰／HOME 路徑字串掃描。
 
