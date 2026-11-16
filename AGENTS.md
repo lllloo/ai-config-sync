@@ -82,3 +82,22 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 
 - **勿恢復 skill 管理層**：`skills.js`、`skills:*` 指令與 `skills-lock.json` 已移除。安裝指令固定帶 `--skill`，避免把來源 repo 的其他 skill 一併裝成全域。<!-- doc-ref-ok: skills.js — 已刪檔，此處指名為禁止恢復 -->
 - **勿恢復 `claude/skills/`、`commands` 或任何目錄同步層**：`dir` 型的 prune 曾會刪掉 `npx skills` 在 `~/.claude/skills/` 建的探索 symlink。Agents 目前亦無同步項目，真要恢復任何目錄層須先重新設計。
+
+## 規則與把關
+
+被糾正時：先修錯，再把規則加進此表。規則已在表上卻仍犯，代表「人工」把關不夠——同一個變更裡升級成測試或架構。錯誤已不可能發生的規則就刪掉。`npm test` 是唯一的檢查指令（本 repo 無 CI，commit 前本機跑）。
+
+| 規則 | 把關 |
+|------|------|
+| 匯出必須有外部消費者；測試檔匯入的名稱必須存在且有用到 | `hygiene.test.js`「殘留把關」 |
+| AGENTS.md／README.md 反引號內的識別字與 `.js` 檔名必須存在；刻意指名已刪／外部名稱於同行加 `<!-- doc-ref-ok: 名稱 — 理由 -->` | `hygiene.test.js`「文件殘留」 |
+| 三端全域指示（`claude/CLAUDE.md`、`codex/AGENTS.md`、`gemini/GEMINI.md`）的 `##` 節三檔皆有且全文相同，改一端就三檔同一個 commit 改；工具專屬節於標題行加 `<!-- tool-specific: 理由 -->` | `hygiene.test.js`「三端全域指示」 |
+| 新增／移除指令、旗標、黑名單 key、safety 掃描目錄須同步 README 與 `--help` | `sync.test.js`「README drift-guard」「旗標 drift-guard」 |
+| `safety-check.js` 不得 `require('./sync.js')` | `boundary.test.js`「模組邊界」 |
+| `SyncItem.type` 只有 `file`／`settings`；manifest 不得指向 `~/.claude.json` | `sync.test.js`「SYNC_MANIFEST 回歸鎖」 |
+| 不寫 `~/.claude.json`、`config.toml`、三處 skills 目錄 | `apply-integration.test.js`（內容 + mtime 斷言） |
+| 未知旗標拋 `INVALID_ARGS` | `sync.test.js`「parseArgs」 |
+| 輸出不洩漏 HOME 路徑、secret 原值、env 值 | `boundary.test.js`「safety:check」「formatError」「toSyncFsError」 |
+| 函式 ≤ 60 行（DI factory 本體除外） | 人工（尚無再犯紀錄） |
+| 寫入走 `writeFileSafe`、錯誤拋 `SyncError` 不裸 `process.exit` | 人工 |
+| 同步流程：確認前不寫檔、push `main` 須明確同意、commit 前跑 `safety:check` | 人工（流程判斷） |

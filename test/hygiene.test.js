@@ -120,10 +120,14 @@ function classifyDocToken(raw) {
   return null;
 }
 
-/** 回傳 docs 中指名、但 repo JS 找不到的識別字／檔名（docs：{ 檔名: 內容 }，jsFiles：{ 相對路徑: 原始碼 }）。 */
-function findStaleDocRefs(docs, jsFiles) {
+/**
+ * 回傳 docs 中指名、但 repo 找不到的識別字／檔名。
+ * docs：{ 檔名: 內容 }；jsFiles：{ 相對路徑: 原始碼 }（識別字比對來源）；
+ * fileNames：存在的 .js 檔名（預設取 jsFiles 的檔名）。
+ */
+function findStaleDocRefs(docs, jsFiles, fileNames = Object.keys(jsFiles)) {
   const code = Object.values(jsFiles).join('\n');
-  const baseNames = new Set(Object.keys(jsFiles).map(f => path.posix.basename(f)));
+  const baseNames = new Set(fileNames.map(f => path.posix.basename(f)));
   const out = [];
   for (const [doc, text] of Object.entries(docs)) {
     text.split('\n').forEach((line, i) => {
@@ -142,7 +146,9 @@ function findStaleDocRefs(docs, jsFiles) {
 
 test('文件殘留：AGENTS.md／README.md 指名的識別字與 .js 檔皆存在', () => {
   const docs = Object.fromEntries(DOC_FILES.map(f => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')]));
-  const found = findStaleDocRefs(docs, loadRepoSources());
+  // 識別字來源排除本檔（自我測試字串含歷史死碼名稱）；檔名存在性則含本檔
+  const allJs = [...listRepoJs(ROOT), `test/${path.basename(__filename)}`];
+  const found = findStaleDocRefs(docs, loadRepoSources(), allJs);
   assert.deepEqual(found, [],
     `文件指名的名稱在 repo JS 找不到——改寫成現行名稱或刪掉該句；刻意指名已刪／外部名稱時於同行加 <!-- doc-ref-ok: 名稱 — 理由 -->：\n${found.join('\n')}`);
 });
