@@ -74,18 +74,6 @@ wslpath -w <路徑>        # → \\wsl.localhost\<Distro>\...
 - 確認 server 是否關閉：**看 `ss -ltn | grep <port>`**
 - ⛔ **不要用 `pgrep -af "http.server"` 判定** —— pattern 會命中自己那條 shell 指令字串，得到「還有殘留」的假陽性
 
-## Commit 與 Push
-
-- **Commit 不設限制**：你可自主 commit，不需事先徵求同意。僅提交本次任務相關變更，不夾帶使用者既有或其他任務的修改。
-- **Push 保護分支**：`main`、`master`、`develop`、`formal`、`release`（含 `release/*`）未經我明確要求**不得 push**；其他分支可自由 push。
-- **force push 需明確要求**：任何分支皆同，不因是 feature branch 而放行；獲授權時**一律用 `--force-with-lease`**，不用裸 `--force`。
-- **推 tag 視同 push 對外動作**：未經明確要求不推 tag。
-
-## Worktree
-
-- **開 worktree 前先問我要不要獨立執行環境**（docker stack 等），不自行決定。只寫 code 不需要；要跑測試或實測才需要。
-- worktree 做完**不自動 merge／rebase**：回報摘要，等我裁定；合併、push、收 stack 各自徵詢。
-
 ## 檢視低污染慣例（git）
 
 **操作慣例、不是守門**：檢視類指令的預設輸出是給人在終端捲動看的，全文灌進 context 多半是雜訊。一律先取「摘要級」，需要細節再按需單檔展開，不一次抓全庫。
