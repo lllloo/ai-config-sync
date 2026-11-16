@@ -2,7 +2,7 @@
 
 // =============================================================================
 // 邊界條件與進階覆蓋測試（node:test，零外部相依）
-// 涵蓋 spec.md 建議的高/中/低優先新增測試項目
+// 錯誤路徑、路徑遮罩、safety:check 分類與模組邊界
 // =============================================================================
 
 const test = require('node:test');
@@ -25,7 +25,6 @@ const {
   EXIT_OK,
   EXIT_DIFF,
   EXIT_ERROR,
-  COMMANDS,
   formatError,
 } = require('../sync.js');
 const fs = require('node:fs');

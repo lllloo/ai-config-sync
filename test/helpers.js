@@ -105,4 +105,4 @@ function loadGetFiles() {
   }).getFiles;
 }
 
-module.exports = { withArgv, withTmpDir, withTmpFile, noColorEnv, POSIX_PERM_SKIP, itPosixPerms, loadGetFiles };
+module.exports = { withArgv, withTmpDir, withTmpFile, noColorEnv, itPosixPerms, loadGetFiles };

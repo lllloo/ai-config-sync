@@ -1542,7 +1542,6 @@ if (require.main === module) {
     diffSyncItems,
     diffFileItem,
     diffSyncItem,
-    applySyncItem,
     printToLocalPreview,
     buildSyncItems,
     materializeSyncItem,
