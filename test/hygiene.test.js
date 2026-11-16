@@ -165,3 +165,69 @@ test('文件殘留：偵測器能抓到過去的真實錯誤（32e7806 createXto
     'AGENTS.md:4 → skills.js',
   ]);
 });
+
+// =============================================================================
+// 三端全域指示漂移：claude/CLAUDE.md、codex/AGENTS.md、gemini/GEMINI.md 的共用規則
+// 曾多次只改一端、事後補「對齊」提交（1c54719、9aa388b、8098ff4、07917ad、
+// a1f2c12、78982c8）。三檔是各自獨立的同步項目（to-repo 逐檔回寫），無法由單一
+// 來源產生，故以測試鎖住：每個 `##` 節必須在三檔都存在且全文相同（含其下子標題）；
+// 只屬於單一工具的節在標題行加 `<!-- tool-specific: 理由 -->`。H1 與首個 `##`
+// 之前的前言允許各檔不同。
+// =============================================================================
+
+const GLOBAL_INSTRUCTION_FILES = ['claude/CLAUDE.md', 'codex/AGENTS.md', 'gemini/GEMINI.md'];
+const TOOL_SPECIFIC_RE = /\s*<!--\s*tool-specific:\s*\S[^>]*-->\s*$/;
+
+/** 依 `## ` 切節；回傳 Map<標題, { body, toolSpecific }>（body 為標題行之後到下一個 `## ` 之前，去尾端空白）。 */
+function splitH2Sections(text) {
+  const sections = new Map();
+  let current = null;
+  for (const line of text.replace(/\r\n/g, '\n').split('\n')) {
+    if (line.startsWith('## ')) {
+      const toolSpecific = TOOL_SPECIFIC_RE.test(line);
+      current = { title: line.slice(3).replace(TOOL_SPECIFIC_RE, '').trim(), lines: [], toolSpecific };
+      sections.set(current.title, current);
+    } else if (current) {
+      current.lines.push(line);
+    }
+  }
+  return new Map([...sections].map(([t, s]) => [t, { body: s.lines.join('\n').trimEnd(), toolSpecific: s.toolSpecific }]));
+}
+
+/** files：{ 路徑: 內容 }；回傳缺節與內容不一致的描述。 */
+function findInstructionDrift(files) {
+  const parsed = Object.entries(files).map(([f, text]) => [f, splitH2Sections(text)]);
+  const out = [];
+  const titles = new Set(parsed.flatMap(([, secs]) => [...secs.keys()]));
+  for (const title of titles) {
+    const holders = parsed.filter(([, secs]) => secs.has(title));
+    const shared = holders.filter(([, secs]) => !secs.get(title).toolSpecific);
+    if (shared.length === 0) continue;
+    for (const [f] of parsed.filter(([, secs]) => !secs.has(title))) out.push(`${f} 缺少「## ${title}」`);
+    const [refFile, refSecs] = shared[0];
+    for (const [f, secs] of shared.slice(1)) {
+      if (secs.get(title).body !== refSecs.get(title).body) out.push(`「## ${title}」在 ${f} 與 ${refFile} 內容不同`);
+    }
+  }
+  return out;
+}
+
+test('三端全域指示：共用 ## 節三檔皆有且全文相同', () => {
+  const files = Object.fromEntries(GLOBAL_INSTRUCTION_FILES.map(f => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')]));
+  const found = findInstructionDrift(files);
+  assert.deepEqual(found, [],
+    `共用規則改一端就要三檔一起改（同一個 commit）；只屬單一工具的節在標題行加 <!-- tool-specific: 理由 -->：\n${found.join('\n')}`);
+});
+
+test('三端全域指示：偵測器能抓到過去的真實錯誤（a1f2c12 前缺 Worktree 節、07917ad 前措辭不同）', () => {
+  const claude = '# C\n\n## 語言規範\n\n繁中。\n\n## Worktree\n\n先問。\n\n## 輸出 <!-- tool-specific: 只有 Claude -->\n\nx\n';
+  const codex = '# X\n\n前言可不同\n\n## 語言規範\n\n繁體中文。\n';
+  assert.deepEqual(findInstructionDrift({ 'claude/CLAUDE.md': claude, 'codex/AGENTS.md': codex }), [
+    '「## 語言規範」在 codex/AGENTS.md 與 claude/CLAUDE.md 內容不同',
+    'codex/AGENTS.md 缺少「## Worktree」',
+  ]);
+  // CRLF、tool-specific 節與前言差異不算漂移
+  const aligned = claude.replace(/\n/g, '\r\n');
+  const codexOk = '# X\n\n前言\n\n## 語言規範\n\n繁中。\n\n## Worktree\n\n先問。\n';
+  assert.deepEqual(findInstructionDrift({ 'claude/CLAUDE.md': aligned, 'codex/AGENTS.md': codexOk }), []);
+});

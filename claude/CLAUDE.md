@@ -12,7 +12,7 @@
 
 事實宣稱（檔案內容、API、版本、數字）必須有依據；無依據時直說「不確定」並照標不確定性，不用簡潔換肯定語氣。
 
-## 輸出呈現：一律寫成本地檔案
+## 輸出呈現：一律寫成本地檔案 <!-- tool-specific: Artifact 工具與 claude.ai 發佈只存在於 Claude Code -->
 
 要給我看的頁面、圖表、報告**一律寫成本地檔案**——不呼叫 `Artifact` 工具、不發佈到 claude.ai。
 
@@ -95,4 +95,4 @@ git 檢視：
 - 改了哪些檔：`git diff --stat` / `--name-only`，**不**裸跑 `git diff`；鎖定後才 `git diff -- <單檔>` 展開
 - 提交歷史：`git log --oneline -20`，**不**裸跑 `git log`
 - 目前狀態：`git status --short`；某次提交：`git show --stat <sha>`
-- 任何仍可能很長的輸出：尾接 `| head -50`
+- 長篇檢視輸出先限量，必要時再分段讀取；測試與驗證須保留退出碼及結果摘要，不得因截斷輸出而宣稱成功。
