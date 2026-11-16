@@ -20,7 +20,8 @@
   "enabledPlugins": {
     "codex@openai-codex": true,
     "eli5@claude-community": true,
-    "notion-workspace-plugin@notion-plugin-marketplace": true
+    "notion-workspace-plugin@notion-plugin-marketplace": true,
+    "pstack@cursor-plugins": true
   },
   "extraKnownMarketplaces": {
     "openai-codex": {
@@ -33,6 +34,12 @@
       "source": {
         "source": "github",
         "repo": "makenotion/claude-code-notion-plugin"
+      }
+    },
+    "cursor-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "cursor/plugins"
       }
     }
   },
