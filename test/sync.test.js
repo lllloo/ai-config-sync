@@ -172,8 +172,7 @@ test('buildSyncItems：manifest 順序保留、fixedFlow 項目雙向 src/dest �
 // -----------------------------------------------------------------------------
 // area 產出 drift-guard
 // -----------------------------------------------------------------------------
-// label 清單鎖：恢復 claude/skills 或 codex/agents 等同步層時須一併更新此處期望值
-// （CLAUDE.md「日後若要恢復…」兩段點名本測試）。
+// label 清單鎖：恢復 claude/skills 或 codex/agents 等同步層時須一併更新此處期望值。
 test('drift-guard：claude／codex／gemini 各 area 的 label 清單與順序鎖定', () => {
   for (const direction of ['to-repo', 'to-local']) {
     const items = buildSyncItems(direction);

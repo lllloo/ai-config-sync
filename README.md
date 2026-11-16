@@ -173,7 +173,7 @@ hook command 多為平台綁定（PowerShell／終端跳脫序列），Windows �
 - **MCP Server 定義（兩端）** — 目前**完全不在同步範圍**，待重新設計。請用 `claude mcp add --scope user ...`／`codex mcp add ...` 於各裝置手動維護。舊版曾留下的 `~/.codex/.ai-config-sync-mcp-state.json` 為孤兒檔，可自行 `rm`（本工具不代刪——為了清理而破例寫本機檔會與「不寫入本機」的承諾自相矛盾）。OAuth／ChatGPT 登入狀態同樣不在同步範圍。
 - **`~/.claude.json`** — 含 OAuth token、專案級歷史與 MCP 設定，屬高風險敏感活檔，**永不被本工具寫入或讀取**。
 - **Skills** — 本工具不管 skill：自寫全域 skill 住在獨立的 [lllloo/skills](https://github.com/lllloo/skills)（該 repo 的 `skills/` 下），各裝置自行以 `npx skills add lllloo/skills -g --skill <name>` 安裝、`npx skills update -g` 更新（`npx skills check -g` 可查哪些過期，但未列在 `npx skills --help`）。`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/`、`~/.gemini/config/skills/`。本 repo 目前無本地 skill 層；要新增時建 `.agents/skills/<name>/SKILL.md`，並補 `.claude/skills` → `../.agents/skills` symlink（Windows clone 需開啟「開發者模式」才會還原成真 symlink）。
-- **Agents、Commands** — 皆未列同步項目；目錄型同步已整個移除，日後要同步須先重新設計。Command 已改用 skill，不再新增。
+- **Agents、Commands** — 皆未列同步項目；目錄型同步已整個移除，日後要同步須先重新設計。
 - **`~/.claude/rules/`** — 全域規則一律寫進 `CLAUDE.md`，不再拆檔。
 
 ## 專案檔案

@@ -17,8 +17,7 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 
 - **`claude/`／`codex/`／`gemini/`**（無點）— 同步到 `~/.claude/`／`~/.codex/`／`~/.gemini/` 的全域設定，由 `sync.js` 管理。新增同步項目依工具放對應目錄。
 - **`skills/`（勿建立）** — 全域 skill 住在獨立 repo [lllloo/skills](https://github.com/lllloo/skills)，各裝置自行 `npx skills add lllloo/skills -g --skill <name>` 安裝；本 repo 不記安裝清單、不管 skill。`sync.js` 永不寫入 `~/.agents/skills/`、`~/.claude/skills/`、`~/.gemini/config/skills/`（測試有回歸鎖）。
-- **`.claude/`**（有點）— 本 repo 專用的本地設定落點，**不參與同步**；目前只有已 gitignore 的執行期產物。
-- **`.agents/skills/`（目前無）** — 本地 skill 層。要新增時建 `.agents/skills/<name>/SKILL.md`，並補 `.claude/skills` → `../.agents/skills` symlink 供 Claude Code 讀取；Codex 會自動探索，不需 symlink。勿放到 `.claude/` 或 `.codex/`。
+- **`.claude/`**（有點）— 本 repo 自身的 Claude Code 設定，**不參與同步**；勿與 `claude/` 混淆。
 
 ## 常用指令
 
@@ -60,8 +59,6 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 
 - **`~/.codex/config.toml`**、**`~/.claude.json`** — 永不被本工具寫入或讀取（測試以內容 + mtime 雙重斷言把關）。不要新增 `codex/config.toml` 或整檔 manifest 列。
 - **MCP Server 定義（兩端）** — 不同步，待重新設計，各裝置以官方 CLI 手動維護。重新設計時憑證判準必須 fail closed，OAuth／headers／env 值／token 不得進 repo；不要順手刪除舊版孤兒 state 檔。
-- **`~/.claude/rules/`** — 全域規則一律寫進 `claude/CLAUDE.md`，不再拆檔，也不同步此目錄。
-- **`advisory`／`mcp`／`xtool-dir`／`dir` 型別不得復活**（`sync.test.js` 回歸鎖）。
 
 ## 架構不變式
 
@@ -77,12 +74,11 @@ This file provides guidance to AI coding agents (Claude Code, Codex) when workin
 
 ## 修改守則
 
-- **設計流程用 Superpowers**：spec 放 `docs/superpowers/specs/`、plan 放 `docs/superpowers/plans/`。
 - **README 須同步更新**：新增／移除指令、改變同步項目或行為、新增旗標時必跟。指令清單、旗標表、`--help`、`DEVICE_SETTINGS_KEYS`／`KEYED_NOTICE_SETTINGS_KEYS`、safety 的掃描目錄皆有 drift-guard 測試把關，其餘敘述靠人工。
 - **settings.json 黑名單制**：增減排除欄位只改 `DEVICE_SETTINGS_KEYS` 常數與 README；敏感命名 key 與 `env` 照常同步，由 `safety:check` 審核。
 - **安全審核由 `safety:check` 承擔**（分類與 exit code 見 README「安全檢查」）：commit 前必跑。同步流程遇到新的 env key warning，使用者審核後可提議加進 `SAFETY_REVIEWED_ENV_KEYS`（敏感命名 key 不得列入）。輸出**不得**顯示 secret 原值、env 值或完整 HOME 路徑；`diff` 不印設定內容。
 
 ## Skills 管理
 
-- **本 repo 不管 skill**：`skills.js`、`skills:*` 指令與 `skills-lock.json` 已移除，勿恢復。全域 skill 由各裝置直接用 `npx skills` 管理，安裝指令固定帶 `--skill`，避免把來源 repo 的其他 skill 一併裝成全域。
-- **勿恢復 `claude/skills/`、`commands` 或任何目錄同步層**：目錄型（`dir`）已整個移除；它的 prune 曾會刪掉 `npx skills` 在 `~/.claude/skills/` 建的探索 symlink（`sync.test.js` 回歸鎖）。Agents 目前亦無同步項目，真要恢復任何目錄層須先重新設計。
+- **勿恢復 skill 管理層**：`skills.js`、`skills:*` 指令與 `skills-lock.json` 已移除。安裝指令固定帶 `--skill`，避免把來源 repo 的其他 skill 一併裝成全域。
+- **勿恢復 `claude/skills/`、`commands` 或任何目錄同步層**：`dir` 型的 prune 曾會刪掉 `npx skills` 在 `~/.claude/skills/` 建的探索 symlink。Agents 目前亦無同步項目，真要恢復任何目錄層須先重新設計。
