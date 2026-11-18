@@ -137,7 +137,7 @@ node sync.js to-local
 - `claude/settings.json` 的 env key 清單（已審核者除外，見下）
 - 結構化設定中命中敏感命名 pattern 的 key path
 
-**已審核 env key**（`SAFETY_REVIEWED_ENV_KEYS`）：`EDITOR`、`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`CLAUDE_CODE_DISABLE_MOUSE`、`CLAUDE_CODE_DISABLE_MOUSE_CLICKS` 已人工審核，不再每次報 warning。只關 warning——值仍受 token／私鑰／HOME 路徑掃描；新出現的 env key 照報。命中敏感命名 pattern 的 key（`*_API_KEY`、`*_TOKEN` 等）不得列入，即使列入也照報。增減須改常數與本節（drift-guard 測試把關）。
+**已審核 env key**（`SAFETY_REVIEWED_ENV_KEYS`）：`EDITOR`、`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`、`CLAUDE_CODE_DISABLE_MOUSE_CLICKS` 已人工審核，不再每次報 warning。只關 warning——值仍受 token／私鑰／HOME 路徑掃描；新出現的 env key 照報。命中敏感命名 pattern 的 key（`*_API_KEY`、`*_TOKEN` 等）不得列入，即使列入也照報。增減須改常數與本節（drift-guard 測試把關）。
 
 **掃描範圍無排除**：掃描目錄下的所有檔案（含子目錄）都受 secret／私鑰／HOME 路徑字串掃描，沒有排除清單；僅略過 `.DS_Store` 與逃出掃描目錄的 symlink。
 

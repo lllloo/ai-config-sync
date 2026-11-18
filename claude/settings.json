@@ -2,14 +2,20 @@
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "EDITOR": "code --wait",
-    "CLAUDE_CODE_DISABLE_MOUSE": "1",
     "CLAUDE_CODE_DISABLE_MOUSE_CLICKS": "1"
   },
   "permissions": {
     "allow": [],
-    "deny": [],
+    "deny": [
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)"
+    ],
     "ask": [
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git -C * push)",
+      "Bash(git -C * push *)",
+      "Bash(git -c * push)",
+      "Bash(git -c * push *)"
     ],
     "defaultMode": "bypassPermissions"
   },
@@ -41,6 +47,12 @@
         "source": "github",
         "repo": "cursor/plugins"
       }
+    },
+    "claude-community": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-community"
+      }
     }
   },
   "language": "繁體中文",
@@ -48,6 +60,7 @@
   "remoteControlAtStartup": false,
   "attribution": {
     "commit": "",
-    "pr": ""
+    "pr": "",
+    "sessionUrl": false
   }
 }
