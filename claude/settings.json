@@ -7,18 +7,7 @@
   },
   "permissions": {
     "allow": [],
-    "deny": [
-      "Read(~/.ssh/**)",
-      "Read(~/.aws/**)"
-    ],
-    "ask": [
-      "Bash(git push:*)",
-      "Bash(git -C * push)",
-      "Bash(git -C * push *)",
-      "Bash(git -c * push)",
-      "Bash(git -c * push *)"
-    ],
-    "defaultMode": "bypassPermissions"
+    "defaultMode": "auto"
   },
   "statusLine": {
     "type": "command",
@@ -57,7 +46,6 @@
     }
   },
   "language": "繁體中文",
-  "skipDangerousModePermissionPrompt": true,
   "remoteControlAtStartup": false,
   "attribution": {
     "commit": "",
