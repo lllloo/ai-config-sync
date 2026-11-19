@@ -5,7 +5,7 @@ input=$(cat)
 [[ $input =~ \"display_name\":\"([^\"]+)\" ]] && MODEL="${BASH_REMATCH[1]#Claude }" && MODEL="${MODEL% (*}"
 [[ $input =~ \"effort\":\{\"level\":\"([^\"]+)\" ]] && MODEL="$MODEL (${BASH_REMATCH[1]})"
 [[ $input =~ \"current_dir\":\"([^\"]+)\" ]] && DIR="${BASH_REMATCH[1]//\\//}"
-[[ $input =~ \"context_window\":\{[^}]*\"used_percentage\":([0-9]+) ]] && PCT="${BASH_REMATCH[1]}"
+[[ $input =~ \"used_percentage\":([0-9]+)(\.[0-9]+)?,\"remaining_percentage\" ]] && PCT="${BASH_REMATCH[1]}"
 
 # 用量：5h:23%(2h5m)
 NOW=$(date +%s)
